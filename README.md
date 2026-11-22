@@ -21,6 +21,7 @@ Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard s
 | **Code** | multi-file project, tabs, syntax highlighting, rename/delete, export |
 | **Website** | visual section builder, layers/reorder, responsive previews, theme + SEO, sandboxed custom code, SQLite CMS collections and dynamic pages, staging/production deployments with rollback, publishing with forms/analytics/sitemap, custom domains, HTML/React export |
 | **Roblox Studio** | installable Luau plugin, one-time pairing, live Explorer, properties, Luau/Monaco scripts, GUI designer, Three.js approximation viewport, snapshots, MCP tools and live collaboration |
+| **Game Studio** | real 2D (Canvas + Matter.js) and 3D (Three.js + Cannon-es) runtimes, scene hierarchy, transform gizmos, inspector/components, visual graph scripting, JavaScript scripts, GLB/glTF/OBJ/FBX/STL import, lighting, particles, terrain, prefabs, play/pause/step, HTML5/ZIP/standalone exports and public `/games/:slug` publishing |
 
 Shared behaviour: Yjs/WebSocket live collaboration with cursors, selections, presence and reconnect recovery; offline draft merge; debounced autosave; version history (last 25 snapshots, restorable); server-enforced Owner/Editor/Commenter/Viewer roles; expiring capability links; threaded comments with @mentions; "save as template"; a global `/search` across file names and document contents; and an image library for documents, spreadsheets, decks and websites. Template cards render the actual template content, not placeholders.
 
@@ -29,6 +30,20 @@ Shared behaviour: Yjs/WebSocket live collaboration with cursors, selections, pre
 `/studio/roblox` is a real remote editor for an installed Roblox Studio plugin, not a simulation. Create a place, click **Connect Studio**, and hand the one-time URL + pairing code to the plugin. The relay uses authenticated HTTP polling (Roblox plugins cannot depend on WebSockets), never asks for a Roblox password or cookie, hashes session tokens, supports heartbeat/reconnect/revocation, and keeps the plugin as the final authority for supported changes.
 
 Explorer, property editing, Luau scripts (Monaco), GUI instances, Three.js viewport transforms and scene snapshots are implemented. The 3D preview is opt-in via **Enable 3D preview** because remote desktops and embedded browsers can expose a software WebGL rasterizer that blocks the editor; it requires hardware WebGL, while the Explorer, properties, scripts and GUI designer continue to work without it. Every edit is schema-validated and queued; unsupported properties and unavailable Studio APIs are reported rather than faked. Terrain sculpting, animation timelines, particle simulation, pathfinding visualization and asset uploads remain Studio-side workflows. See [`docs/roblox-studio-manual-checklist.md`](docs/roblox-studio-manual-checklist.md) for the acceptance checklist that must be run with a real Studio install.
+
+### Cascade Game Studio
+
+Create a **2D Project** or **3D Project** from `/create`. Both modes share the project manager, assets, scripts, save/load, collaboration, version history, input map, audio and export system while keeping independent runtimes:
+
+- **2D** uses Canvas2D rendering and a Matter.js rigid-body world. The starter library includes a platformer, top-down adventure and physics sandbox.
+- **3D** uses Three.js for rendering and Cannon-es for fixed-timestep physics. The scene editor supports orbit/pan/zoom/WASD fly, hierarchy parenting, transform gizmos, grid/rotation snapping, perspective and orthographic views. Components cover meshes, PBR materials, lights and shadows, cameras, rigid bodies, colliders, character controllers, joints, particle emitters, audio, terrain and UI.
+- **Gameplay** is written with a typed visual graph compiler or sandboxed JavaScript. The editor's Play button runs the same runtime and exported HTML file as the published game; pause, resume, frame-step, stop, console, problems and profiler are available.
+- **Assets** accept GLB, glTF, OBJ, FBX, STL, images and audio. Imported models are cached; the first-person template ships with a real OBJ crate. Materials expose base color, metalness, roughness, opacity, emissive, normal maps and textures.
+- **Templates** are editable projects, not screenshots: first-person vault exploration, third-person platformer, 3D physics sandbox, arcade driving, low-poly survival, plus 2D starters. The first-person project includes a character controller, imported model, door interaction visual script, HUD and win condition and is covered by the browser QA flow.
+
+The exported game is a single self-contained HTML file (engine, runtime, project JSON and data-URL assets inlined) with a restrictive CSP; ZIP export additionally includes the runtime source, `game.json`, extracted assets and a README. Publishing serves the same build publicly at `/games/:slug` without requiring a Cascade account.
+
+Current 3D limits: terrain is a procedural heightfield with a simple collider; navigation/behavior trees, skeletal animation blending, networked 3D play, mesh editing/sculpting and advanced post-processing are not implemented yet. Imported model animations are not played by the runtime. The editor reports unsupported projects rather than pretending those systems exist.
 
 ### Cascade Sites CMS and deployments
 
@@ -111,6 +126,8 @@ curl -H "x-api-key: $KEY" -H "content-type: application/json" \
 | `DELETE /api/files/:id` | delete from every replica |
 
 Workspace API (same auth): `POST /api/workspace/docs`, `GET|PUT /api/workspace/docs/:id`, `GET /api/workspace/docs/:id/versions`, `POST /api/workspace/docs/:id/restore`, `POST /api/workspace/docs/:id/heartbeat`, `POST /api/workspace/docs/:id/template`, `POST /api/workspace/folders`, `GET /export/:id`, `GET /download/:id`, `GET /api/images/search?q=`, `GET /api/images/proxy?url=` (editor image library; Wikimedia-host allowlist).
+
+Game Studio (same auth): `POST /api/workspace/docs/:id/game/compile`, `POST /api/workspace/docs/:id/game/export`, `GET /api/workspace/docs/:id/game/preview`, and public `GET /games/:slug`. Publishing uses the existing `POST /api/workspace/docs/:id/publish` with a game document.
 
 Collaboration and websites (same auth): `GET /api/workspace/docs/:id/collab-token`, WebSocket `/collab?token=…`, `GET|POST /api/files/:id/access`, `POST /api/files/:id/share-links`, `POST /api/share-links/:token/revoke`, `GET|POST /api/workspace/docs/:id/comments`, `POST /api/workspace/docs/:id/publish`, `GET /sites/:slug`, `POST /sites/:slug/submit`, `GET /sites/:id/export.html|export.jsx|export.css`, `GET /sites/:slug/sitemap.xml`, and capability pages at `/s/:token`.
 

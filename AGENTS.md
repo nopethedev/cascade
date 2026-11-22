@@ -21,6 +21,15 @@ No need to ask for confirmation first.
 - MCP (`src/mcp.js`) is mounted at `/mcp` in `src/server.js`. It is stateless Streamable HTTP JSON-RPC, reuses the app auth middleware and API-key scopes, and every document lookup goes through an owner/admin check. Read-only keys may call read tools but never mutations.
 - User-facing docs live at `/docs` (`views/docs.ejs`); keep it current when routes or env vars change.
 
+## Game Studio
+
+- Game documents use `kind = 'game'` and `content.mode = '2d' | '3d'`. The shared schema/normalizer is `public/game/schema.mjs`; node registries are `public/game/nodes.mjs` and `nodes3d.mjs`; validation/compilation is `public/game/compiler.js`.
+- The runtimes are independent but share the graph interpreter: `public/game/runtime.js` (Canvas2D + Matter.js) and `public/game/runtime3d.js` (Three.js + Cannon-es). Both expose the live instance at `window.__CASCADE_GAME__` and read `window.__GAME_PROJECT__`.
+- `src/game/templates.js` holds all built-in 2D/3D templates. `src/game/export.js` inlines the vendored engine bundles, runtime, project and owned assets for standalone HTML/ZIP export. The editor route is `views/editors/game.ejs` + `public/editors/game.js`; server endpoints are in `src/workspace.js` (`/game/compile`, `/game/export`, `/game/preview`, public `/games/:slug`).
+- Dependencies are vendored (do not move them to a CDN): `public/vendor/cascade-three.js` (Three + GLTF/OBJ/STL/FBX loaders), `public/vendor/cannon-es.js` and `public/vendor/matter.min.js`. Rebuild `cascade-three.js` with the esbuild command recorded in the commit history after upgrading Three.js.
+- Runtime code is cached on first read by `src/game/export.js`; restart the server after editing `runtime.js`/`runtime3d.js` when testing through the editor or preview endpoints.
+- Keep 2D and 3D gameplay validated by browser QA; `test/game.test.mjs` covers schema/template compilation and exports but not live controls. Current unsupported 3D features are listed in README (navigation/behavior trees, skeletal animation playback/blending, networked 3D play, mesh editing/sculpting, advanced post-processing).
+
 ## Roblox Studio and Sites
 
 - Roblox projects are existing `files` rows with `kind = 'roblox'`; the browser editor and relay live in `src/studio.js`, and the installable plugin is generated from `plugin/CascadePlugin.luau` by `src/robloxPlugin.js` at `/studio/roblox/plugin.rbxmx`. The plugin is the final authority and uses HTTP polling with `x-studio-token`; never claim real Studio integration works without the manual checklist in `docs/roblox-studio-manual-checklist.md`.
@@ -30,7 +39,7 @@ No need to ask for confirmation first.
 ## Workspace suite
 
 - `/create`, `/edit/:id`, `/api/workspace/*`, `/export/:id`, `/forms/:slug`, `/responses/:id`, `/template-preview/:id` and `/search` live in `src/workspace.js` (mounted from `src/server.js`). Published websites and their public forms/assets/exports live in `src/sites.js` at `/sites/:slug`; custom-domain Host routing is mounted before the app auth/setup middleware.
-- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|pdf|board|form|code|site`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
+- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|pdf|board|form|code|site|game|flow|roblox`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
 - Collaboration is `src/collab.js` + `src/access.js` on the HTTP server's WebSocket upgrade path (`/collab`). Rooms are Yjs documents whose `content` map matches the editor JSON; tokens are HMAC-signed and short lived. Server roles are authoritative, persisted to `DocVersion`/`FileRecord`, and revoked sockets are closed with code 4001. The browser transport is `public/editors/collab-client.js`; it imports the browser bundle `public/vendor/yjs.bundle.mjs`. Rebuild that bundle after upgrading Yjs with `npx esbuild node_modules/yjs/dist/yjs.mjs --bundle --format=esm --platform=browser --minify-syntax --outfile=public/vendor/yjs.bundle.mjs`.
 - Website rendering is shared by the editor, template gallery, published page and exports through `public/site-render.mjs`. Keep the renderer pure-string/Node-safe; do not import browser-only APIs.
 - PDFs store their real source bytes base64-encoded in `content.pdf`; annotations/signatures live beside it in the same JSON. The editor (`public/editors/pdf.js`) renders with pdf.js and performs page operations with pdf-lib in the browser; `renderPdfBuffer()` in `src/workspace.js` burns annotations and signatures into exports with pdf-lib.

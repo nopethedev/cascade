@@ -44,6 +44,8 @@ import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
 import { compileFlow, singleFileExport, modularExport } from './flow/compiler.js';
 import { redactFlowSecrets, scanFlowSecrets } from '../public/flow/secrets.mjs';
+import { validateGameProject, compileGameProject } from '../public/game/compiler.js';
+import { buildGameHtml, buildGameZip } from './game/export.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const MAX_CONTENT = 12 * 1024 * 1024; // editor JSON per document (PDFs are base64)
@@ -536,6 +538,63 @@ export function createWorkspaceRouter() {
     res.send(buffer);
   }));
 
+  // ---------- Cascade Game Studio compile / export ----------
+  r.post('/api/workspace/docs/:id/game/compile', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'game') return res.status(404).json({ error: 'not found' });
+    const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
+    const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    if (Buffer.byteLength(JSON.stringify(content)) > MAX_CONTENT) return res.status(413).json({ error: 'project too large' });
+    const result = compileGameProject(content);
+    res.json({
+      ok: result.ok,
+      diagnostics: result.diagnostics,
+      errors: result.errors,
+      warnings: result.warnings,
+      stats: result.stats,
+      scripts: result.scripts,
+      code: result.code,
+      project: result.project,
+    });
+  }));
+
+  r.post('/api/workspace/docs/:id/game/export', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'game') return res.status(404).json({ error: 'not found' });
+    const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
+    const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    const result = validateGameProject(content);
+    if (!result.ok) return res.status(422).json({ error: 'Fix the compiler errors before exporting.', diagnostics: result.diagnostics });
+    const mode = req.body?.mode === 'zip' || req.body?.mode === 'source' ? 'zip' : 'html';
+    if (mode === 'html') {
+      const out = await buildGameHtml(content, { ownerId: file.ownerId });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+      return res.send(out.html);
+    }
+    const out = await buildGameZip(content, { ownerId: file.ownerId, source: true });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+    res.send(out.buffer);
+  }));
+
+  r.get('/api/workspace/docs/:id/game/preview', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'game') return res.status(404).send('not found');
+    const content = parseContent(file);
+    const result = validateGameProject(content);
+    if (!result.ok) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(422).send(`<!doctype html><meta charset="utf-8"><body style="background:#09090c;color:#fecdd3;font:14px system-ui;padding:24px"><h2>Build errors</h2><pre>${result.errors.map((item) => item.message).join('\n').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</pre></body>`);
+    }
+    const out = await buildGameHtml(content, { ownerId: file.ownerId });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(out.html);
+  }));
+
   // ---------- Presence heartbeat ----------
   r.post('/api/workspace/docs/:id/heartbeat', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user);
@@ -841,15 +900,29 @@ export function createWorkspaceRouter() {
   r.post('/api/workspace/docs/:id/publish', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file) return res.status(404).json({ error: 'not found' });
-    if (file.kind !== 'site') return res.status(400).json({ error: 'only websites can be published' });
+    if (file.kind !== 'site' && file.kind !== 'game') return res.status(400).json({ error: 'only websites and games can be published' });
     const body = req.body || {};
     if (body.content && typeof body.content === 'object') {
       const serialized = JSON.stringify(body.content);
       if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'document too large' });
+      if (file.kind === 'game') {
+        const validation = validateGameProject(body.content);
+        if (!validation.ok) return res.status(422).json({ error: 'Fix the compiler errors before publishing.', diagnostics: validation.diagnostics });
+      }
       if (serialized !== (file.content || '')) {
         await snapshot(file, req.user.id);
         await file.update({ content: serialized, size: Buffer.byteLength(serialized), version: file.version + 1, updatedAt: new Date() });
       }
+    }
+    if (file.kind === 'game') {
+      const project = parseContent(file);
+      await file.update({ isPublic: true, publishedAt: new Date() });
+      await SiteDeployment.create({
+        id: uuid(), fileId: file.id, environment: 'production', version: file.version,
+        content: file.content, label: String(body.label || `Game build v${file.version}`).slice(0, 160), createdBy: req.user.id,
+      });
+      recordEvent(req, 'share', { fileId: file.id });
+      return res.json({ ok: true, publishedAt: file.publishedAt, url: `/games/${file.slug}`, slug: file.slug, version: file.version, mode: project.mode || '2d' });
     }
     const customRaw = String(body.customDomain || '').trim().toLowerCase();
     if (customRaw) {
@@ -1085,6 +1158,18 @@ export function createWorkspaceRouter() {
         filename: `${base}-bot.zip`,
       };
     }
+    if (file.kind === 'game') {
+      const validation = validateGameProject(content);
+      if (!validation.ok) {
+        return {
+          body: `<!doctype html><meta charset="utf-8"><title>Game build errors</title><h1>Fix the game build errors before exporting</h1><pre>${validation.errors.map((item) => item.message).join('\n').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</pre>`,
+          type: 'text/html; charset=utf-8',
+          filename: `${base}-errors.html`,
+        };
+      }
+      const out = await buildGameHtml(content, { ownerId: file.ownerId });
+      return { body: out.html, type: 'text/html; charset=utf-8', filename: out.filename };
+    }
     if (file.kind === 'form') {
       return { body: JSON.stringify(content, null, 2), type: 'application/json; charset=utf-8', filename: `${base}.json` };
     }
@@ -1150,6 +1235,23 @@ export function createWorkspaceRouter() {
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(out);
+  }));
+
+  // Public, standalone game build. It is generated from the same runtime and
+  // project data used by Play mode, and does not require a Cascade session.
+  r.get('/games/:slug', wrap(async (req, res) => {
+    const file = await FileRecord.findOne({ where: { slug: req.params.slug, kind: 'game', isPublic: true } });
+    if (!file || !file.publishedAt) return res.status(404).render('error', { message: 'This game is not published.', status: 404 });
+    const content = parseContent(file);
+    const validation = validateGameProject(content);
+    if (!validation.ok) {
+      return res.status(422).render('error', { message: 'This game has build errors and cannot be played.', status: 422 });
+    }
+    const out = await buildGameHtml(content, { ownerId: file.ownerId });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=60, must-revalidate');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; connect-src data: https: http: ws: wss:; font-src data:; frame-ancestors 'self'");
+    res.send(out.html);
   }));
 
   // Public render/export for a shared workspace document (used by /c/:slug).

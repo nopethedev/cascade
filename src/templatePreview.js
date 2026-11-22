@@ -131,6 +131,29 @@ function codePreview(content) {
   return `<div class="code-preview-wrap"><span class="code-preview-name">${esc(file.name)}</span><pre class="code-preview">${esc(String(file.text || '').slice(0, 2600))}</pre></div>`;
 }
 
+function gamePreview(content) {
+  const project = content?.project ? content : {};
+  const mode = project.mode === '3d' ? '3d' : '2d';
+  const scene = (project.scenes || [])[0] || { entities: [] };
+  const width = Math.max(320, num(project.project?.width, 960));
+  const height = Math.max(180, num(project.project?.height, 540));
+  const entities = (scene.entities || []).filter((item) => item.visible !== false).slice(0, 40);
+  const shapes = entities.map((item) => {
+    const sprite = item.components?.SpriteRenderer || {};
+    const fill = color(sprite.color || item.components?.MeshRenderer?.color, '#64748b');
+    const x = ((num(item.x) + width / 2) / width) * 100;
+    const y = ((num(item.y) + height / 2) / height) * 100;
+    const w = Math.max(0.6, (num(item.w, 40) / width) * 100);
+    const h = Math.max(0.6, (num(item.h, 40) / height) * 100);
+    return `<i style="left:${x}%;top:${y}%;width:${w}%;height:${h}%;background:${fill};opacity:${Math.max(0.15, num(sprite.opacity, item.opacity, 1))};border-radius:${sprite.shape === 'circle' ? '50%' : '3px'};transform:rotate(${num(item.rotation || item.rotationZ)}deg)"></i>`;
+  }).join('');
+  return `<div class="game-preview ${mode}" style="background:${color(project.project?.background, '#07080b')}">
+    <div class="gp-scene">${mode === '2d' ? shapes : `<div class="gp-sun"></div><div class="gp-floor"></div>${shapes}<div class="gp-glow"></div>`}</div>
+    <div class="gp-hud"><span class="gp-badge">${mode.toUpperCase()}</span><b>${esc(project.project?.name || 'Cascade Game')}</b><small>${entities.length} entities · ${(project.scripts || []).length} scripts · ${(project.assets || []).length} assets</small></div>
+    <div class="gp-play">▶ Play in Game Studio</div>
+  </div>`;
+}
+
 function robloxPreview(content) {
   const services = Array.isArray(content?.scene?.services) ? content.scene.services : Array.isArray(content?.services) ? content.services : [];
   const flat = [];
@@ -176,6 +199,7 @@ function flowPreview(content) {
 
 export function templatePreviewBody(kind, content) {
   if (kind === 'flow') return flowPreview(content || {});
+  if (kind === 'game') return gamePreview(content || {});
   if (kind === 'roblox') return robloxPreview(content || {});
   if (kind === 'doc') return documentPreview(content || {});
   if (kind === 'sheet') return sheetPreview(content || {});
@@ -310,6 +334,19 @@ export function templatePreviewDocument({ kind, content, title, theme }) {
   .flp-legend i.exec { background:#e11d48; } .flp-legend i.data { background:#64748b; }
   .flp-foot { display:flex; gap:12px; padding:9px 15px; border-top:1px solid rgba(255,255,255,.08); font:7px ui-monospace,monospace; color:#71717a; }
   .flp-ready { margin-left:auto; color:#4ade80; }
+  .game-preview { position:relative; height:100vh; overflow:hidden; color:#f8fafc; font:11px system-ui; }
+  .gp-scene { position:absolute; inset:0; overflow:hidden; }
+  .game-preview.2d .gp-scene i { position:absolute; transform-origin:center; border:1px solid rgba(255,255,255,.12); }
+  .game-preview.3d .gp-scene { background:linear-gradient(180deg,#172554,#070b16 72%); }
+  .game-preview.3d .gp-scene i { position:absolute; transform:translate(-50%,-50%) rotateX(-18deg); border:1px solid rgba(255,255,255,.18); box-shadow:0 10px 25px rgba(0,0,0,.35); }
+  .gp-sun { position:absolute; width:90px; height:90px; border-radius:50%; right:14%; top:12%; background:radial-gradient(circle,#fef3c7,#f59e0b 55%,transparent 72%); opacity:.8; }
+  .gp-floor { position:absolute; left:-20%; right:-20%; bottom:-18%; height:62%; background:repeating-linear-gradient(90deg,rgba(148,163,184,.14) 0 1px,transparent 1px 34px),repeating-linear-gradient(rgba(148,163,184,.14) 0 1px,transparent 1px 34px),linear-gradient(180deg,#1e293b,#0b1220); transform:perspective(480px) rotateX(62deg); transform-origin:50% 0; }
+  .gp-glow { position:absolute; inset:auto 0 0; height:30%; background:linear-gradient(transparent,rgba(2,6,23,.7)); }
+  .gp-hud { position:absolute; left:14px; top:13px; display:flex; flex-direction:column; gap:2px; text-shadow:0 2px 8px #000; }
+  .gp-hud b { font-size:14px; letter-spacing:-.02em; }
+  .gp-hud small { color:#b6c2d4; font-size:9px; }
+  .gp-badge { align-self:flex-start; font:800 8px ui-monospace,monospace; letter-spacing:.12em; background:#be123c; color:#fff; padding:3px 5px; border-radius:3px; margin-bottom:2px; }
+  .gp-play { position:absolute; left:14px; bottom:13px; background:#e11d48; color:#fff; border-radius:4px; padding:6px 9px; font:700 9px system-ui; box-shadow:0 5px 18px rgba(225,29,72,.4); }
   .unknown { padding:20px; color:#888; font:11px system-ui; }
   @media (max-width:520px) { .doc-preview { padding:18px; } .sp-hero strong { font-size:27px; } }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }

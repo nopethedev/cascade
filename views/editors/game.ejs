@@ -1,0 +1,182 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-game' }) %>
+<link rel="stylesheet" href="/public/game/game.css" />
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="game-studio" id="game-studio">
+  <div class="gs-toolbar" role="toolbar" aria-label="Game Studio toolbar">
+    <div class="gs-brand"><b>GAME STUDIO</b><span id="g-mode-badge" class="gs-mode">2D</span>
+      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-left" title="Project explorer">☰</button>
+      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-right" title="Inspector">⚙</button>
+    </div>
+    <div class="gs-toolgroup">
+      <button class="gs-btn gs-primary" type="button" id="g-play" title="Play (P)">▶ <span>Play</span></button>
+      <button class="gs-btn" type="button" id="g-pause" title="Pause" disabled>⏸</button>
+      <button class="gs-btn" type="button" id="g-step" title="Step one frame" disabled>⏭</button>
+      <button class="gs-btn" type="button" id="g-stop" title="Stop (Shift+P)" disabled>■</button>
+      <button class="gs-btn" type="button" id="g-fullscreen" title="Fullscreen play">⛶</button>
+    </div>
+    <div class="gs-toolgroup">
+      <label class="gs-select-label" for="g-scene-select">Scene</label>
+      <select class="gs-select" id="g-scene-select" aria-label="Active scene"></select>
+      <button class="gs-btn gs-icon" type="button" id="g-add-scene" title="Add scene">＋</button>
+    </div>
+    <div class="gs-toolgroup">
+      <span class="gs-tool-label">Add</span>
+      <select class="gs-select" id="g-add-type" aria-label="Object type">
+        <option value="box">Cube</option>
+        <option value="sphere">Sphere</option>
+        <option value="cylinder">Cylinder</option>
+        <option value="cone">Cone</option>
+        <option value="plane">Plane</option>
+        <option value="capsule">Capsule</option>
+        <option value="torus">Torus</option>
+        <option value="empty">Empty / Group</option>
+        <option value="camera">Camera</option>
+        <option value="light">Light</option>
+        <option value="sprite">Sprite (2D)</option>
+      </select>
+      <button class="gs-btn" type="button" id="g-add" title="Add object">＋ Add</button>
+    </div>
+    <div class="gs-toolgroup">
+      <button class="gs-btn gs-icon on" type="button" data-gizmo="move" title="Move (W)">✥</button>
+      <button class="gs-btn gs-icon" type="button" data-gizmo="rotate" title="Rotate (E)">⟳</button>
+      <button class="gs-btn gs-icon" type="button" data-gizmo="scale" title="Scale (R)">⤢</button>
+      <button class="gs-btn gs-icon" type="button" id="g-local-toggle" title="Toggle local/world space">L</button>
+    </div>
+    <div class="gs-toolgroup">
+      <button class="gs-btn gs-icon" type="button" id="g-undo" title="Undo (Ctrl+Z)">↶</button>
+      <button class="gs-btn gs-icon" type="button" id="g-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+      <button class="gs-btn gs-icon" type="button" id="g-duplicate" title="Duplicate (Ctrl+D)">⧉</button>
+      <button class="gs-btn gs-icon" type="button" id="g-group" title="Group selection">▣</button>
+      <button class="gs-btn gs-icon danger" type="button" id="g-delete" title="Delete (Delete)">🗑</button>
+    </div>
+    <div class="gs-toolgroup gs-views">
+      <button class="gs-btn gs-icon" type="button" data-view="perspective" title="Perspective">Persp</button>
+      <button class="gs-btn gs-icon" type="button" data-view="top" title="Top view">Top</button>
+      <button class="gs-btn gs-icon" type="button" data-view="front" title="Front view">Front</button>
+      <button class="gs-btn gs-icon" type="button" data-view="side" title="Side view">Side</button>
+      <button class="gs-btn gs-icon" type="button" data-view="ortho" title="Toggle orthographic">Ortho</button>
+      <button class="gs-btn gs-icon" type="button" id="g-focus" title="Focus selected (F)">⌖</button>
+    </div>
+    <div class="gs-toolgroup gs-snap">
+      <label class="gs-check"><input type="checkbox" id="g-snap" checked /> Snap</label>
+      <label class="gs-check"><input type="checkbox" id="g-grid" checked /> Grid</label>
+    </div>
+    <span class="gs-spacer"></span>
+    <span class="gs-save" id="g-save-note">Ready</span>
+    <button class="gs-btn" type="button" id="g-compile" title="Validate and compile (Ctrl+Enter)">Compile</button>
+    <div class="gs-menu-wrap">
+      <button class="gs-btn" type="button" id="g-export" title="Export game">Export ▾</button>
+      <div class="gs-menu" id="g-export-menu" hidden>
+        <button type="button" data-export="html">Standalone HTML5 (.html)</button>
+        <button type="button" data-export="zip">ZIP + source (.zip)</button>
+        <button type="button" data-export="publish">Publish to Cascade Sites</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="gs-main">
+    <aside class="gs-left" aria-label="Scene and project explorer">
+      <div class="gs-panel-head"><span>Hierarchy</span><button class="gs-mini" type="button" id="g-collapse-left" title="Collapse panel">‹</button></div>
+      <div class="gs-hierarchy-search"><input type="search" id="g-hierarchy-search" placeholder="Search objects…" aria-label="Search objects" /></div>
+      <div class="gs-tree" id="g-hierarchy" role="tree"></div>
+      <div class="gs-subhead"><span>Assets</span><button class="gs-mini" type="button" id="g-upload-asset">＋ Import</button></div>
+      <input type="file" id="g-asset-input" multiple accept=".glb,.gltf,.obj,.fbx,.stl,image/*,audio/*" hidden />
+      <div class="gs-assets" id="g-assets"><div class="gs-empty">Drop GLB, glTF, OBJ, FBX, STL, textures or audio here.</div></div>
+      <div class="gs-subhead"><span>Scripts</span><button class="gs-mini" type="button" id="g-add-script">＋ Script</button></div>
+      <div class="gs-scripts" id="g-scripts"></div>
+    </aside>
+
+    <section class="gs-center">
+      <div class="gs-viewport" id="g-viewport" tabindex="0" aria-label="Scene viewport">
+        <canvas id="g-canvas-2d" class="gs-canvas"></canvas>
+        <canvas id="g-canvas-3d" class="gs-canvas" hidden></canvas>
+        <div class="gs-view-hud">
+          <span id="g-view-label">Perspective</span>
+          <span id="g-view-stats">0 objects</span>
+          <span id="g-fps">— fps</span>
+        </div>
+        <div class="gs-axis-hint"><span class="ax x">X</span><span class="ax y">Y</span><span class="ax z">Z</span></div>
+        <div class="gs-view-help" id="g-view-help">Orbit: drag empty space · Pan: right-drag / Shift-drag · Zoom: wheel · Fly: WASD + Q/E · Focus: F</div>
+        <div class="gs-play-overlay" id="g-play-overlay" hidden>
+          <iframe id="g-play-frame" sandbox="allow-scripts allow-pointer-lock" title="Game playtest"></iframe>
+          <div class="gs-play-bar">
+            <span class="gs-live-dot"></span><b>PLAY MODE</b>
+            <span id="g-play-stats">Running the real runtime</span>
+            <span class="gs-spacer"></span>
+            <button class="gs-btn" type="button" id="g-play-pause">Pause</button>
+            <button class="gs-btn" type="button" id="g-play-restart">Restart</button>
+            <button class="gs-btn danger" type="button" id="g-play-exit">Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="gs-bottom" id="g-bottom">
+        <div class="gs-tabs" role="tablist">
+          <button class="gs-tab on" type="button" data-tab="graph" role="tab">Visual Script</button>
+          <button class="gs-tab" type="button" data-tab="code" role="tab">Code</button>
+          <button class="gs-tab" type="button" data-tab="console" role="tab">Console <span id="g-console-count" class="gs-count">0</span></button>
+          <button class="gs-tab" type="button" data-tab="problems" role="tab">Problems <span id="g-problem-count" class="gs-count bad">0</span></button>
+          <button class="gs-tab" type="button" data-tab="profiler" role="tab">Profiler</button>
+          <span class="gs-spacer"></span>
+          <span class="gs-graph-tools" id="g-graph-tools">
+            <select class="gs-select" id="g-script-select" aria-label="Active script"></select>
+            <button class="gs-mini" type="button" id="g-add-node">＋ Node</button>
+            <button class="gs-mini" type="button" id="g-delete-node">Delete node</button>
+            <button class="gs-mini" type="button" id="g-fit-graph">Fit</button>
+          </span>
+          <button class="gs-mini" type="button" id="g-bottom-toggle" title="Toggle console">⌄</button>
+        </div>
+        <div class="gs-tab-body on" id="g-tab-graph">
+          <div class="gs-graph-wrap" id="g-graph-wrap">
+            <svg class="gs-graph-edges" id="g-graph-edges" aria-hidden="true"></svg>
+            <div class="gs-graph-nodes" id="g-graph-nodes"></div>
+            <div class="gs-graph-empty" id="g-graph-empty"><b>No script selected.</b><span>Create a visual script, then add lifecycle and gameplay nodes.</span></div>
+          </div>
+        </div>
+        <div class="gs-tab-body" id="g-tab-code">
+          <div class="gs-code-wrap" id="g-code-wrap"><div id="g-monaco"></div><textarea id="g-code" spellcheck="false" aria-label="JavaScript game code"></textarea></div>
+        </div>
+        <div class="gs-tab-body" id="g-tab-console"><div class="gs-console" id="g-console"><div class="gs-empty">Console output from Play mode and builds appears here.</div></div></div>
+        <div class="gs-tab-body" id="g-tab-problems"><div class="gs-console" id="g-problems"><div class="gs-empty">Compile the project to see diagnostics.</div></div></div>
+        <div class="gs-tab-body" id="g-tab-profiler"><div class="gs-profiler" id="g-profiler"><div><b>Renderer</b><pre id="g-prof-render">—</pre></div><div><b>Physics / scripts</b><pre id="g-prof-sim">—</pre></div><div><b>Build</b><pre id="g-prof-build">Compile to inspect the project.</pre></div></div></div>
+      </div>
+    </section>
+
+    <aside class="gs-right" id="g-right" aria-label="Inspector">
+      <div class="gs-panel-head"><span>Inspector</span><button class="gs-mini" type="button" id="g-inspector-mode">Object</button></div>
+      <div class="gs-inspector" id="g-inspector"></div>
+    </aside>
+  </div>
+</div>
+
+<dialog class="gs-dialog" id="g-node-dialog">
+  <div class="gs-dialog-head"><div><h2>Node library</h2><p>Typed, executable nodes. Changes compile into the runtime graph.</p></div><button class="gs-btn" type="button" data-close="g-node-dialog">Close</button></div>
+  <div class="gs-library-toolbar"><input type="search" id="g-node-search" placeholder="Search nodes, categories…" autofocus /><button class="gs-mini" type="button" id="g-node-clear">Clear</button></div>
+  <div class="gs-library"><div class="gs-library-cats" id="g-node-cats"></div><div class="gs-library-results" id="g-node-results"></div></div>
+</dialog>
+
+<dialog class="gs-dialog" id="g-export-dialog">
+  <div class="gs-dialog-head"><div><h2>Build and publish</h2><p>The exported game runs the same runtime as Play mode and needs no Cascade account.</p></div><button class="gs-btn" type="button" data-close="g-export-dialog">Close</button></div>
+  <div class="gs-dialog-body" id="g-export-body">
+    <div class="gs-export-row"><div><b>Standalone HTML5</b><small>One self-contained file with engine, runtime, project and assets inlined.</small></div><button class="gs-btn gs-primary" type="button" data-export-do="html">Download .html</button></div>
+    <div class="gs-export-row"><div><b>ZIP + source</b><small>Playable build plus runtime source, project JSON and extracted assets.</small></div><button class="gs-btn" type="button" data-export-do="zip">Download .zip</button></div>
+    <div class="gs-export-row"><div><b>Publish</b><small>Serve a public standalone build at <span id="g-publish-url">/games/…</span>.</small></div><button class="gs-btn" type="button" data-export-do="publish">Publish game</button></div>
+    <div class="gs-export-status" id="g-export-status">Compile first to validate the project.</div>
+  </div>
+</dialog>
+
+<dialog class="gs-dialog" id="g-component-dialog">
+  <div class="gs-dialog-head"><div><h2>Add component</h2><p>Components are real runtime systems.</p></div><button class="gs-btn" type="button" data-close="g-component-dialog">Close</button></div>
+  <div class="gs-dialog-body"><select class="gs-select wide" id="g-component-type"></select><div class="gs-dialog-actions"><button class="gs-btn gs-primary" type="button" id="g-component-add">Add component</button></div></div>
+</dialog>
+
+<div class="gs-toast-host" id="g-toast-host"></div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, kind: file.kind, version: file.version, isPublic: !!file.isPublic, slug: file.slug, filename: file.filename, content, canEdit }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/vendor/cascade-three.js"></script>
+<script src="/public/editors/common.js"></script>
+<script type="module" src="/public/editors/game.js"></script>
+<%- include('../partials/foot') %>

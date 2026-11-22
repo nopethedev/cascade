@@ -2,6 +2,7 @@
 // Each builder returns the editor's initial content object; ids stay stable so
 // `POST /api/workspace/docs` can resolve a template by id.
 import { blankFlow, blankScript, flowId } from '../public/flow/schema.mjs';
+import { GAME_TEMPLATES } from './game/templates.js';
 
 export const KINDS = [
   { id: 'doc', label: 'Document', tag: 'Rich text', icon: 'DOC' },
@@ -14,6 +15,7 @@ export const KINDS = [
   { id: 'site', label: 'Website', tag: 'Visual site builder', icon: 'WEB' },
   { id: 'roblox', label: 'Roblox place', tag: 'Studio relay + 3D', icon: 'RBX' },
   { id: 'flow', label: 'Discord bot', tag: 'Visual bot IDE', icon: 'FLOW' },
+  { id: 'game', label: 'Game', tag: '2D + 3D game studio', icon: 'GAME' },
 ];
 
 export const CATEGORIES = ['blank', 'development', 'business', 'education', 'personal', 'blog', 'ecommerce', 'community', 'game', 'custom'];
@@ -741,6 +743,8 @@ function flowCommunity() {
   return flow;
 }
 
+TEMPLATES.push(...GAME_TEMPLATES);
+
 TEMPLATES.push(
   { id: 'flow-blank', name: 'Blank Discord bot', kind: 'flow', category: 'blank', description: 'An empty visual bot with a ready graph and no commands.', build: () => blankFlow('My Discord Bot') },
   { id: 'flow-ping', name: 'Slash command starter', kind: 'flow', category: 'development', description: 'A working /ping command compiled to JavaScript.', build: flowPing },
@@ -765,6 +769,7 @@ export function buildContent(templateId, kind) {
   const t = templateId ? getTemplate(templateId) : null;
   if (t) return t.build();
   if (kind === 'flow') return blankFlow();
+  if (kind === 'game') return GAME_TEMPLATES.find((x) => x.id === 'game-blank-2d').build();
   const blank = TEMPLATES.find((x) => x.kind === kind && x.category === 'blank');
   return blank ? blank.build() : null;
 }
