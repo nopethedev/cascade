@@ -1,7 +1,12 @@
+# Image defaults to the GHCR build published by .github/workflows/docker.yml.
+# Override with e.g. CASCADE_IMAGE=cascade:local, or `docker compose up --build` to build locally.
+x-cascade-image: &cascade-image ${CASCADE_IMAGE:-ghcr.io/nopethedev/cascade:latest}
+
 services:
   cascade-main:
     build: .
-    image: cascade:latest
+    image: *cascade-image
+    pull_policy: missing
     ports:
       - "3000:3000"
     environment:
@@ -17,7 +22,8 @@ services:
   # Example storage node. Run: NODE_ACCESS_KEY=secret docker compose up cascade-node
   cascade-node:
     build: .
-    image: cascade:latest
+    image: *cascade-image
+    pull_policy: missing
     ports:
       - "3001:3000"
     environment:
