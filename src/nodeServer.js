@@ -21,10 +21,10 @@ function resolveKey() {
   const generated = crypto.randomBytes(24).toString('hex');
   try {
     fs.mkdirSync(path.dirname(keyFile), { recursive: true });
-    fs.writeFileSync(keyFile, generated + '\n');
+    fs.writeFileSync(keyFile, generated + '\n', { mode: 0o600 });
+    console.log(`[cascade-node] generated access key in ${keyFile} (mode 0600).`);
   } catch { /* ignore */ }
-  console.log(`[cascade-node] generated access key: ${generated}`);
-  console.log(`[cascade-node] add this node on the main server with its URL + this key.`);
+  console.log('[cascade-node] add this node on the main server with its URL and the key file contents.');
   return generated;
 }
 
@@ -86,7 +86,7 @@ export function startNode() {
   app.listen(config.port, config.host, () => {
     console.log(`[cascade] storage node listening on http://${config.host}:${config.port}`);
     if (!process.env.NODE_ACCESS_KEY) {
-      console.log(`[cascade] using access key: ${KEY}`);
+      console.log('[cascade] storage node is using the key from data/node-key.txt; the value is not logged.');
     }
   });
 }

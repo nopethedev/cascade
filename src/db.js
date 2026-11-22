@@ -119,6 +119,9 @@ export const ApiKeyRecord = sequelize.define(
     name: { type: DataTypes.STRING(80), allowNull: false },
     prefix: { type: DataTypes.STRING(24), allowNull: false },
     keyHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    // `full` keeps the historical owner-level behavior; `read` and `write`
+    // let operators hand out least-privilege automation keys.
+    scope: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'full' },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
     lastUsedAt: { type: DataTypes.DATE, allowNull: true },
     revokedAt: { type: DataTypes.DATE, allowNull: true },
@@ -274,17 +277,24 @@ async function migrateSchema() {
   const tables = (await sequelize.getQueryInterface().showAllTables()).map((t) =>
     String(typeof t === 'string' ? t : t.tableName || t).toLowerCase(),
   );
-  if (!tables.includes('files')) return; // fresh database: sync() creates it
-  const columns = await sequelize.query('PRAGMA table_info(`files`)', { type: QueryTypes.SELECT });
-  const have = new Set(columns.map((c) => c.name));
-  const add = async (name, sql) => {
-    if (!have.has(name)) await sequelize.query(`ALTER TABLE \`files\` ADD COLUMN ${sql}`);
-  };
-  await add('kind', "`kind` VARCHAR(16) NOT NULL DEFAULT 'file'");
-  await add('folderId', '`folderId` VARCHAR(36)');
-  await add('content', '`content` TEXT');
-  await add('version', '`version` INTEGER NOT NULL DEFAULT 0');
-  await add('template', '`template` VARCHAR(48)');
+  if (tables.includes('files')) {
+    const columns = await sequelize.query('PRAGMA table_info(`files`)', { type: QueryTypes.SELECT });
+    const have = new Set(columns.map((c) => c.name));
+    const add = async (name, sql) => {
+      if (!have.has(name)) await sequelize.query(`ALTER TABLE \`files\` ADD COLUMN ${sql}`);
+    };
+    await add('kind', "`kind` VARCHAR(16) NOT NULL DEFAULT 'file'");
+    await add('folderId', '`folderId` VARCHAR(36)');
+    await add('content', '`content` TEXT');
+    await add('version', '`version` INTEGER NOT NULL DEFAULT 0');
+    await add('template', '`template` VARCHAR(48)');
+  }
+  if (tables.includes('api_keys')) {
+    const columns = await sequelize.query('PRAGMA table_info(`api_keys`)', { type: QueryTypes.SELECT });
+    if (!columns.some((c) => c.name === 'scope')) {
+      await sequelize.query("ALTER TABLE `api_keys` ADD COLUMN `scope` VARCHAR(16) NOT NULL DEFAULT 'full'");
+    }
+  }
 }
 
 export async function initDb() {

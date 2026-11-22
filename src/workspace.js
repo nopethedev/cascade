@@ -107,6 +107,19 @@ async function snapshot(file, userId) {
 const escapeHtml = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// Colors and geometry end up inside SVG/CSS attributes. Never interpolate raw
+// editor values there: only a small color grammar and finite numbers are safe.
+const safeColor = (value, fallback = '#ffffff') => {
+  const v = String(value || '').trim();
+  if (/^#[0-9a-f]{3,8}$/i.test(v)) return v;
+  if (/^(rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)$/i.test(v)) return v;
+  return fallback;
+};
+const finite = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 async function deckToHtml(file, content) {
   const slides = content.slides || [];
   const imageCache = new Map();
@@ -118,26 +131,31 @@ async function deckToHtml(file, content) {
     }
   }
   const el = (e) => {
+    const x = finite(e.x);
+    const y = finite(e.y);
+    const w = Math.max(1, finite(e.w, 1));
+    const h = Math.max(1, finite(e.h, 1));
     if (e.type === 'text') {
-      return `<div style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;color:${e.color || '#fff'};font-size:${e.size || 28}px;font-weight:${e.bold ? 700 : 400};text-align:${e.align || 'left'};white-space:pre-wrap">${escapeHtml(e.text)}</div>`;
+      const align = ['left', 'center', 'right'].includes(e.align) ? e.align : 'left';
+      return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;color:${safeColor(e.color)};font-size:${Math.max(1, finite(e.size, 28))}px;font-weight:${e.bold ? 700 : 400};text-align:${align};white-space:pre-wrap">${escapeHtml(e.text)}</div>`;
     }
     if (e.type === 'rect') {
-      return `<div style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;background:${e.fill || '#e11d48'}"></div>`;
+      return `<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${safeColor(e.fill, '#e11d48')}"></div>`;
     }
     if (e.type === 'image') {
       const src = imageCache.get(e.src) || e.src;
-      return `<img src="${escapeHtml(src)}" style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;object-fit:cover" alt="${escapeHtml(e.alt || '')}" />`;
+      return `<img src="${escapeHtml(src)}" style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;object-fit:cover" alt="${escapeHtml(e.alt || '')}" />`;
     }
     return '';
   };
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.filename)}</title>
 <style>
   body { margin: 0; background: #111; font-family: Inter, system-ui, sans-serif; }
-  .slide { position: relative; width: ${content.w || 1280}px; height: ${content.h || 720}px; margin: 20px auto; overflow: hidden; page-break-after: always; }
+  .slide { position: relative; width: ${Math.max(1, finite(content.w, 1280))}px; height: ${Math.max(1, finite(content.h, 720))}px; margin: 20px auto; overflow: hidden; page-break-after: always; }
   @media print { body { background: #fff; } .slide { margin: 0; } }
   .notes { color: #aaa; font-size: 13px; max-width: 1280px; margin: 0 auto 30px; font-family: system-ui; }
 </style></head><body>
-${slides.map((s) => `<section class="slide" style="background:${s.bg || '#101014'}">${(s.elements || []).map(el).join('')}</section>${s.notes ? `<p class="notes">Notes: ${escapeHtml(s.notes)}</p>` : ''}`).join('\n')}
+${slides.map((s) => `<section class="slide" style="background:${safeColor(s.bg, '#101014')}">${(s.elements || []).map(el).join('')}</section>${s.notes ? `<p class="notes">Notes: ${escapeHtml(s.notes)}</p>` : ''}`).join('\n')}
 </body></html>`;
 }
 
@@ -153,17 +171,21 @@ function boardToSvg(file, content) {
   }
   const pad = 60;
   const parts = els.map((e) => {
+    const x = finite(e.x);
+    const y = finite(e.y);
+    const w = Math.max(1, finite(e.w, 1));
+    const h = Math.max(1, finite(e.h, 1));
     if (e.type === 'path') {
-      const pts = (e.points || []).map((p) => `${p[0]},${p[1]}`).join(' ');
-      return `<polyline points="${pts}" fill="none" stroke="${e.color || '#fff'}" stroke-width="${e.width || 3}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      const pts = (Array.isArray(e.points) ? e.points : []).map((p) => `${finite(p?.[0])},${finite(p?.[1])}`).join(' ');
+      return `<polyline points="${pts}" fill="none" stroke="${safeColor(e.color)}" stroke-width="${Math.max(0, finite(e.width, 3))}" stroke-linecap="round" stroke-linejoin="round"/>`;
     }
-    if (e.type === 'rect') return `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" fill="${e.color || '#27272a'}"/>`;
-    if (e.type === 'ellipse') return `<ellipse cx="${e.x + e.w / 2}" cy="${e.y + e.h / 2}" rx="${e.w / 2}" ry="${e.h / 2}" fill="${e.color || '#27272a'}"/>`;
-    if (e.type === 'sticky') return `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="4" fill="${e.color || '#fde68a'}"/><foreignObject x="${e.x + 10}" y="${e.y + 10}" width="${e.w - 20}" height="${e.h - 20}"><div xmlns="http://www.w3.org/1999/xhtml" style="font:14px system-ui;color:#111">${escapeHtml(e.text)}</div></foreignObject>`;
-    if (e.type === 'text') return `<text x="${e.x}" y="${e.y + (e.size || 20)}" fill="${e.color || '#fff'}" font-size="${e.size || 20}" font-family="system-ui">${escapeHtml(e.text)}</text>`;
+    if (e.type === 'rect') return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${safeColor(e.color, '#27272a')}"/>`;
+    if (e.type === 'ellipse') return `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${safeColor(e.color, '#27272a')}"/>`;
+    if (e.type === 'sticky') return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${safeColor(e.color, '#fde68a')}"/><foreignObject x="${x + 10}" y="${y + 10}" width="${Math.max(1, w - 20)}" height="${Math.max(1, h - 20)}"><div xmlns="http://www.w3.org/1999/xhtml" style="font:14px system-ui;color:#111">${escapeHtml(e.text)}</div></foreignObject>`;
+    if (e.type === 'text') return `<text x="${x}" y="${y + Math.max(1, finite(e.size, 20))}" fill="${safeColor(e.color)}" font-size="${Math.max(1, finite(e.size, 20))}" font-family="system-ui">${escapeHtml(e.text)}</text>`;
     return '';
   });
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}" width="1200" style="background:#101014"><rect x="${minX - pad}" y="${minY - pad}" width="100%" height="100%" fill="#101014"/>${parts.join('')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${minX - pad} ${minY - pad} ${Math.max(1, maxX - minX + pad * 2)} ${Math.max(1, maxY - minY + pad * 2)}" width="1200" style="background:#101014"><rect x="${minX - pad}" y="${minY - pad}" width="100%" height="100%" fill="#101014"/>${parts.join('')}</svg>`;
 }
 
 function toCsv(rows) {
@@ -560,6 +582,11 @@ export function createWorkspaceRouter() {
     if (!file) return res.status(404).send('not found');
     const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (out.type.startsWith('image/svg+xml')) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
     res.send(out.body);
   }));
 
@@ -568,7 +595,12 @@ export function createWorkspaceRouter() {
     if (!file) return res.status(404).send('not found');
     const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
+    if (out.type.startsWith('image/svg+xml')) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
     res.send(out.body);
   }));
 
@@ -583,8 +615,12 @@ export function createWorkspaceRouter() {
     }
     try {
       const { buffer } = await readFileWithFallback(img);
-      res.setHeader('Content-Type', img.mime);
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      const active = ['text/html', 'application/xhtml+xml', 'image/svg+xml', 'text/xml', 'application/xml', 'text/javascript', 'application/javascript'].includes(String(img.mime || '').toLowerCase());
+      res.setHeader('Content-Type', img.mime || 'application/octet-stream');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Disposition', `${active ? 'attachment' : 'inline'}; filename="${encodeURIComponent(img.filename || img.id)}"`);
+      if (active) res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
       res.send(buffer);
     } catch {
       res.status(502).send('no healthy replica');
@@ -597,6 +633,8 @@ export function createWorkspaceRouter() {
     if (!file || file.kind !== 'deck') return res.status(404).send('not found');
     const out = await deckToHtml(file, parseContent(file));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(out);
   }));
 
@@ -606,6 +644,13 @@ export function createWorkspaceRouter() {
     if (!file || file.kind === 'file') return res.status(404).send('not found');
     const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
+    // Shared exports are intentionally public, but a short lifetime limits
+    // stale copies after the owner revokes sharing.
+    res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+    if (out.type.startsWith('image/svg+xml')) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
     if (req.query.download === '1') {
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
     }

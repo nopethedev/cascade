@@ -6,6 +6,11 @@ import { publicUser } from './auth.js';
 // API keys look like `csk_<32 chars>`. Only the SHA-256 hash is stored, so the
 // full key is shown exactly once, right after it is created.
 export const API_KEY_PREFIX = 'csk_';
+export const API_KEY_SCOPES = ['read', 'write', 'full'];
+
+function normalizeScope(scope) {
+  return API_KEY_SCOPES.includes(scope) ? scope : 'full';
+}
 
 export function hashApiKey(raw) {
   return crypto.createHash('sha256').update(String(raw)).digest('hex');
@@ -37,13 +42,14 @@ export async function authenticateApiKey(raw) {
   return { record, user: publicUser(user) };
 }
 
-export async function createApiKey({ name, createdBy }) {
+export async function createApiKey({ name, createdBy, scope }) {
   const { raw, prefix, keyHash } = generateApiKey();
   const record = await ApiKeyRecord.create({
     id: crypto.randomUUID(),
     name: String(name || 'Untitled key').trim().slice(0, 80) || 'Untitled key',
     prefix,
     keyHash,
+    scope: normalizeScope(scope),
     createdBy,
   });
   return { raw, record };
@@ -59,6 +65,7 @@ export async function listApiKeys() {
       id: k.id,
       name: k.name,
       prefix: k.prefix,
+      scope: normalizeScope(k.scope),
       owner: owner ? owner.username : k.createdBy,
       createdAt: k.createdAt,
       lastUsedAt: k.lastUsedAt,

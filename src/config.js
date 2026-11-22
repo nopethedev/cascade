@@ -1,11 +1,14 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '0.0.0.0',
   mode: (process.env.SERVER_MODE || 'main').toLowerCase() === 'node' ? 'node' : 'main',
-  sessionSecret: process.env.SESSION_SECRET || 'cascade-dev-secret-change-me',
+  // Never fall back to a public, well-known cookie-signing secret. Installations
+  // that omit SESSION_SECRET keep their sessions for the life of this process.
+  sessionSecret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   // SQLite database (Sequelize). A pre-existing data/db.json is imported once.
   dbPath: process.env.DB_PATH || './data/cascade.sqlite',
   storageDir: process.env.STORAGE_DIR || './data/uploads',

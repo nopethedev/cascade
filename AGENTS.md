@@ -16,7 +16,7 @@ No need to ask for confirmation first.
 - Persistence: Sequelize + SQLite (`src/db.js`, default `data/cascade.sqlite`). Models: `User`, `FileRecord`, `NodeRecord`, `ApiKeyRecord`, `AnalyticsEvent`, `Setting`. Settings are a singleton row read through `getSettings()` / written with `saveSettings()`.
 - Blobs stay on disk in `data/uploads/` or on storage nodes — never in SQL.
 - `SERVER_MODE=main|node` selects the role; `docker-compose.yml` has a single service.
-- API keys (`src/apiKeys.js`) are hashed; requests authenticate with `x-api-key` or `Authorization: Bearer`. `req.user` is set for both sessions and keys.
+- API keys (`src/apiKeys.js`) are SHA-256-hashed and scoped (`read`, `write`, or `full`); requests authenticate with `x-api-key` or `Authorization: Bearer`. `req.user` is set for both sessions and keys. `scope` is added to existing databases by `migrateSchema()`.
 - Analytics events are written by `recordEvent()` (`src/analytics.js`) and never block a response.
 - User-facing docs live at `/docs` (`views/docs.ejs`); keep it current when routes or env vars change.
 

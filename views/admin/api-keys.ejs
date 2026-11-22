@@ -51,6 +51,15 @@
         </select>
         <span class="hint">Requests made with the key use this account's role and quota.</span>
       </div>
+      <div class="field">
+        <label class="label" for="keyscope">Scope</label>
+        <select id="keyscope" name="scope">
+          <option value="full">Full — acts as the owner</option>
+          <option value="write">Read/write — no admin access</option>
+          <option value="read">Read-only — no mutations</option>
+        </select>
+        <span class="hint">Use read-only for monitoring scripts and write for automation that should not administer the server.</span>
+      </div>
       <div class="span-2"><button class="btn" type="submit">Create key</button></div>
     </form>
   </div>
@@ -72,13 +81,14 @@
   <% } else { %>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Name</th><th>Key</th><th>Owner</th><th>Created</th><th>Last used</th><th class="right">Status</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Key</th><th>Owner</th><th>Scope</th><th>Created</th><th>Last used</th><th class="right">Status</th><th></th></tr></thead>
         <tbody>
           <% for (const k of keys) { %>
             <tr>
               <td><strong><%= k.name %></strong></td>
               <td class="mono tiny muted"><%= k.prefix %>…</td>
               <td class="muted"><%= k.owner %></td>
+              <td><span class="badge"><%= ({ full: 'full', write: 'read/write', read: 'read-only' })[k.scope] || 'full' %></span></td>
               <td class="muted nowrap"><%= prettyDate(k.createdAt) %></td>
               <td class="muted nowrap"><%= k.lastUsedAt ? prettyDateTime(k.lastUsedAt) : 'never' %></td>
               <td class="right">

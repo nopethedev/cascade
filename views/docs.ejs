@@ -74,14 +74,14 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
     <p>Two ways in:</p>
     <ul>
       <li><strong>Session cookie</strong> — the browser login form. Use this for the web UI.</li>
-      <li><strong>API key</strong> — for scripts and integrations. Create one in <a href="/admin/api-keys">Admin → API keys</a>; the full key is shown once.</li>
+      <li><strong>API key</strong> — for scripts and integrations. Create one in <a href="/admin/api-keys">Admin → API keys</a>; the full key is shown once. Choose <strong>read-only</strong>, <strong>read/write</strong> or <strong>full-owner</strong> scope.</li>
     </ul>
     <p>Send the key in either header:</p>
     <pre class="snippet">x-api-key: csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 <span class="cmt"># or</span>
 Authorization: Bearer csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</pre>
-    <p>Only a SHA-256 hash of each key is stored. Revoking a key takes effect immediately (the next request gets <span class="code">401</span>). A key acts as its owner: same role, same quota, same files.</p>
+    <p>Only a SHA-256 hash of each key is stored. Revoking a key takes effect immediately (the next request gets <span class="code">401</span>). Read-only keys can read their owner's files and workspace but cannot mutate anything; read/write keys can mutate but cannot open admin pages; full-owner keys act as the owner, including admin access for admin-owned keys. A key never sees another account's private resources.</p>
   </div>
 </section>
 
@@ -150,7 +150,7 @@ Authorization: Bearer csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</pre>
         </tr>
         <tr>
           <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/raw/:slug</span></td>
-          <td class="muted">Public CDN URL for a shared file, immutable cache headers.</td>
+          <td class="muted">Public CDN URL for a shared file, 5-minute revalidating public cache.</td>
         </tr>
       </tbody>
     </table>
@@ -177,7 +177,7 @@ curl http://localhost:3000/raw/SLUG</pre>
   <div class="panel-body doc">
     <ul>
       <li><span class="code">/c/:slug</span> — a share page with preview and download button.</li>
-      <li><span class="code">/raw/:slug</span> — the raw bytes with <span class="code">Cache-Control: public, max-age=31536000, immutable</span>. Embed it in an <span class="code">&lt;img&gt;</span>, a video tag or behind any CDN.</li>
+      <li><span class="code">/raw/:slug</span> — the raw bytes with <span class="code">Cache-Control: public, max-age=300, must-revalidate</span>. Embed it in an <span class="code">&lt;img&gt;</span>, a video tag or behind any CDN; revocation takes effect at the origin and cached copies are short-lived.</li>
       <li>Turning sharing off invalidates both URLs immediately (they return 404).</li>
     </ul>
   </div>
@@ -217,7 +217,7 @@ DELETE /node/file/:id</pre>
         <tr><td class="mono tiny">PORT</td><td class="mono tiny">3000</td><td class="muted">HTTP port.</td></tr>
         <tr><td class="mono tiny">HOST</td><td class="mono tiny">0.0.0.0</td><td class="muted">Bind address.</td></tr>
         <tr><td class="mono tiny">SERVER_MODE</td><td class="mono tiny">main</td><td class="muted">main server or storage node.</td></tr>
-        <tr><td class="mono tiny">SESSION_SECRET</td><td class="mono tiny">dev value</td><td class="muted">Cookie signing secret — set this in production.</td></tr>
+        <tr><td class="mono tiny">SESSION_SECRET</td><td class="mono tiny">random per process</td><td class="muted">Cookie signing secret. Set a strong value in production; without it sessions do not survive a restart.</td></tr>
         <tr><td class="mono tiny">DB_PATH</td><td class="mono tiny">./data/cascade.sqlite</td><td class="muted">SQLite file used by Sequelize.</td></tr>
         <tr><td class="mono tiny">STORAGE_DIR</td><td class="mono tiny">./data/uploads</td><td class="muted">Local blob directory.</td></tr>
         <tr><td class="mono tiny">NODE_ACCESS_KEY</td><td class="mono tiny">generated</td><td class="muted">Node mode key; auto-generated to <span class="code">data/node-key.txt</span> if unset.</td></tr>

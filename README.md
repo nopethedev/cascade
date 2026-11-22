@@ -28,11 +28,11 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 
 - Upload (multi-file, drag & drop, progress), view (images / video / audio inline), edit text files, rename, delete
 - Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms and code (see above)
-- Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (immutable cache headers)
+- Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (5-minute revalidating public cache)
 - Roles: `admin` / `user`, per-user quota (GB)
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
 - **Analytics** — views, downloads, uploads, unique visitors, traffic chart, top files and recent events, all stored in SQLite (no third-party scripts)
-- **API keys** — hashed keys for scripts, acting as their owner; create/revoke in the admin panel
+- **API keys** — SHA-256-hashed, revocable keys with read-only, read/write or full-owner scopes; create/revoke in the admin panel
 - **Documentation** — `/docs` in the app (API reference, nodes, config, backups)
 - First-run setup wizard creates the admin user
 - `SERVER_MODE=main | node`
@@ -64,7 +64,7 @@ SERVER_MODE=node NODE_ACCESS_KEY=my-secret-key CASCADE_PORT=3001 docker compose 
 The image is pulled from GHCR (`ghcr.io/nopethedev/cascade:latest`, built by `.github/workflows/docker.yml`).
 Add `--build` to build from source instead, or set `CASCADE_IMAGE` to use another tag. Data (SQLite + uploads) lives in the `cascade-data` volume.
 
-> The node prints its auto-generated key on first boot when `NODE_ACCESS_KEY` is empty (also saved to `data/node-key.txt`).
+> When `NODE_ACCESS_KEY` is empty, the node generates a key and saves it to `data/node-key.txt` (mode 0600) without printing the value. Read it from that file to register the node.
 > Add the node to the main server in **Admin → Nodes** with its URL and that key.
 
 ## API

@@ -16,7 +16,7 @@ services:
       - PORT=3000
       - SERVER_MODE=${SERVER_MODE:-main}
       - NODE_ACCESS_KEY=${NODE_ACCESS_KEY:-}
-      - SESSION_SECRET=${SESSION_SECRET:-change-me-to-something-long}
+      - SESSION_SECRET=${SESSION_SECRET:-}
       - SITE_NAME=${SITE_NAME:-Cascade}
       - THEME_ACCENT=${THEME_ACCENT:-#e11d48}
     volumes:

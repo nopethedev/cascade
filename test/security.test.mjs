@@ -1,0 +1,450 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import net from 'node:net';
+import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import sqlite3 from 'sqlite3';
+
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const ADMIN_PASSWORD = 'security-admin-password';
+const USER_PASSWORD = 'security-user-password';
+const PRIVATE_MARKER = 'PRIVATE SECURITY MARKER';
+const PUBLIC_MARKER = 'PUBLIC SECURITY MARKER';
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function form(values) {
+  return new URLSearchParams(values).toString();
+}
+
+function createClient(base) {
+  let cookie = '';
+  let lastSetCookie = '';
+  return {
+    get cookie() {
+      return cookie;
+    },
+    get lastSetCookie() {
+      return lastSetCookie;
+    },
+    async request(route, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      if (cookie) headers.cookie = cookie;
+      let body = options.body;
+      if (options.json !== undefined) {
+        headers['content-type'] = 'application/json';
+        body = JSON.stringify(options.json);
+      } else if (options.form !== undefined) {
+        headers['content-type'] = 'application/x-www-form-urlencoded';
+        body = options.form;
+      }
+      const res = await fetch(base + route, {
+        method: options.method || 'GET',
+        headers,
+        body,
+        redirect: 'manual',
+      });
+      lastSetCookie = res.headers.get('set-cookie') || '';
+      if (lastSetCookie) cookie = lastSetCookie.split(';')[0];
+      return res;
+    },
+  };
+}
+
+async function bodyText(res) {
+  return Buffer.from(await res.arrayBuffer()).toString('utf8');
+}
+
+async function json(res) {
+  return JSON.parse(await bodyText(res));
+}
+
+async function waitForServer(base, child, logs) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`server exited early:\n${logs.join('')}`);
+    try {
+      const res = await fetch(`${base}/api/health`, { redirect: 'manual' });
+      // A fresh database correctly returns 503 setup-required here.
+      if (res.status === 200 || res.status === 503) return;
+    } catch {
+      /* starting */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`server did not become ready:\n${logs.join('')}`);
+}
+
+async function stopServer(child) {
+  if (child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  await Promise.race([
+    new Promise((resolve) => child.once('exit', resolve)),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
+  if (child.exitCode === null) child.kill('SIGKILL');
+}
+
+function queryRows(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (openErr) => {
+      if (openErr) return reject(openErr);
+      db.all(sql, params, (err, rows) => {
+        db.close();
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+  });
+}
+
+async function upload(client, filename, contents, type) {
+  const data = new FormData();
+  data.append('files', new Blob([contents], { type }), filename);
+  const res = await client.request('/api/upload', { method: 'POST', body: data });
+  return { res, payload: res.status === 200 ? await json(res) : null };
+}
+
+test('real HTTP security matrix blocks anonymous/cross-user access and hardens uploads and API keys', { timeout: 60000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cascade-security-'));
+  const dbPath = path.join(dir, 'security.sqlite');
+  const storageDir = path.join(dir, 'uploads');
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const logs = [];
+  const child = spawn(process.execPath, ['src/index.js'], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      SERVER_MODE: 'main',
+      SESSION_SECRET: 'security-test-session-secret',
+      DB_PATH: dbPath,
+      STORAGE_DIR: storageDir,
+      HEALTHCHECK_INTERVAL_MS: '3600000',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (d) => logs.push(d.toString()));
+  child.stderr.on('data', (d) => logs.push(d.toString()));
+
+  try {
+    await waitForServer(base, child, logs);
+    const admin = createClient(base);
+    const setup = await admin.request('/setup', {
+      method: 'POST',
+      form: form({ username: 'admin', password: ADMIN_PASSWORD }),
+    });
+    assert.equal(setup.status, 302);
+    assert.match(admin.lastSetCookie, /HttpOnly/i);
+    assert.match(admin.lastSetCookie, /SameSite=Lax/i);
+
+    for (const username of ['sec-owner', 'sec-other']) {
+      const res = await admin.request('/admin/users', {
+        method: 'POST',
+        form: form({ username, password: USER_PASSWORD, role: 'user', quotaGB: '1' }),
+      });
+      assert.equal(res.status, 302, `create ${username}`);
+    }
+
+    const owner = createClient(base);
+    const other = createClient(base);
+    for (const [client, username] of [[owner, 'sec-owner'], [other, 'sec-other']]) {
+      const res = await client.request('/login', {
+        method: 'POST',
+        form: form({ username, password: USER_PASSWORD }),
+      });
+      assert.equal(res.status, 302);
+      assert.match(client.lastSetCookie, /SameSite=Lax/i);
+    }
+    assert.equal((await other.request('/admin/api-keys')).status, 403, 'non-admin must not reach API-key management');
+
+    const createDoc = async (client, kind, name, isPublic = false) => {
+      const res = await client.request('/api/workspace/docs', {
+        method: 'POST',
+        json: { kind, name, isPublic },
+      });
+      assert.equal(res.status, 200, `create ${kind}`);
+      return (await json(res)).id;
+    };
+
+    const docId = await createDoc(owner, 'doc', 'Security private doc');
+    const sheetId = await createDoc(owner, 'sheet', 'Security private sheet');
+    const deckId = await createDoc(owner, 'deck', 'Security private deck');
+    const pdfId = await createDoc(owner, 'pdf', 'Security private pdf');
+    const publicDocId = await createDoc(owner, 'doc', 'Security public doc', true);
+    const boardId = await createDoc(owner, 'board', 'Security public board', true);
+    const publicDeckId = await createDoc(owner, 'deck', 'Security public deck', true);
+
+    const putContent = (client, id, content, version = 1) =>
+      client.request(`/api/workspace/docs/${id}`, {
+        method: 'PUT',
+        json: { content, version },
+      });
+    assert.equal((await putContent(owner, docId, { html: `<h1>${PRIVATE_MARKER}</h1>` })).status, 200);
+    assert.equal((await putContent(owner, sheetId, { sheets: [{ name: 'S1', cells: { A1: { v: PRIVATE_MARKER } } }] })).status, 200);
+    assert.equal((await putContent(owner, deckId, { w: 1280, h: 720, slides: [{ elements: [{ type: 'text', x: 1, y: 1, w: 100, h: 40, text: PRIVATE_MARKER }] }] })).status, 200);
+    assert.equal((await putContent(owner, publicDocId, { html: `<h1>${PUBLIC_MARKER}</h1>` })).status, 200);
+    assert.equal((await putContent(owner, boardId, { elements: [{ type: 'rect', x: 1, y: 1, w: 40, h: 40, color: '"/><script>alert(1)</script>' }] })).status, 200);
+    assert.equal((await putContent(owner, publicDeckId, { w: 1280, h: 720, slides: [{ bg: 'red;</style><script>alert(1)</script>', elements: [{ type: 'text', x: 1, y: 1, w: 100, h: 40, text: 'safe text', color: 'blue;</style><script>alert(2)</script>' }] }] })).status, 200);
+
+    const image = await upload(owner, 'owner.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
+    assert.equal(image.res.status, 200);
+    const imageId = image.payload.files[0].id;
+    const otherImage = await upload(other, 'other.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
+    assert.equal(otherImage.res.status, 200);
+    const otherImageId = otherImage.payload.files[0].id;
+
+    const htmlUpload = await upload(owner, 'active.html', '<!doctype html><script>alert(1)</script><h1>ACTIVE SECRET</h1>', 'text/html');
+    assert.equal(htmlUpload.res.status, 200);
+    const htmlId = htmlUpload.payload.files[0].id;
+    const disguised = await upload(owner, 'disguised.png', '<script>alert(2)</script>', 'text/html');
+    assert.equal(disguised.res.status, 200);
+    const disguisedId = disguised.payload.files[0].id;
+    const publicFile = await upload(owner, 'public.txt', 'PUBLIC FILE', 'text/plain');
+    const publicFileId = publicFile.payload.files[0].id;
+    const traversal = await upload(owner, '../../escape.txt', 'TRAVERSAL', 'text/plain');
+    assert.equal(traversal.res.status, 200);
+    const traversalId = traversal.payload.files[0].id;
+    assert.equal(traversal.payload.files[0].filename, 'escape.txt');
+    assert.ok(fs.existsSync(path.join(storageDir, traversalId)), 'traversal upload must use the generated id');
+    assert.ok(!fs.existsSync(path.join(dir, 'escape.txt')), 'traversal filename must not escape storage');
+
+    assert.equal((await owner.request(`/api/files/${publicFileId}/share`, { method: 'POST', json: { isPublic: true } })).status, 200);
+    const publicInfo = await json(await owner.request(`/api/workspace/docs/${publicDocId}`));
+    const publicSlug = publicInfo.slug;
+    const privateInfo = await json(await owner.request(`/api/workspace/docs/${docId}`));
+    const privateSlug = privateInfo.slug;
+
+    // Anonymous callers must not get private content or JSON/API data.
+    for (const route of [
+      `/api/workspace/docs/${docId}`,
+      `/api/workspace/docs/${sheetId}`,
+      `/api/workspace/docs/${deckId}`,
+      `/api/workspace/docs/${pdfId}`,
+      `/api/files/${imageId}`,
+      `/api/files/${docId}/text`,
+      '/api/files',
+      '/api/images/search?q=panda',
+    ]) {
+      const res = await createClient(base).request(route);
+      assert.equal(res.status, 401, `anonymous ${route}`);
+      assert.ok(!(await bodyText(res)).includes(PRIVATE_MARKER));
+    }
+    for (const route of [`/download/${docId}`, `/export/${docId}`, `/f/${imageId}/raw`, '/admin/api-keys']) {
+      const res = await createClient(base).request(route);
+      assert.equal(res.status, 401, `anonymous ${route} must reject with 401`);
+      assert.ok(!(await bodyText(res)).includes(PRIVATE_MARKER));
+    }
+
+    // Cross-user reads, including direct id replay, must be non-disclosing.
+    for (const id of [docId, sheetId, deckId, pdfId]) {
+      for (const route of [
+        `/api/workspace/docs/${id}`,
+        `/api/workspace/docs/${id}/versions`,
+        `/download/${id}`,
+        `/export/${id}`,
+        `/edit/${id}`,
+      ]) {
+        const res = await other.request(route);
+        assert.equal(res.status, 404, `cross-user ${route}`);
+        const body = await bodyText(res);
+        assert.ok(!body.includes(PRIVATE_MARKER), `cross-user leak ${route}`);
+      }
+    }
+    for (const route of [
+      `/api/workspace/docs/${docId}/versions/1`,
+      `/f/${imageId}`,
+      `/f/${imageId}/raw`,
+      `/api/files/${imageId}`,
+      `/api/files/${docId}/text`,
+    ]) {
+      const res = await other.request(route);
+      assert.equal(res.status, 404, `cross-user ${route}`);
+      const body = await bodyText(res);
+      assert.ok(!body.includes(PRIVATE_MARKER), `cross-user leak ${route}`);
+    }
+
+    for (const [method, route, jsonBody] of [
+      ['DELETE', `/api/files/${imageId}`, undefined],
+      ['POST', `/api/files/${imageId}/share`, { isPublic: true }],
+      ['POST', `/api/files/${imageId}/rename`, { filename: 'pwn.txt' }],
+      ['PUT', `/api/workspace/docs/${docId}`, { content: { html: 'PWN' }, version: 1 }],
+      ['POST', `/api/workspace/docs/${docId}/heartbeat`, {}],
+      ['POST', `/api/workspace/docs/${docId}/restore`, { version: 1 }],
+      ['POST', `/api/workspace/docs/${docId}/template`, {}],
+    ]) {
+      const res = await other.request(route, { method, json: jsonBody });
+      assert.equal(res.status, 404, `cross-user ${method} ${route}`);
+      assert.ok(!(await bodyText(res)).includes('PWN'));
+    }
+
+    // Owner access still works after the negative matrix.
+    const ownerDoc = await owner.request(`/api/workspace/docs/${docId}`);
+    assert.equal(ownerDoc.status, 200);
+    assert.match(await bodyText(ownerDoc), /PRIVATE SECURITY MARKER/);
+    assert.equal((await owner.request(`/download/${docId}`)).status, 200);
+    assert.equal((await owner.request(`/export/${sheetId}`)).status, 200);
+    assert.equal((await owner.request(`/export/${deckId}`)).status, 200);
+    assert.equal((await owner.request(`/export/${pdfId}`)).status, 200);
+
+    // Public sharing is intentional; private and random slugs remain non-disclosing.
+    assert.equal((await createClient(base).request(`/c/${publicSlug}`)).status, 200);
+    assert.equal((await createClient(base).request(`/c/${publicSlug}/export`)).status, 200);
+    assert.equal((await createClient(base).request(`/c/${privateSlug}`)).status, 404);
+    assert.equal((await createClient(base).request(`/c/${privateSlug}/export`)).status, 404);
+    assert.equal((await createClient(base).request('/c/does-not-exist')).status, 404);
+    assert.equal((await createClient(base).request(`/raw/${privateSlug}`)).status, 404);
+    assert.equal((await createClient(base).request(`/c/${publicSlug}/asset/${imageId}`)).status, 200);
+    assert.equal((await createClient(base).request(`/c/${publicSlug}/asset/${otherImageId}`)).status, 404);
+    const boardInfo = await json(await owner.request(`/api/workspace/docs/${boardId}`));
+    const boardSvg = await createClient(base).request(`/c/${boardInfo.slug}/export`);
+    assert.equal(boardSvg.status, 200);
+    assert.match(boardSvg.headers.get('content-security-policy') || '', /script-src 'none'|default-src 'none'/i);
+    assert.ok(!(await bodyText(boardSvg)).includes('<script'), 'board SVG must not contain injected script');
+    const deckInfo = await json(await owner.request(`/api/workspace/docs/${publicDeckId}`));
+    const deckPreview = await createClient(base).request(`/c/${deckInfo.slug}/preview`);
+    assert.equal(deckPreview.status, 200);
+    assert.match(deckPreview.headers.get('content-security-policy') || '', /script-src 'none'|default-src 'none'/i);
+    assert.ok(!(await bodyText(deckPreview)).includes('<script'), 'deck preview must not contain injected script');
+    const fileSlug = publicFile.payload.files[0].slug;
+    assert.equal((await createClient(base).request(`/raw/${fileSlug}`)).status, 200);
+    assert.equal((await owner.request(`/api/files/${publicFileId}/share`, { method: 'POST', json: { isPublic: false } })).status, 200);
+    assert.equal((await createClient(base).request(`/raw/${fileSlug}`)).status, 404);
+    assert.equal((await owner.request(`/api/workspace/docs/${publicDocId}`)).status, 200);
+
+    // Upload filename/type confusion and active content handling.
+    const rawHtml = await owner.request(`/f/${htmlId}/raw`);
+    assert.equal(rawHtml.status, 200);
+    assert.match(rawHtml.headers.get('content-disposition') || '', /^attachment;/i);
+    assert.match(rawHtml.headers.get('content-security-policy') || '', /sandbox/i);
+    assert.equal(rawHtml.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(rawHtml.headers.get('cache-control'), 'private, no-store');
+    const disguisedRaw = await owner.request(`/f/${disguisedId}/raw`);
+    assert.equal(disguisedRaw.headers.get('content-type'), 'image/png');
+    assert.match(disguisedRaw.headers.get('content-disposition') || '', /^inline;/i);
+    const traversalRaw = await owner.request(`/f/${traversalId}/raw`);
+    assert.equal(traversalRaw.status, 200);
+
+    // CSRF defense and cookie attributes.
+    const cross = await owner.request('/api/workspace/docs', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example', referer: 'https://evil.example/x' },
+      json: { kind: 'doc', name: 'csrf should fail' },
+    });
+    assert.equal(cross.status, 403);
+    assert.match(await bodyText(cross), /cross-origin/i);
+    const same = await owner.request('/api/workspace/docs', {
+      method: 'POST',
+      headers: { origin: base },
+      json: { kind: 'doc', name: 'same origin allowed' },
+    });
+    assert.equal(same.status, 200);
+
+    // API keys: demonstrate read-only denial, hashed storage, revocation and no leak in lists.
+    const makeKey = async (name, scope, targetId) => {
+      const res = await admin.request('/admin/api-keys', {
+        method: 'POST',
+        form: form({ name, ownerId: targetId, scope }),
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('cache-control'), 'no-store');
+      const html = await bodyText(res);
+      const match = /id="fresh-key" value="([^"]+)"/.exec(html);
+      assert.ok(match, `raw key not returned for ${name}`);
+      return match[1];
+    };
+    const ownerId = (await json(await owner.request('/api/me'))).user.id;
+    const otherId = (await json(await other.request('/api/me'))).user.id;
+    const readKey = await makeKey('security read key', 'read', ownerId);
+    const writeKey = await makeKey('security write key', 'write', ownerId);
+    const otherKey = await makeKey('security other key', 'read', otherId);
+
+    const readMe = await fetch(`${base}/api/me`, { headers: { 'x-api-key': readKey } });
+    assert.equal(readMe.status, 200);
+    assert.equal((await json(readMe)).auth, 'api-key');
+    const readWriteAttempt = await fetch(`${base}/api/workspace/docs`, {
+      method: 'POST',
+      headers: { 'x-api-key': readKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'doc', name: 'must be denied' }),
+    });
+    assert.equal(readWriteAttempt.status, 403);
+    assert.match(await readWriteAttempt.text(), /read-only/i);
+    const readAdmin = await fetch(`${base}/admin/api-keys`, { headers: { 'x-api-key': readKey } });
+    assert.equal(readAdmin.status, 403);
+    const writeAdmin = await fetch(`${base}/admin/api-keys`, { headers: { 'x-api-key': writeKey } });
+    assert.equal(writeAdmin.status, 403);
+    const writeUpload = await fetch(`${base}/api/upload`, {
+      method: 'POST',
+      headers: { 'x-api-key': writeKey },
+      body: (() => {
+        const f = new FormData();
+        f.append('files', new Blob(['write-key'], { type: 'text/plain' }), 'write.txt');
+        return f;
+      })(),
+    });
+    assert.equal(writeUpload.status, 200);
+
+    const otherDoc = await fetch(`${base}/api/workspace/docs/${docId}`, { headers: { 'x-api-key': otherKey } });
+    assert.equal(otherDoc.status, 404);
+    const otherDownload = await fetch(`${base}/download/${docId}`, { headers: { 'x-api-key': otherKey } });
+    assert.equal(otherDownload.status, 404);
+
+    const keyRows = await queryRows(dbPath, 'select * from api_keys where name = ?', ['security read key']);
+    assert.equal(keyRows.length, 1);
+    const stored = keyRows[0];
+    assert.equal(stored.scope, 'read');
+    assert.equal(stored.keyHash.length, 64);
+    assert.equal(stored.keyHash, crypto.createHash('sha256').update(readKey).digest('hex'));
+    assert.ok(!JSON.stringify(stored).includes(readKey), 'plaintext API key must not be in the DB row');
+    assert.ok(readKey.length >= 36);
+
+    const keyList = await admin.request('/admin/api-keys');
+    const keyListHtml = await bodyText(keyList);
+    assert.equal(keyList.status, 200);
+    assert.ok(!keyListHtml.includes(readKey), 'raw key must not appear in key list');
+    assert.match(keyListHtml, /read-only/);
+
+    const revokeRead = await admin.request(`/admin/api-keys/${stored.id}/revoke`, { method: 'POST' });
+    assert.equal(revokeRead.status, 302);
+    const revoked = await fetch(`${base}/api/me`, { headers: { 'x-api-key': readKey } });
+    assert.equal(revoked.status, 401);
+
+    // SQL/filter/id probes must not widen scope.
+    const sqlProbe = await other.request(`/search?q=${encodeURIComponent("' OR 1=1-- ")}`);
+    assert.equal(sqlProbe.status, 200);
+    assert.ok(!(await bodyText(sqlProbe)).includes(PRIVATE_MARKER));
+    const limitProbe = await other.request('/api/files?limit=1%20OR%201=1');
+    assert.equal(limitProbe.status, 200);
+    assert.ok(!(await bodyText(limitProbe)).includes(docId));
+    const filesOther = await json(await other.request('/api/files'));
+    assert.ok(filesOther.files.every((f) => f.ownerId === otherId), 'API file list must stay owner-scoped');
+    assert.equal((await owner.request('/f/does-not-exist/raw')).status, 404);
+    assert.equal((await owner.request('/download/does-not-exist')).status, 404);
+    assert.equal((await createClient(base).request('/raw/does-not-exist')).status, 404);
+    assert.equal((await createClient(base).request('/c/does-not-exist')).status, 404);
+
+    // No MCP endpoint is present in this build; both anonymous and authenticated probes are 404,
+    // so there is no MCP surface that could bypass the app's auth middleware.
+    assert.equal((await createClient(base).request('/mcp')).status, 404);
+    assert.equal((await owner.request('/mcp')).status, 404);
+
+    assert.ok(!logs.join('').includes(readKey), 'raw API key must not be written to server logs');
+  } finally {
+    await stopServer(child);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

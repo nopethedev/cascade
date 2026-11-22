@@ -5,9 +5,18 @@ function currentUser(req) {
   return req.user || req.session?.user || null;
 }
 
+function isApiRequest(req) {
+  return req.path.startsWith('/api/') || String(req.originalUrl || '').startsWith('/api/');
+}
+
 export function requireLogin(req, res, next) {
   if (!currentUser(req)) {
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'login required' });
+    if (isApiRequest(req)) return res.status(401).json({ error: 'login required' });
+    // Direct export/media URLs are often called by scripts and must fail closed
+    // with an auth status rather than a redirect that could be cached as content.
+    if (/^\/(download|export)\/[^/]+$/.test(req.path) || /^\/f\/[^/]+\/raw$/.test(req.path)) {
+      return res.status(401).send('login required');
+    }
     return res.redirect('/login');
   }
   next();
@@ -16,11 +25,11 @@ export function requireLogin(req, res, next) {
 export function requireAdmin(req, res, next) {
   const user = currentUser(req);
   if (!user) {
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'login required' });
+    if (isApiRequest(req) || req.path.startsWith('/admin/api-keys')) return res.status(401).json({ error: 'login required' });
     return res.redirect('/login');
   }
   if (user.role !== 'admin') {
-    if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'admin only' });
+    if (isApiRequest(req)) return res.status(403).json({ error: 'admin only' });
     return res.status(403).render('error', { message: 'Admin only.', status: 403 });
   }
   next();

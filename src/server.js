@@ -53,6 +53,47 @@ function prettyDateTime(value) {
   });
 }
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const ACTIVE_MIMES = new Set([
+  'text/html',
+  'application/xhtml+xml',
+  'image/svg+xml',
+  'text/xml',
+  'application/xml',
+  'text/javascript',
+  'application/javascript',
+  'application/ecmascript',
+  'text/ecmascript',
+]);
+
+function isActiveMime(value) {
+  return ACTIVE_MIMES.has(String(value || '').split(';')[0].trim().toLowerCase());
+}
+
+// Trust the filename extension over a client-supplied multipart type. This
+// stops a file named `photo.png` from being stored and later served as HTML.
+function uploadMime(filename, provided) {
+  const byName = mime.lookup(String(filename || ''));
+  if (byName) return byName;
+  const supplied = String(provided || '').split(';')[0].trim().toLowerCase();
+  return supplied && !isActiveMime(supplied) ? supplied : 'application/octet-stream';
+}
+
+function sendStoredFile(res, file, buffer) {
+  const type = file.mime || 'application/octet-stream';
+  const encodedName = encodeURIComponent(file.filename || file.id || 'download');
+  res.setHeader('Content-Type', type);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (isActiveMime(type)) {
+    // User-controlled HTML/SVG/XML must never execute on the app origin.
+    res.setHeader('Content-Disposition', `attachment; filename="${encodedName}"`);
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  } else {
+    res.setHeader('Content-Disposition', `inline; filename="${encodedName}"`);
+  }
+  res.send(buffer);
+}
+
 function safeFile(f) {
   return {
     id: f.id,
@@ -87,7 +128,7 @@ export function createMainApp() {
       secret: config.sessionSecret,
       resave: false,
       saveUninitialized: false,
-      cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 },
+      cookie: { maxAge: 1000 * 60 * 60 * 24 * 7, httpOnly: true, sameSite: 'lax' },
     }),
   );
   app.use('/public', express.static(path.join(ROOT, 'public')));
@@ -105,7 +146,7 @@ export function createMainApp() {
         const auth = await authenticateApiKey(token);
         if (!auth) {
           if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'invalid or revoked API key' });
-          return res.status(401).render('error', { message: 'Invalid or revoked API key.', status: 401 });
+          return res.status(401).send('Invalid or revoked API key.');
         }
         req.user = auth.user;
         req.apiKey = auth.record;
@@ -125,6 +166,47 @@ export function createMainApp() {
         surface: settings.surface || '#101013',
         text: settings.text || '#f3f3f4',
       };
+      // Authenticated JSON and editor responses must not be reused by a cache
+      // for a different principal.
+      if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'private, no-store');
+
+      if (req.apiKey) {
+        const scope = ['read', 'write', 'full'].includes(req.apiKey.scope) ? req.apiKey.scope : 'full';
+        const adminPath = req.path === '/admin' || req.path.startsWith('/admin/');
+        if (scope !== 'full' && adminPath) {
+          return req.path.startsWith('/api/')
+            ? res.status(403).json({ error: 'API key scope does not allow admin access' })
+            : res.status(403).render('error', { message: 'API key scope does not allow admin access.', status: 403 });
+        }
+        if (scope === 'read' && !SAFE_METHODS.has(req.method)) {
+          return req.path.startsWith('/api/')
+            ? res.status(403).json({ error: 'API key is read-only' })
+            : res.status(403).render('error', { message: 'API key is read-only.', status: 403 });
+        }
+      }
+
+      // CSRF defense for cookie-authenticated browser mutations. API-key clients
+      // authenticate with a header, so they do not rely on ambient cookies.
+      if (!req.apiKey && req.session?.user && !SAFE_METHODS.has(req.method)) {
+        const source = req.get('origin') || req.get('referer');
+        if (source) {
+          let same = false;
+          try {
+            const parsed = new URL(source);
+            const expectedHost = req.get('x-forwarded-host') || req.get('host');
+            const expectedProto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+            same = parsed.host === expectedHost && parsed.protocol === `${expectedProto}:`;
+          } catch {
+            same = false;
+          }
+          if (!same) {
+            return req.path.startsWith('/api/')
+              ? res.status(403).json({ error: 'cross-origin request rejected' })
+              : res.status(403).render('error', { message: 'Cross-origin request rejected.', status: 403 });
+          }
+        }
+      }
+
       next();
     }),
   );
@@ -250,7 +332,7 @@ export function createMainApp() {
         id,
         slug,
         filename: f.originalname,
-        mime: f.mimetype || mime.lookup(f.originalname) || 'application/octet-stream',
+        mime: uploadMime(f.originalname, f.mimetype),
         size: f.size,
         ownerId: me.id,
         ownerName: me.username,
@@ -288,9 +370,8 @@ export function createMainApp() {
     try {
       const { buffer, mime: m } = await readFileWithFallback(file);
       recordEvent(req, 'download', { fileId: file.id, bytes: buffer.length });
-      res.setHeader('Content-Type', file.mime || m || 'application/octet-stream');
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
-      res.send(buffer);
+      res.setHeader('Cache-Control', 'private, no-store');
+      sendStoredFile(res, { ...file.toJSON(), mime: file.mime || m }, buffer);
     } catch {
       res.status(502).send('no healthy replica available');
     }
@@ -434,10 +515,8 @@ export function createMainApp() {
     try {
       const { buffer, mime: m } = await readFileWithFallback(file);
       recordEvent(req, 'download', { fileId: file.id, bytes: buffer.length });
-      res.setHeader('Content-Type', file.mime || m || 'application/octet-stream');
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.filename)}"`);
-      res.send(buffer);
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+      sendStoredFile(res, { ...file.toJSON(), mime: file.mime || m }, buffer);
     } catch {
       res.status(502).send('no healthy replica');
     }
@@ -616,14 +695,17 @@ export function createMainApp() {
   // ---------- API keys ----------
   app.get('/admin/api-keys', requireAdmin, wrap(async (req, res) => {
     const [keys, people] = await Promise.all([listApiKeys(), User.findAll({ order: [['username', 'ASC']] })]);
+    res.setHeader('Cache-Control', 'no-store');
     res.render('admin/api-keys', { keys, users: people, createdKey: null });
   }));
 
   app.post('/admin/api-keys', requireAdmin, wrap(async (req, res) => {
-    const { name, ownerId } = req.body;
-    const owner = (ownerId && (await User.findByPk(ownerId))) || (await User.findByPk(req.user.id));
-    const created = await createApiKey({ name, createdBy: owner.id });
+    const { name, ownerId, scope } = req.body;
+    const owner = ownerId ? await User.findByPk(ownerId) : await User.findByPk(req.user.id);
+    if (!owner) return res.status(400).send('owner not found');
+    const created = await createApiKey({ name, createdBy: owner.id, scope });
     const [keys, people] = await Promise.all([listApiKeys(), User.findAll({ order: [['username', 'ASC']] })]);
+    res.setHeader('Cache-Control', 'no-store');
     res.render('admin/api-keys', { keys, users: people, createdKey: created.raw });
   }));
 
