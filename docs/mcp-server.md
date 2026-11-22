@@ -71,6 +71,11 @@ For the id-oracle requirement, `resources/read` and `get_document` return no doc
 | `restore_version` | write | Restore a snapshot as a new current version |
 | `duplicate_document` | write | Copy a document into a private caller-owned copy |
 | `delete_document` | write | Permanently delete a document and its versions; requires `confirm: true` |
+| `flow_list_templates` | read | Built-in Cascade Flow Discord bot templates |
+| `flow_get_project` | read | Flow graph, scripts, entry nodes, settings and diagnostics |
+| `flow_compile` | read | Compile a Flow graph; optional `include_code` returns the generated bot |
+| `flow_export` | read | Build a single-file or modular export; optional `include_files` returns file contents |
+| `flow_create_script` | write | Add a command, event, module or main script with its entry node |
 
 Resources are available at `cascade://documents/:id` for clients that support MCP resources.
 
@@ -84,6 +89,8 @@ Resources are available at `cascade://documents/:id` for clients that support MC
 6. Use `list_templates` + `create_document` to start from a built-in or custom template.
 
 `update_document` uses an atomic compare-and-swap on the version. When two agents update the same revision concurrently, exactly one succeeds; the loser receives a `version conflict` and no content or history is written.
+
+Flow projects are ordinary `kind: "flow"` documents, so they use the same owner check, version history and collaboration model. `flow_compile` and `flow_export` never modify the project; `flow_create_script` uses the same optimistic version check. Export output never contains raw credential-shaped project settings; only `*Env` names are preserved.
 
 All document operations use the same owner/admin check. Read-only keys see only read tools, and write tools are rejected before any database write. Admin-visible documents still cannot be enumerated through owner-scoped list/search tools.
 

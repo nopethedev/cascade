@@ -1,0 +1,143 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<link rel="stylesheet" href="/public/flow/flow.css" />
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="flow-shell" id="flow-shell">
+  <div class="flow-topbar">
+    <button class="flow-btn flow-mobile-project" type="button" id="flow-mobile-project" title="Project explorer">☰</button>
+    <div class="ft-brand"><b>FLOW</b><small>Discord bot IDE</small></div>
+    <button class="flow-btn primary" type="button" id="flow-add-node" title="Add node (A)"><span>＋</span><span class="btn-label">Add node</span></button>
+    <button class="flow-btn" type="button" id="flow-compile" title="Compile project (Ctrl+Enter)"><span>▶</span><span class="btn-label">Compile</span></button>
+    <button class="flow-btn" type="button" id="flow-test" title="Run a simulated graph"><span>🧪</span><span class="btn-label">Test</span></button>
+    <span class="ft-divider"></span>
+    <button class="flow-btn icon" type="button" id="flow-undo" title="Undo (Ctrl+Z)">↶</button>
+    <button class="flow-btn icon" type="button" id="flow-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+    <button class="flow-btn icon" type="button" id="flow-fit" title="Fit graph (F)">⌗</button>
+    <button class="flow-btn icon" type="button" id="flow-layout" title="Auto layout">⇲</button>
+    <span class="ft-divider"></span>
+    <button class="flow-btn" type="button" id="flow-bookmark" title="Bookmark this view">☆ Bookmark</button>
+    <span class="ft-spacer"></span>
+    <span class="ft-status" id="flow-status"><span class="dot"></span><span id="flow-status-text">Ready</span></span>
+    <button class="flow-btn" type="button" id="flow-export"><span>⇩</span><span class="btn-label">Export</span></button>
+  </div>
+
+  <div class="flow-main">
+    <aside class="flow-explorer" aria-label="Project explorer">
+      <div class="fe-head"><strong>Project</strong><button class="flow-btn mini ghost" type="button" id="fe-settings">Settings</button></div>
+      <div class="fe-project"><span class="dot"></span><b id="fe-project-name">My Discord Bot</b><small id="fe-project-count">1 script</small></div>
+      <input class="fe-search" id="fe-search" type="search" placeholder="Filter scripts…" aria-label="Filter scripts" />
+      <div class="fe-tree" id="fe-tree"></div>
+      <div class="fe-actions">
+        <button class="flow-btn mini" type="button" id="fe-new-script">＋ Script</button>
+        <button class="flow-btn mini" type="button" id="fe-new-folder">＋ Folder</button>
+      </div>
+    </aside>
+
+    <section class="flow-canvas-col">
+      <div class="flow-canvas-wrap" id="flow-canvas-wrap" tabindex="0" aria-label="Flow graph canvas">
+        <div class="flow-empty" id="flow-empty"><div><b>Build something executable.</b>Add a command entry, connect an event to a reply, then compile real JavaScript.</div></div>
+        <div class="flow-world" id="flow-world">
+          <svg class="flow-edges" id="flow-edges" width="4000" height="3000" aria-hidden="true"></svg>
+          <div class="flow-nodes" id="flow-nodes"></div>
+        </div>
+        <div class="flow-canvas-hud">
+          <button class="flow-btn mini" type="button" id="flow-zoom-out" title="Zoom out">−</button>
+          <button class="flow-btn mini" type="button" id="flow-zoom-label" title="Reset zoom">100%</button>
+          <button class="flow-btn mini" type="button" id="flow-zoom-in" title="Zoom in">＋</button>
+          <button class="flow-btn mini" type="button" id="flow-minimap-toggle" title="Toggle minimap">Map</button>
+        </div>
+        <div class="flow-minimap" id="flow-minimap" title="Minimap — click to navigate"><svg id="flow-minimap-svg" viewBox="0 0 150 92"></svg></div>
+      </div>
+
+      <div class="flow-bottom" id="flow-bottom">
+        <div class="fb-head">
+          <button class="fb-tab on" type="button" data-fb="code">JavaScript</button>
+          <button class="fb-tab" type="button" data-fb="problems">Problems <span id="flow-problem-count"></span></button>
+          <button class="fb-tab" type="button" data-fb="console">Console</button>
+          <button class="fb-tab" type="button" data-fb="debug">Inspector</button>
+          <div class="fb-actions">
+            <span class="ft-status" id="flow-compile-status"><span class="dot"></span><span id="flow-compile-text">Not compiled</span></span>
+            <button class="flow-btn mini" type="button" id="flow-copy-code">Copy</button>
+          </div>
+        </div>
+        <div class="fb-body">
+          <div class="fb-pane on" id="fb-code"><pre class="flow-code" id="flow-code">Compile the project to see generated JavaScript.</pre></div>
+          <div class="fb-pane" id="fb-problems"><div class="flow-problems" id="flow-problems"><div class="fi-empty">Compile to see validation problems.</div></div></div>
+          <div class="fb-pane" id="fb-console"><div class="flow-console" id="flow-console"></div></div>
+          <div class="fb-pane" id="fb-debug"><div class="flow-debug"><div><b class="fi-section">Variables</b><pre id="flow-debug-vars">{}</pre></div><div><b class="fi-section">Trace</b><pre id="flow-debug-trace">Run a test to trace the graph.</pre></div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="flow-inspector" id="flow-inspector" aria-label="Inspector">
+      <div class="fi-head"><strong>Inspector</strong><button class="flow-btn mini ghost" type="button" id="fi-close-mobile">Close</button></div>
+      <div class="fi-tabs">
+        <button class="fi-tab on" type="button" data-fi="node">Node</button>
+        <button class="fi-tab" type="button" data-fi="script">Script</button>
+        <button class="fi-tab" type="button" data-fi="project">Project</button>
+      </div>
+      <div class="fi-body" id="fi-body"></div>
+    </aside>
+  </div>
+</div>
+
+<dialog class="flow-dialog" id="flow-library">
+  <div class="fd-head">
+    <div><h2>Node library</h2><p>Typed nodes for Discord, data, AI, databases, HTTP and Lavalink. Click one to add it to the canvas.</p></div>
+    <button class="flow-btn ghost" type="button" data-close-dialog="flow-library">Close</button>
+  </div>
+  <div class="fd-body">
+    <div class="library-search"><input id="library-search" type="search" placeholder="Search nodes, categories or operations…" autofocus /><button class="flow-btn" type="button" id="library-clear">Clear</button></div>
+    <div class="library-layout">
+      <div class="library-cats" id="library-cats"></div>
+      <div class="library-results" id="library-results"></div>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="flow-dialog" id="flow-export-dialog">
+  <div class="fd-head">
+    <div><h2>Export a runnable bot</h2><p>Compiler errors block exports. Secrets stay in environment variables and are never bundled.</p></div>
+    <button class="flow-btn ghost" type="button" data-close-dialog="flow-export-dialog">Close</button>
+  </div>
+  <div class="fd-body">
+    <div class="export-grid">
+      <div class="export-card" data-export="single" role="button" tabindex="0">
+        <b>Single-file bot</b>
+        <p>One <code>bot.js</code> containing every script, plus <code>package.json</code>, <code>.env.example</code> and a README.</p>
+        <span class="flow-btn primary mini">Download ZIP</span>
+      </div>
+      <div class="export-card" data-export="modular" role="button" tabindex="0">
+        <b>Modular project</b>
+        <p>Separate command, event and module files with a shared runtime, database models and hosting instructions.</p>
+        <span class="flow-btn mini">Download ZIP</span>
+      </div>
+    </div>
+    <div class="export-list" id="export-list">Compile the project to inspect the generated files.</div>
+  </div>
+  <div class="fd-foot"><button class="flow-btn ghost" type="button" data-close-dialog="flow-export-dialog">Cancel</button><button class="flow-btn" type="button" id="export-compile-first">Compile first</button></div>
+</dialog>
+
+<dialog class="flow-dialog" id="flow-test-dialog">
+  <div class="fd-head">
+    <div><h2>Simulate the graph</h2><p>Run this script without connecting to Discord. Exec nodes and data nodes are traced locally; custom JavaScript and real network calls are not executed in the browser.</p></div>
+    <button class="flow-btn ghost" type="button" data-close-dialog="flow-test-dialog">Close</button>
+  </div>
+  <div class="fd-body">
+    <div class="test-grid">
+      <div class="fi-field"><label for="test-script">Script</label><select id="test-script"></select><div class="fi-help">The selected script's entry node is used as the start.</div></div>
+      <div class="fi-field"><label for="test-json">Mock event / interaction payload</label><textarea id="test-json" spellcheck="false">{&#10;  "user": { "id": "123", "username": "tester" },&#10;  "content": "hello"&#10;}</textarea></div>
+    </div>
+    <div class="fi-note">Simulation checks routing, branches, variable flow, replies and breakpoints. The exported JavaScript is still validated and can be executed with Node.js separately.</div>
+  </div>
+  <div class="fd-foot"><button class="flow-btn ghost" type="button" data-close-dialog="flow-test-dialog">Cancel</button><button class="flow-btn primary" type="button" id="test-run">Run simulation</button></div>
+</dialog>
+
+<div id="flow-toast-host"></div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script type="module" src="/public/editors/flow.js"></script>
+<%- include('../partials/foot') %>

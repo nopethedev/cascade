@@ -41,6 +41,8 @@ import { buildPdfTemplate } from './pdfTemplates.js';
 import { readFileWithFallback } from './storage.js';
 import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
 import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
+import JSZip from 'jszip';
+import { compileFlow, singleFileExport, modularExport } from './flow/compiler.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const MAX_CONTENT = 12 * 1024 * 1024; // editor JSON per document (PDFs are base64)
@@ -479,6 +481,50 @@ export function createWorkspaceRouter() {
     }
     touchPresence(file.id, req.user);
     res.json({ ok: true, version: file.version, updatedAt: file.updatedAt, changed, viewers: viewersOf(file.id) });
+  }));
+
+  // ---------- Cascade Flow compile / export ----------
+  r.post('/api/workspace/docs/:id/flow/compile', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'flow') return res.status(404).json({ error: 'not found' });
+    const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
+    const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    const serialized = JSON.stringify(content);
+    if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'project too large' });
+    const result = compileFlow(content);
+    res.json({
+      ok: result.ok,
+      diagnostics: result.diagnostics,
+      errors: result.errors,
+      code: result.ok ? result.code : null,
+      codeMap: result.codeMap,
+      scripts: result.scripts,
+      stats: result.stats,
+      modularFiles: result.modular ? Object.keys(result.modular).filter((name) => name !== 'README.md' && name !== '.env.example') : [],
+    });
+  }));
+
+  r.post('/api/workspace/docs/:id/flow/export', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'flow') return res.status(404).json({ error: 'not found' });
+    const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
+    const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    if (Buffer.byteLength(JSON.stringify(content)) > MAX_CONTENT) return res.status(413).json({ error: 'project too large' });
+    const mode = req.body?.mode === 'modular' ? 'modular' : 'single';
+    const result = mode === 'modular' ? modularExport(content) : singleFileExport(content);
+    if (!result.ok) return res.status(422).json({ error: 'Fix the compiler errors before exporting.', diagnostics: result.diagnostics });
+    const zip = new JSZip();
+    const folder = zip.folder(mode === 'modular' ? 'cascade-flow-bot' : 'cascade-flow-bot');
+    for (const [name, body] of Object.entries(result.files)) {
+      if (!name || name.includes('..') || name.startsWith('/')) continue;
+      folder.file(name, body);
+    }
+    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    const base = String(file.filename || 'cascade-flow-bot').replace(/[^\w.-]+/g, '-').replace(/\.zip$/i, '');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(base)}-${mode}.zip"`);
+    res.send(buffer);
   }));
 
   // ---------- Presence heartbeat ----------
@@ -1008,6 +1054,26 @@ export function createWorkspaceRouter() {
       const active = (content.files || [])[content.active || 0] || (content.files || [])[0];
       const safe = (active?.name || 'file.txt').replace(/[^\w.-]+/g, '-');
       return { body: active?.text || '', type: 'text/plain; charset=utf-8', filename: safe };
+    }
+    if (file.kind === 'flow') {
+      const result = singleFileExport(content);
+      if (!result.ok) {
+        return {
+          body: JSON.stringify({ error: 'Flow project has compiler errors', diagnostics: result.diagnostics }, null, 2),
+          type: 'application/json; charset=utf-8',
+          filename: `${base}-errors.json`,
+        };
+      }
+      const zip = new JSZip();
+      const folder = zip.folder('cascade-flow-bot');
+      for (const [name, body] of Object.entries(result.files)) {
+        if (name && !name.includes('..') && !name.startsWith('/')) folder.file(name, body);
+      }
+      return {
+        body: await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } }),
+        type: 'application/zip',
+        filename: `${base}-bot.zip`,
+      };
     }
     if (file.kind === 'form') {
       return { body: JSON.stringify(content, null, 2), type: 'application/json; charset=utf-8', filename: `${base}.json` };

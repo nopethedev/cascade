@@ -4,6 +4,8 @@ import { Op } from 'sequelize';
 import { FileRecord, DocVersion, Folder, Template, FormResponse, StudioCommand, StudioSnapshot, sequelize } from './db.js';
 import { validateCommand, applyCommandToContent } from './studio.js';
 import { KIND_BY_ID, TEMPLATES, buildContent } from './templates.js';
+import { blankScript, normalizeFlow } from '../public/flow/schema.mjs';
+import { compileFlow, renderExport, validateFlow } from './flow/compiler.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { recordEvent } from './analytics.js';
 
@@ -25,6 +27,10 @@ const READ_TOOLS = new Set([
   'studio_list_projects',
   'studio_get_scene',
   'studio_list_commands',
+  'flow_list_templates',
+  'flow_get_project',
+  'flow_compile',
+  'flow_export',
 ]);
 
 class ToolError extends Error {}
@@ -329,6 +335,52 @@ const tools = [
       type: 'object',
       additionalProperties: false,
       properties: { kind: { type: 'string', enum: [...KIND_BY_ID.keys()] } },
+    },
+  },
+  {
+    name: 'flow_list_templates',
+    description: 'List built-in Cascade Flow Discord bot templates. Use the id with create_document and kind flow.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'flow_get_project',
+    description: 'Read an owned Flow bot project, its scripts, entry nodes, validation diagnostics and project settings. Secrets never appear in the export graph.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'flow_compile',
+    description: 'Compile an owned Flow project to JavaScript with node-linked diagnostics. Set include_code for the generated single-file bot source.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: { id: { type: 'string', minLength: 1 }, include_code: { type: 'boolean' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'flow_export',
+    description: 'Build the single-file or modular export for an owned Flow project and list every generated file. Set include_files for file contents. Compiler errors block export.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: { id: { type: 'string', minLength: 1 }, mode: { type: 'string', enum: ['single', 'modular'] }, include_files: { type: 'boolean' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'flow_create_script',
+    description: 'Add a new command, event, module or main script with a typed entry node to an owned Flow project. Returns the new version for optimistic updates.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1, maxLength: 80 },
+        type: { type: 'string', enum: ['main', 'command', 'event', 'module'] },
+        event: { type: 'string' },
+        commandName: { type: 'string', maxLength: 32 },
+        commandDescription: { type: 'string', maxLength: 100 },
+        commandKind: { type: 'string', enum: ['slash', 'prefix', 'user', 'message'] },
+        version: { type: 'integer', minimum: 1 },
+      },
+      required: ['id', 'name', 'type'],
     },
   },
   {
@@ -806,6 +858,99 @@ async function callTool(name, args, ctx) {
           })),
         ],
       });
+    }
+
+    if (name === 'flow_list_templates') {
+      return textResult({
+        templates: TEMPLATES.filter((t) => t.kind === 'flow').map(({ id, name, category, description }) => ({ id, name, category, description })),
+      });
+    }
+
+    if (name === 'flow_get_project') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'flow') return errorResult('not a Flow project');
+      const content = normalizeFlow(parseContent(file));
+      const validation = validateFlow(content);
+      return textResult({
+        project: docMeta(file),
+        settings: {
+          name: content.project.name, prefix: content.project.prefix, database: content.project.database,
+          intents: content.project.intents, partials: content.project.partials, lavalink: content.project.lavalink,
+        },
+        scripts: content.scripts.map((s) => ({
+          id: s.id, name: s.name, type: s.type, enabled: s.enabled, event: s.event, command: s.command,
+          imports: s.imports, exports: s.exports,
+          nodes: s.graph.nodes.map((n) => ({ id: n.id, type: n.type, x: n.x, y: n.y, config: n.config })),
+          edges: s.graph.edges,
+        })),
+        diagnostics: validation.diagnostics,
+      });
+    }
+
+    if (name === 'flow_compile') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'flow') return errorResult('not a Flow project');
+      const result = compileFlow(parseContent(file));
+      return textResult({
+        ok: result.ok,
+        diagnostics: result.diagnostics,
+        stats: result.stats || null,
+        scripts: result.scripts || [],
+        ...(input.include_code && result.code ? { code: result.code } : {}),
+      });
+    }
+
+    if (name === 'flow_export') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'flow') return errorResult('not a Flow project');
+      const exported = renderExport(parseContent(file));
+      if (!exported.ok) return textResult({ ok: false, diagnostics: exported.diagnostics });
+      const mode = input.mode || 'single';
+      const files = mode === 'modular' ? exported.modular : exported.single.files;
+      return textResult({
+        ok: true,
+        mode,
+        stats: exported.stats,
+        files: Object.entries(files).map(([path, content]) => ({
+          path,
+          bytes: Buffer.byteLength(String(content)),
+          ...(input.include_files ? { content: String(content) } : {}),
+        })),
+        diagnostics: exported.diagnostics,
+      });
+    }
+
+    if (name === 'flow_create_script') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'flow') return errorResult('not a Flow project');
+      const content = normalizeFlow(parseContent(file));
+      const script = blankScript(undefined, String(input.name).trim(), input.type);
+      if (input.event) script.event = String(input.event).slice(0, 80);
+      if (input.type === 'command') {
+        script.command = {
+          ...script.command,
+          name: String(input.commandName || input.name).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 32) || 'command',
+          description: String(input.commandDescription || `The ${input.name} command`).slice(0, 100),
+          kind: input.commandKind || 'slash',
+        };
+      }
+      content.scripts.push(script);
+      const serialized = serializedSize(content);
+      const incomingVersion = Number(input.version) || 0;
+      const expectedVersion = incomingVersion || file.version;
+      if (incomingVersion && incomingVersion !== file.version) return errorResult(`version conflict: current version is ${file.version}`);
+      const [affected] = await FileRecord.update(
+        { content: serialized, size: Buffer.byteLength(serialized), version: sequelize.literal('version + 1'), updatedAt: new Date() },
+        { where: { id: file.id, version: expectedVersion } },
+      );
+      if (!affected) {
+        const latest = await FileRecord.findByPk(file.id, { attributes: ['version'] });
+        return errorResult(latest ? `version conflict: current version is ${latest.version}` : 'document not found');
+      }
+      await snapshot(file, ctx.user.id);
+      await file.reload();
+      recordEvent(ctx.req, 'edit', { fileId: file.id });
+      return textResult({ created: true, script: { id: script.id, name: script.name, type: script.type, entry: script.graph.nodes[0]?.id || null }, version: file.version });
     }
 
     if (name === 'studio_list_projects') {

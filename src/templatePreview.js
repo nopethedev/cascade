@@ -146,7 +146,36 @@ function robloxPreview(content) {
   </div>`;
 }
 
+function flowPreview(content) {
+  const scripts = Array.isArray(content?.scripts) ? content.scripts : [];
+  const active = scripts[0] || { graph: { nodes: [], edges: [] }, name: 'Main' };
+  const nodes = (active.graph?.nodes || []).filter((n) => !['comment', 'group'].includes(n.type));
+  const edges = active.graph?.edges || [];
+  const maxX = Math.max(560, ...nodes.map((n) => Number(n.x) + 260));
+  const maxY = Math.max(360, ...nodes.map((n) => Number(n.y) + 130));
+  const pos = new Map(nodes.map((n) => [n.id, { x: Number(n.x) || 0, y: Number(n.y) || 0 }]));
+  const paths = edges.map((e) => {
+    const a = pos.get(e.from?.node), b = pos.get(e.to?.node);
+    if (!a || !b) return '';
+    const x1 = ((a.x + 220) / maxX) * 100, y1 = ((a.y + 46) / maxY) * 100;
+    const x2 = (b.x / maxX) * 100, y2 = ((b.y + 46) / maxY) * 100;
+    const mid = (x1 + x2) / 2;
+    return `<path d="M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}" fill="none" stroke="${e.kind === 'exec' ? '#e11d48' : '#64748b'}" stroke-width="1.1" opacity="${e.kind === 'exec' ? 0.85 : 0.65}"/>`;
+  }).join('');
+  const cards = nodes.slice(0, 40).map((n) => {
+    const x = ((Number(n.x) || 0) / maxX) * 100, y = ((Number(n.y) || 0) / maxY) * 100;
+    const title = n.type.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    return `<div class="fp-node" style="left:${x}%;top:${y}%;width:${Math.max(14, Math.min(34, (220 / maxX) * 100))}%"><b>${esc(title)}</b><span>${esc(n.type)}</span></div>`;
+  }).join('');
+  return `<div class="flow-preview">
+    <div class="flp-head"><span class="flp-kicker">CASCADE FLOW · ${esc(content?.project?.name || 'Discord bot')}</span><div class="flp-tabs">${scripts.slice(0, 5).map((s, i) => `<span class="${i === 0 ? 'on' : ''}">${esc(s.name || 'Script')}</span>`).join('')}</div></div>
+    <div class="flp-canvas"><div class="flp-dots"></div><svg viewBox="0 0 100 100" preserveAspectRatio="none">${paths}</svg>${cards}<div class="flp-legend"><i class="exec"></i> execution <i class="data"></i> data</div></div>
+    <div class="flp-foot"><span>${scripts.length} scripts</span><span>${nodes.length} nodes</span><span>${edges.length} connections</span><span class="flp-ready">Ready to compile</span></div>
+  </div>`;
+}
+
 export function templatePreviewBody(kind, content) {
+  if (kind === 'flow') return flowPreview(content || {});
   if (kind === 'roblox') return robloxPreview(content || {});
   if (kind === 'doc') return documentPreview(content || {});
   if (kind === 'sheet') return sheetPreview(content || {});
@@ -265,6 +294,22 @@ export function templatePreviewDocument({ kind, content, title, theme }) {
   .rbx-tree span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:3px 5px; border-radius:3px; color:#b8b8c5; font-size:9px; }
   .rbx-tree i { display:inline-block; width:21px; color:#f59e0b; font:700 7px ui-monospace,monospace; font-style:normal; }
   .rbx-tree em { color:#777; font-size:9px; }
+  .flow-preview { height:100vh; display:flex; flex-direction:column; background:#09090c; color:#f4f4f5; font-family:Inter,system-ui,sans-serif; overflow:hidden; }
+  .flp-head { padding:13px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .flp-kicker { font:700 8px/1 ui-monospace,monospace; letter-spacing:.1em; color:#f472b6; }
+  .flp-tabs { display:flex; gap:4px; overflow:hidden; }
+  .flp-tabs span { font-size:8px; color:#85858f; border:1px solid rgba(255,255,255,.1); border-radius:4px; padding:4px 6px; white-space:nowrap; }
+  .flp-tabs span.on { color:#f9a8d4; border-color:rgba(244,114,182,.5); background:rgba(244,114,182,.1); }
+  .flp-canvas { position:relative; flex:1; overflow:hidden; background:radial-gradient(circle at 1px 1px, rgba(255,255,255,.13) 1px, transparent 0); background-size:17px 17px; }
+  .flp-canvas svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .fp-node { position:absolute; background:#17171d; border:1px solid rgba(255,255,255,.13); border-left:3px solid #e11d48; border-radius:5px; padding:8px 9px; box-shadow:0 8px 24px rgba(0,0,0,.3); overflow:hidden; }
+  .fp-node b { display:block; font-size:8px; color:#ededf0; margin-bottom:3px; white-space:nowrap; }
+  .fp-node span { font:6px ui-monospace,monospace; color:#71717a; }
+  .flp-legend { position:absolute; left:11px; bottom:10px; display:flex; align-items:center; gap:4px; font:7px ui-monospace,monospace; color:#85858f; background:rgba(9,9,12,.8); padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:4px; }
+  .flp-legend i { display:inline-block; width:9px; height:2px; border-radius:2px; margin-left:4px; }
+  .flp-legend i.exec { background:#e11d48; } .flp-legend i.data { background:#64748b; }
+  .flp-foot { display:flex; gap:12px; padding:9px 15px; border-top:1px solid rgba(255,255,255,.08); font:7px ui-monospace,monospace; color:#71717a; }
+  .flp-ready { margin-left:auto; color:#4ade80; }
   .unknown { padding:20px; color:#888; font:11px system-ui; }
   @media (max-width:520px) { .doc-preview { padding:18px; } .sp-hero strong { font-size:27px; } }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
