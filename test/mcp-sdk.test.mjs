@@ -41,6 +41,20 @@ function queryRows(dbPath, sql, params = []) {
   });
 }
 
+function execDb(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, (openErr) => {
+      if (openErr) return reject(openErr);
+      db.run(sql, params, function (err) {
+        const result = { changes: this.changes, lastID: this.lastID };
+        db.close();
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+  });
+}
+
 async function waitForServer(base, child, logs) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
@@ -241,6 +255,22 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.ok(createdDoc.id);
     assert.equal(createdDoc.kind, 'doc');
 
+    const rawMcp = async (payload, key = writeKey.raw) => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'content-type': 'application/json' },
+        body: typeof payload === 'string' ? payload : JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let json;
+      try { json = JSON.parse(text); } catch { json = { parseError: text }; }
+      return { status: res.status, json, text };
+    };
+    const rawTool = async (name, args) => {
+      const response = await rawMcp({ jsonrpc: '2.0', id: 900, method: 'tools/call', params: { name, arguments: args } });
+      return response.json.result || response.json.error;
+    };
+
     const readBack = await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
     assert.match(textOf(readBack), /SDK PRIVATE MARKER/);
 
@@ -280,6 +310,15 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
       name: 'update_document_metadata', arguments: { id: createdDoc.id, folderId: createdFolder.id },
     }))).document;
     assert.equal(refiled.folderId, createdFolder.id);
+    const starred = JSON.parse(textOf(await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, starred: true },
+    }))).document;
+    assert.equal(starred.starred, true);
+    assert.equal(starred.filename, 'SDK organized doc');
+    const unstarred = JSON.parse(textOf(await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, starred: false },
+    }))).document;
+    assert.equal(unstarred.starred, false);
 
     const searched = JSON.parse(textOf(await write.callTool({
       name: 'search_documents', arguments: { query: 'SDK PRIVATE MARKER' },
@@ -314,12 +353,41 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.match(textOf(afterRestore), /SDK PRIVATE MARKER/);
     assert.ok(!textOf(afterRestore).includes('MARKER V2'));
 
+    const raceDoc = JSON.parse(textOf(await write.callTool({
+      name: 'create_document',
+      arguments: { kind: 'doc', name: 'SDK race doc', content: { html: 'RACE BASE' } },
+    }))).document;
+    const raceResults = await Promise.all([
+      write.callTool({
+        name: 'update_document',
+        arguments: { id: raceDoc.id, content: { html: 'RACE A' }, version: raceDoc.version },
+      }),
+      write.callTool({
+        name: 'update_document',
+        arguments: { id: raceDoc.id, content: { html: 'RACE B' }, version: raceDoc.version },
+      }),
+    ]);
+    const raceSuccesses = raceResults.filter((result) => !result.isError);
+    const raceConflicts = raceResults.filter((result) => result.isError);
+    assert.equal(raceSuccesses.length, 1, `exactly one concurrent stale update may succeed: ${JSON.stringify(raceResults)}`);
+    assert.equal(raceConflicts.length, 1, 'the stale update must return a conflict');
+    assert.match(textOf(raceConflicts[0]), /version conflict/i);
+    const raceFinal = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: raceDoc.id } })));
+    assert.ok(['RACE A', 'RACE B'].includes(raceFinal.document.content.html));
+    assert.equal(raceFinal.document.version, raceDoc.version + 1);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [raceDoc.id]))[0].n, 1, 'one edit must not duplicate the initial v1 snapshot');
+    await write.callTool({ name: 'delete_document', arguments: { id: raceDoc.id, confirm: true } });
+
     const duplicate = JSON.parse(textOf(await write.callTool({
       name: 'duplicate_document', arguments: { id: createdDoc.id, name: 'SDK copied doc' },
     }))).document;
     assert.ok(duplicate.id !== createdDoc.id);
     assert.equal(duplicate.filename, 'SDK copied doc');
     assert.equal(duplicate.isPublic, false);
+    assert.equal(duplicate.version, 1);
+    const originalForDuplicate = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } }))).document;
+    const duplicateForCompare = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: duplicate.id } }))).document;
+    assert.deepEqual(duplicateForCompare.content, originalForDuplicate.content, 'duplicate must preserve editor JSON exactly');
     const deleteDenied = await write.callTool({
       name: 'delete_document', arguments: { id: duplicate.id, confirm: false },
     });
@@ -335,12 +403,26 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
       name: 'create_document',
       arguments: { kind: 'form', name: 'SDK form', content: { title: 'SDK form', fields: [] } },
     }))).document;
+    await execDb(dbPath,
+      'insert into form_responses (fileId, data, ip, createdAt, updatedAt) values (?, ?, ?, ?, ?)',
+      [formDoc.id, JSON.stringify({ answer: 'FORM FIELD VALUE' }), '198.51.100.7', new Date().toISOString(), new Date().toISOString()]);
+    const formResponseId = (await queryRows(dbPath, 'select id from form_responses where fileId = ?', [formDoc.id]))[0].id;
     const formResponses = JSON.parse(textOf(await write.callTool({
       name: 'list_form_responses', arguments: { id: formDoc.id },
     })));
     assert.equal(formResponses.name, 'SDK form');
     assert.deepEqual(formResponses.fields, []);
-    assert.deepEqual(formResponses.responses, []);
+    assert.equal(formResponses.responses.length, 1);
+    assert.equal(formResponses.responses[0].data.answer, 'FORM FIELD VALUE');
+    assert.deepEqual(Object.keys(formResponses.responses[0]).sort(), ['createdAt', 'data', 'id'], 'only form data and timestamps may be returned');
+    assert.ok(!JSON.stringify(formResponses).includes('198.51.100.7'), 'list_form_responses must omit the IP');
+    assert.ok(!Object.prototype.hasOwnProperty.call(formResponses.responses[0], 'ip'));
+    assert.ok(!JSON.stringify(formResponses).includes(writeKey.raw), 'form responses must not expose API-key material');
+    const oneFormResponse = JSON.parse(textOf(await write.callTool({
+      name: 'list_form_responses', arguments: { id: formDoc.id, responseId: formResponseId },
+    })));
+    assert.equal(oneFormResponse.response.id, formResponseId);
+    assert.ok(!JSON.stringify(oneFormResponse).includes('198.51.100.7'));
 
     const { client: read } = await connectSdk(base, readKey.raw);
     const readTools = await read.listTools();
@@ -363,20 +445,271 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     const unchanged = await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
     assert.ok(!textOf(unchanged).includes('SDK-PWN'));
 
+    const readOnlyState = async () => ({
+      files: await queryRows(dbPath, 'select id, filename, content, version, isPublic, starred, folderId from files order by id'),
+      folders: await queryRows(dbPath, 'select id, name, ownerId from folders order by id'),
+      versions: await queryRows(dbPath, 'select id, fileId, version, content from doc_versions order by id'),
+      responses: await queryRows(dbPath, 'select id, fileId, data from form_responses order by id'),
+    });
+    const stateBeforeReadOnlyWrites = await readOnlyState();
+    const readOnlyWrites = [
+      { name: 'create_document', arguments: { kind: 'doc', name: 'READONLY CREATE' } },
+      { name: 'update_document', arguments: { id: createdDoc.id, content: { html: 'READONLY UPDATE' } } },
+      { name: 'update_document_metadata', arguments: { id: createdDoc.id, name: 'READONLY RENAME' } },
+      { name: 'create_folder', arguments: { name: 'READONLY FOLDER' } },
+      { name: 'restore_version', arguments: { id: createdDoc.id, version: 1 } },
+      { name: 'duplicate_document', arguments: { id: createdDoc.id, name: 'READONLY COPY' } },
+      { name: 'delete_document', arguments: { id: createdDoc.id, confirm: true } },
+    ];
+    for (const call of readOnlyWrites) {
+      const result = await read.callTool(call);
+      assert.equal(result.isError, true, `read-only key must reject ${call.name}`);
+      assert.match(textOf(result), /read-only/i, `${call.name} must fail at the scope gate`);
+    }
+    assert.deepEqual(await readOnlyState(), stateBeforeReadOnlyWrites, 'read-only rejected writes must not change any state');
+
     const { client: other } = await connectSdk(base, otherKey.raw);
+    const otherFolder = JSON.parse(textOf(await other.callTool({
+      name: 'create_folder', arguments: { name: 'Other private folder' },
+    }))).folder;
+    const otherDoc = JSON.parse(textOf(await other.callTool({
+      name: 'create_document',
+      arguments: { kind: 'doc', name: 'OTHER SECRET DOCUMENT', content: { html: 'OTHER SECRET BODY' } },
+    }))).document;
+    const otherForm = JSON.parse(textOf(await other.callTool({
+      name: 'create_document',
+      arguments: { kind: 'form', name: 'OTHER SECRET FORM', content: { title: 'Other form', fields: [{ id: 'q1', type: 'text', label: 'Answer', required: false }] } },
+    }))).document;
+    await execDb(dbPath,
+      'insert into form_responses (fileId, data, ip, createdAt, updatedAt) values (?, ?, ?, ?, ?)',
+      [otherForm.id, JSON.stringify({ q1: 'OTHER SECRET RESPONSE' }), '203.0.113.9', new Date().toISOString(), new Date().toISOString()]);
+    const otherResponse = (await queryRows(dbPath, 'select id from form_responses where fileId = ?', [otherForm.id]))[0];
+    assert.ok(otherResponse?.id);
+    await execDb(dbPath,
+      'insert into templates (id, name, kind, category, content, ownerId, createdAt, updatedAt) values (?, ?, ?, ?, ?, ?, ?, ?)',
+      ['foreign-sdk-template', 'OTHER SECRET TEMPLATE', 'doc', 'custom', JSON.stringify({ html: 'TEMPLATE SECRET' }), otherRow.id, new Date().toISOString(), new Date().toISOString()]);
+    await execDb(dbPath,
+      'insert into templates (id, name, kind, category, content, ownerId, createdAt, updatedAt) values (?, ?, ?, ?, ?, ?, ?, ?)',
+      ['admin-sdk-template', 'ADMIN SECRET TEMPLATE', 'doc', 'custom', JSON.stringify({ html: 'ADMIN TEMPLATE SECRET' }), adminRow.id, new Date().toISOString(), new Date().toISOString()]);
+
+    const adminFolders = JSON.parse(textOf(await write.callTool({ name: 'list_folders', arguments: {} }))).folders;
+    assert.ok(adminFolders.some((folder) => folder.id === createdFolder.id));
+    assert.ok(!adminFolders.some((folder) => folder.id === otherFolder.id), 'folder list must not cross owner boundaries');
+    const otherFolders = JSON.parse(textOf(await other.callTool({ name: 'list_folders', arguments: {} }))).folders;
+    assert.ok(otherFolders.some((folder) => folder.id === otherFolder.id));
+    assert.ok(!otherFolders.some((folder) => folder.id === createdFolder.id), 'folder list must not cross owner boundaries');
+    const adminDocuments = JSON.parse(textOf(await write.callTool({ name: 'list_documents', arguments: {} }))).documents;
+    assert.ok(!adminDocuments.some((doc) => doc.id === otherDoc.id));
+    const otherDocuments = JSON.parse(textOf(await other.callTool({ name: 'list_documents', arguments: {} }))).documents;
+    assert.ok(!otherDocuments.some((doc) => doc.id === createdDoc.id));
+    const adminTemplates = JSON.parse(textOf(await write.callTool({ name: 'list_templates', arguments: { kind: 'doc' } }))).templates;
+    assert.ok(!adminTemplates.some((template) => template.id === 'custom:foreign-sdk-template'));
+    assert.ok(adminTemplates.some((template) => template.id === 'custom:admin-sdk-template'));
+    const otherTemplates = JSON.parse(textOf(await other.callTool({ name: 'list_templates', arguments: { kind: 'doc' } }))).templates;
+    assert.ok(otherTemplates.some((template) => template.id === 'custom:foreign-sdk-template'));
+    assert.ok(!otherTemplates.some((template) => template.id === 'custom:admin-sdk-template'));
+
     const otherSearch = JSON.parse(textOf(await other.callTool({
       name: 'search_documents', arguments: { query: 'SDK PRIVATE MARKER' },
     })));
     assert.equal(otherSearch.documents.length, 0, 'search must not cross owner boundaries');
+    const otherSearchesOwn = JSON.parse(textOf(await other.callTool({
+      name: 'search_documents', arguments: { query: 'OTHER SECRET DOCUMENT' },
+    })));
+    assert.ok(otherSearchesOwn.documents.some((doc) => doc.id === otherDoc.id));
     const foreignMetadata = await other.callTool({
       name: 'update_document_metadata', arguments: { id: createdDoc.id, name: 'SDK-PWN' },
     });
     assert.equal(foreignMetadata.isError, true);
+    assert.match(textOf(foreignMetadata), /document not found/i);
     assert.ok(!JSON.stringify(foreignMetadata).includes('SDK PRIVATE MARKER'));
     const foreignFormResponses = await other.callTool({
       name: 'list_form_responses', arguments: { id: formDoc.id },
     });
     assert.equal(foreignFormResponses.isError, true);
+    assert.match(textOf(foreignFormResponses), /document not found/i);
+    const foreignOwnResponse = await other.callTool({
+      name: 'list_form_responses', arguments: { id: otherForm.id, responseId: otherResponse.id },
+    });
+    assert.equal(foreignOwnResponse.isError, undefined);
+    assert.equal(JSON.parse(textOf(foreignOwnResponse)).response.id, otherResponse.id);
+    assert.ok(!JSON.stringify(foreignOwnResponse).includes('203.0.113.9'), 'form response IP must not be exposed');
+
+    const foreignFolderCreate = await other.callTool({
+      name: 'create_document', arguments: { kind: 'doc', name: 'SHOULD NOT EXIST', folderId: createdFolder.id },
+    });
+    assert.equal(foreignFolderCreate.isError, true);
+    assert.match(textOf(foreignFolderCreate), /folder not found/i);
+    const foreignFolderMove = await other.callTool({
+      name: 'update_document_metadata', arguments: { id: otherDoc.id, folderId: createdFolder.id },
+    });
+    assert.equal(foreignFolderMove.isError, true);
+    assert.match(textOf(foreignFolderMove), /folder not found/i);
+    assert.ok(!JSON.stringify(foreignFolderMove).includes('SDK Folder'));
+    const missingFolderMove = await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, folderId: 'sdk-folder-that-does-not-exist' },
+    });
+    assert.equal(missingFolderMove.isError, true);
+    assert.match(textOf(missingFolderMove), /folder not found/i);
+    const foreignUpdate = await other.callTool({
+      name: 'update_document', arguments: { id: createdDoc.id, content: { html: 'OTHER SHOULD NOT WRITE' } },
+    });
+    assert.equal(foreignUpdate.isError, true);
+    assert.ok(!JSON.stringify(foreignUpdate).includes('SDK PRIVATE MARKER'));
+    const foreignTemplateCreate = await other.callTool({
+      name: 'create_document',
+      arguments: { kind: 'doc', name: 'SHOULD NOT EXIST', templateId: 'custom:admin-sdk-template' },
+    });
+    assert.equal(foreignTemplateCreate.isError, true);
+    assert.match(textOf(foreignTemplateCreate), /template not found/i);
+    assert.ok(!JSON.stringify(foreignTemplateCreate).includes('ADMIN SECRET TEMPLATE'));
+    const foreignVersionGet = await other.callTool({ name: 'get_version', arguments: { id: createdDoc.id, version: 1 } });
+    assert.equal(foreignVersionGet.isError, true);
+    assert.match(textOf(foreignVersionGet), /document not found/i);
+    assert.ok(!JSON.stringify(foreignVersionGet).includes('SDK PRIVATE MARKER'));
+    assert.ok(!JSON.stringify(foreignVersionGet).includes(createdDoc.id));
+    const foreignRestore = await other.callTool({ name: 'restore_version', arguments: { id: createdDoc.id, version: 1 } });
+    assert.equal(foreignRestore.isError, true);
+    assert.match(textOf(foreignRestore), /document not found/i);
+    assert.ok(!JSON.stringify(foreignRestore).includes('SDK PRIVATE MARKER'));
+    assert.ok(!JSON.stringify(foreignRestore).includes(createdDoc.id));
+    const missingVersionRestore = await write.callTool({ name: 'restore_version', arguments: { id: createdDoc.id, version: 999999 } });
+    assert.equal(missingVersionRestore.isError, true);
+    assert.match(textOf(missingVersionRestore), /version not found/i);
+    const foreignDuplicate = await other.callTool({ name: 'duplicate_document', arguments: { id: createdDoc.id } });
+    assert.equal(foreignDuplicate.isError, true);
+    assert.match(textOf(foreignDuplicate), /document not found/i);
+    assert.ok(!JSON.stringify(foreignDuplicate).includes('SDK PRIVATE MARKER'));
+    assert.ok(!JSON.stringify(foreignDuplicate).includes(createdDoc.id));
+    const missingDuplicate = await write.callTool({ name: 'duplicate_document', arguments: { id: 'sdk-missing-duplicate-id' } });
+    assert.equal(missingDuplicate.isError, true);
+    assert.match(textOf(missingDuplicate), /document not found/i);
+    const foreignVersions = await other.callTool({ name: 'list_versions', arguments: { id: createdDoc.id } });
+    assert.equal(foreignVersions.isError, true);
+    assert.ok(!JSON.stringify(foreignVersions).includes('SDK PRIVATE MARKER'));
+    const foreignDelete = await other.callTool({ name: 'delete_document', arguments: { id: createdDoc.id, confirm: true } });
+    assert.equal(foreignDelete.isError, true);
+    assert.match(textOf(foreignDelete), /document not found/i);
+    assert.ok(!JSON.stringify(foreignDelete).includes(createdDoc.id));
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from files where id = ?', [createdDoc.id]))[0].n, 1);
+    const ownMissingResponse = await write.callTool({ name: 'list_form_responses', arguments: { id: formDoc.id, responseId: otherResponse.id } });
+    assert.equal(ownMissingResponse.isError, true);
+    assert.match(textOf(ownMissingResponse), /response not found/i);
+
+    const shareSet = await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, isPublic: true },
+    });
+    assert.equal(JSON.parse(textOf(shareSet)).document.isPublic, true);
+    const otherPublicRead = await other.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
+    assert.equal(otherPublicRead.isError, true, 'sharing a document must not bypass owner isolation');
+    await write.callTool({ name: 'update_document_metadata', arguments: { id: createdDoc.id, isPublic: false } });
+
+    const missingIdForDelete = 'sdk-missing-delete-id';
+    const cascadeDoc = JSON.parse(textOf(await write.callTool({
+      name: 'create_document', arguments: { kind: 'doc', name: 'SDK cascade doc', content: { html: 'CASCADE V1' } },
+    }))).document;
+    await write.callTool({
+      name: 'update_document', arguments: { id: cascadeDoc.id, content: { html: 'CASCADE V2' }, version: cascadeDoc.version },
+    });
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [cascadeDoc.id]))[0].n, 1, 'one edit must not duplicate the initial v1 snapshot');
+    const cascadeDenied = await write.callTool({ name: 'delete_document', arguments: { id: cascadeDoc.id, confirm: false } });
+    assert.equal(cascadeDenied.isError, true);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from files where id = ?', [cascadeDoc.id]))[0].n, 1, 'unconfirmed delete must not remove the file');
+    assert.ok((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [cascadeDoc.id]))[0].n > 0, 'unconfirmed delete must not remove versions');
+    await write.callTool({ name: 'delete_document', arguments: { id: cascadeDoc.id, confirm: true } });
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from files where id = ?', [cascadeDoc.id]))[0].n, 0);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [cascadeDoc.id]))[0].n, 0, 'delete must cascade versions');
+
+    const cascadeForm = JSON.parse(textOf(await write.callTool({
+      name: 'create_document', arguments: { kind: 'form', name: 'SDK cascade form', content: { title: 'Cascade form', fields: [] } },
+    }))).document;
+    await execDb(dbPath,
+      'insert into form_responses (fileId, data, ip, createdAt, updatedAt) values (?, ?, ?, ?, ?)',
+      [cascadeForm.id, JSON.stringify({ answer: 'cascade response' }), '192.0.2.44', new Date().toISOString(), new Date().toISOString()]);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from form_responses where fileId = ?', [cascadeForm.id]))[0].n, 1);
+    await write.callTool({ name: 'delete_document', arguments: { id: cascadeForm.id, confirm: true } });
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from form_responses where fileId = ?', [cascadeForm.id]))[0].n, 0, 'delete must cascade form responses');
+    const missingDeleteState = (await queryRows(dbPath, 'select count(*) as n from files'))[0].n;
+    const missingDelete = await write.callTool({ name: 'delete_document', arguments: { id: missingIdForDelete, confirm: true } });
+    assert.equal(missingDelete.isError, true);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from files'))[0].n, missingDeleteState);
+
+    const injectionDoc = JSON.parse(textOf(await write.callTool({
+      name: 'create_document',
+      arguments: { kind: 'doc', name: "SQL' OR 1=1 --", content: { html: 'INJECTION BODY' } },
+    }))).document;
+    const injectionSearch = await write.callTool({
+      name: 'search_documents', arguments: { query: "%' OR 1=1; DROP TABLE files; --" },
+    });
+    assert.equal(injectionSearch.isError, undefined, 'injection-shaped search must be a normal query');
+    assert.equal((await queryRows(dbPath, "select count(*) as n from sqlite_master where type = 'table' and name = 'files'", []))[0].n, 1, 'search must not execute injected SQL');
+    const wildcardSearch = JSON.parse(textOf(await write.callTool({
+      name: 'search_documents', arguments: { query: '%' },
+    })));
+    assert.ok(wildcardSearch.documents.length <= 100);
+    assert.ok(!wildcardSearch.documents.some((doc) => doc.filename === 'OTHER SECRET DOCUMENT'));
+    const longQuery = await write.callTool({ name: 'search_documents', arguments: { query: 'x'.repeat(1000) } });
+    assert.equal(longQuery.isError, true);
+    assert.match(textOf(longQuery), /too long/i);
+
+    const bulkCount = 105;
+    const bulkRows = Array.from({ length: bulkCount }, (_, index) => ({
+      id: `bulk-sdk-${String(index).padStart(3, '0')}`,
+      slug: `bulk-sdk-${String(index).padStart(3, '0')}`,
+      filename: `Bulk SDK ${index}`,
+      content: JSON.stringify({ html: `BULK SEARCH MARKER ${index}` }),
+      now: new Date().toISOString(),
+    }));
+    for (let start = 0; start < bulkRows.length; start += 50) {
+      const chunk = bulkRows.slice(start, start + 50);
+      await execDb(dbPath,
+        `insert into files (id, slug, filename, mime, size, ownerId, ownerName, isPublic, starred, replicas, kind, folderId, content, version, template, createdAt, updatedAt)
+         values ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`,
+        chunk.flatMap((row) => [row.id, row.slug, row.filename, 'application/x-cascade-doc', Buffer.byteLength(row.content), adminRow.id, 'sdk-admin', 0, 0, '[]', 'doc', null, row.content, 1, null, row.now, row.now]));
+    }
+    const largeSearch = JSON.parse(textOf(await write.callTool({
+      name: 'search_documents', arguments: { query: 'BULK SEARCH MARKER', limit: 1000 },
+    })));
+    assert.equal(largeSearch.documents.length, 100, 'search must cap result sets at 100');
+    assert.ok(largeSearch.documents.every((doc) => doc.filename.startsWith('Bulk SDK')));
+    assert.ok(!largeSearch.documents.some((doc) => doc.id === injectionDoc.id));
+
+    const beforeBadInput = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } }))).document;
+    for (const content of [[], null, 'not-an-object', 42]) {
+      const bad = await rawTool('update_document', { id: createdDoc.id, content });
+      assert.equal(bad.isError, true, `wrong-typed content must be rejected: ${JSON.stringify(content)}`);
+      assert.match(textOf(bad), /content must be a JSON object/i);
+      assert.ok(!String(bad.stack || '').includes(' at '), 'tool error must not include a stack trace');
+    }
+    const badQuery = await rawTool('search_documents', { query: 42 });
+    assert.equal(badQuery.isError, true);
+    assert.match(textOf(badQuery), /query must be a string/i);
+    const emptyQuery = await write.callTool({ name: 'search_documents', arguments: { query: '' } });
+    assert.equal(emptyQuery.isError, true);
+    const afterBadInput = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } }))).document;
+    assert.deepEqual(afterBadInput.content, beforeBadInput.content, 'invalid inputs must not partially write content');
+    assert.equal(afterBadInput.version, beforeBadInput.version, 'invalid inputs must not advance the version');
+
+    const deepJson = `${'{"a":'.repeat(6000)}1${'}'.repeat(6000)}`;
+    const deepBody = `{"jsonrpc":"2.0","id":901,"method":"tools/call","params":{"name":"update_document","arguments":{"id":${JSON.stringify(createdDoc.id)},"content":${deepJson}}}}`;
+    const deepResponse = await rawMcp(deepBody);
+    assert.equal(deepResponse.status, 200);
+    assert.ok(deepResponse.json.result?.isError === true || deepResponse.json.error, `deep JSON must return a clean JSON-RPC/tool error: ${deepResponse.text.slice(0, 500)}`);
+    assert.ok(!JSON.stringify(deepResponse.json).includes('RangeError'));
+    const oversizedBody = JSON.stringify({
+      jsonrpc: '2.0', id: 902, method: 'tools/call',
+      params: { name: 'update_document', arguments: { id: createdDoc.id, content: { html: 'X'.repeat(13 * 1024 * 1024) } } },
+    });
+    const oversizedResponse = await rawMcp(oversizedBody);
+    assert.equal(oversizedResponse.status, 200);
+    assert.ok(oversizedResponse.json.result?.isError === true || oversizedResponse.json.error, 'oversized content must be rejected cleanly');
+    const afterOversized = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } }))).document;
+    assert.deepEqual(afterOversized.content, beforeBadInput.content, 'oversized content must not write');
+    const malformed = await rawMcp('{ this is not json');
+    assert.equal(malformed.status, 400, 'malformed JSON gets an HTTP parse-error response');
+    assert.equal(malformed.json.error.code, -32700);
+    assert.ok(!malformed.text.includes(' at '), 'parse errors must not expose a stack trace');
+
     const missingId = 'sdk-document-that-does-not-exist';
     const logStart = logs.join('').length;
 
@@ -459,6 +792,12 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.ok(!logs.join('').includes(writeKey.raw), 'write key must not appear in logs');
     assert.ok(!logs.join('').includes(readKey.raw), 'read key must not appear in logs');
     assert.ok(!logs.join('').includes(otherKey.raw), 'other key must not appear in logs');
+    assert.ok(!logs.join('').includes('198.51.100.7'), 'submitter IP must not appear in logs');
+    assert.ok(!logs.join('').includes('FORM FIELD VALUE'), 'form data must not appear in logs');
+    assert.ok(!logs.join('').includes('RangeError'), 'input hardening must not leak a stack/exception trace');
+    const healthAfterSession = await fetch(`${base}/api/health`);
+    assert.ok([200, 503].includes(healthAfterSession.status), 'server must remain responsive after the full session');
+    assert.equal(child.exitCode, null, 'server must not crash or hang during the full session');
   } finally {
     await stopServer(child);
     fs.rmSync(dir, { recursive: true, force: true });

@@ -52,6 +52,21 @@ function assertContentObject(content) {
   if (!content || typeof content !== 'object' || Array.isArray(content)) {
     throw new ToolError('content must be a JSON object');
   }
+  // Editor JSON is shallow by design. Reject pathological nesting before
+  // JSON.stringify or the database sees it; an iterative walk cannot blow the
+  // JS stack on hostile input.
+  const stack = [{ value: content, depth: 0 }];
+  const seen = new WeakSet();
+  while (stack.length) {
+    const { value, depth } = stack.pop();
+    if (depth > 100) throw new ToolError('content is too deeply nested');
+    if (!value || typeof value !== 'object') continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    for (const child of Object.values(value)) {
+      stack.push({ value: child, depth: depth + 1 });
+    }
+  }
 }
 
 function serializedSize(content) {
@@ -84,6 +99,7 @@ function docMeta(file) {
     kind: file.kind,
     version: Number(file.version) || 0,
     isPublic: !!file.isPublic,
+    starred: !!file.starred,
     folderId: file.folderId || null,
     updatedAt: file.updatedAt,
     createdAt: file.createdAt,
@@ -101,12 +117,20 @@ async function loadDoc(id, user) {
 }
 
 async function snapshot(file, userId) {
-  await DocVersion.create({
-    fileId: file.id,
-    version: file.version,
-    content: file.content || '{}',
-    createdBy: userId || null,
+  // Creating a document already snapshots v1. Do not append the same
+  // (fileId, version) again when its first edit snapshots the same revision.
+  const existing = await DocVersion.findOne({
+    where: { fileId: file.id, version: file.version },
+    attributes: ['id'],
   });
+  if (!existing) {
+    await DocVersion.create({
+      fileId: file.id,
+      version: file.version,
+      content: file.content || '{}',
+      createdBy: userId || null,
+    });
+  }
   const old = await DocVersion.findAll({
     where: { fileId: file.id },
     order: [['id', 'DESC']],
@@ -227,7 +251,7 @@ const tools = [
   },
   {
     name: 'update_document_metadata',
-    description: 'Rename, move to a folder, or publish/share an owned document without replacing its content.',
+    description: 'Rename, star, move, or publish/share an owned document without replacing its content.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -236,6 +260,7 @@ const tools = [
         name: { type: 'string', minLength: 1, maxLength: 120 },
         folderId: { type: ['string', 'null'], maxLength: 36 },
         isPublic: { type: 'boolean' },
+        starred: { type: 'boolean' },
       },
       required: ['id'],
     },
@@ -311,6 +336,7 @@ const tools = [
       properties: {
         id: { type: 'string', minLength: 1 },
         limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+        responseId: { type: 'integer', minimum: 1 },
       },
       required: ['id'],
     },
@@ -365,7 +391,7 @@ async function callTool(name, args, ctx) {
         where,
         order: [['updatedAt', 'DESC']],
         limit: clampLimit(input.limit),
-        attributes: ['id', 'filename', 'kind', 'version', 'isPublic', 'folderId', 'updatedAt', 'createdAt'],
+        attributes: ['id', 'filename', 'kind', 'version', 'isPublic', 'starred', 'folderId', 'updatedAt', 'createdAt'],
       });
       return textResult({ documents: files.map(docMeta) });
     }
@@ -458,13 +484,30 @@ async function callTool(name, args, ctx) {
       }
       const changed = serialized !== (file.content || '');
       if (changed) {
+        // Compare-and-swap on the version. A concurrent writer must lose its
+        // stale write instead of silently replacing a newer revision.
+        const expectedVersion = incomingVersion || file.version;
+        const where = input.force ? { id: file.id } : { id: file.id, version: expectedVersion };
+        const [affected] = await FileRecord.update(
+          {
+            content: serialized,
+            size: Buffer.byteLength(serialized),
+            version: sequelize.literal('version + 1'),
+            updatedAt: new Date(),
+          },
+          { where },
+        );
+        if (!affected) {
+          if (input.force) return errorResult('document not found');
+          const latest = await FileRecord.findByPk(file.id, { attributes: ['version'] });
+          if (!latest) return errorResult('document not found');
+          return errorResult(`version conflict: current version is ${latest.version}`);
+        }
+        // The successful writer snapshots the previous revision. A losing
+        // writer never reaches this point, so one stale update creates no
+        // history entry or content change.
         await snapshot(file, ctx.user.id);
-        await file.update({
-          content: serialized,
-          size: Buffer.byteLength(serialized),
-          version: file.version + 1,
-          updatedAt: new Date(),
-        });
+        await file.reload();
         recordEvent(ctx.req, 'edit', { fileId: file.id });
       }
       return textResult({ id: file.id, version: file.version, changed });
@@ -499,7 +542,8 @@ async function callTool(name, args, ctx) {
     }
 
     if (name === 'create_folder') {
-      const folderName = String(input.name || '').trim().slice(0, 80);
+      if (typeof input.name !== 'string') return errorResult('name must be a string');
+      const folderName = input.name.trim().slice(0, 80);
       if (!folderName) return errorResult('name is required');
       const folder = await Folder.create({
         id: nanoid(12),
@@ -513,7 +557,8 @@ async function callTool(name, args, ctx) {
       const file = await loadDoc(input.id, ctx.user);
       const changes = {};
       if (input.name !== undefined) {
-        const nextName = String(input.name || '').trim().slice(0, 120);
+        if (typeof input.name !== 'string') return errorResult('name must be a string');
+        const nextName = input.name.trim().slice(0, 120);
         if (!nextName) return errorResult('name cannot be empty');
         changes.filename = nextName;
       }
@@ -521,14 +566,19 @@ async function callTool(name, args, ctx) {
         if (typeof input.isPublic !== 'boolean') return errorResult('isPublic must be a boolean');
         changes.isPublic = input.isPublic;
       }
+      if (input.starred !== undefined) {
+        if (typeof input.starred !== 'boolean') return errorResult('starred must be a boolean');
+        changes.starred = input.starred;
+      }
       if (input.folderId !== undefined) {
         if (input.folderId === null || input.folderId === '') {
           changes.folderId = null;
         } else {
+          if (typeof input.folderId !== 'string') return errorResult('folderId must be a string or null');
           // For an admin acting on another owner's document, the destination
           // folder must still belong to that document's owner.
           const folder = await Folder.findOne({
-            where: { id: String(input.folderId), ownerId: file.ownerId },
+            where: { id: input.folderId, ownerId: file.ownerId },
           });
           if (!folder) return errorResult('folder not found');
           changes.folderId = folder.id;
@@ -574,6 +624,7 @@ async function callTool(name, args, ctx) {
         ownerId: ctx.user.id,
         ownerName: ctx.user.username,
         isPublic: false,
+        starred: false,
         replicas: [],
         content,
         kind: file.kind,
@@ -600,7 +651,9 @@ async function callTool(name, args, ctx) {
     }
 
     if (name === 'search_documents') {
-      const query = String(input.query || '').trim().slice(0, 100);
+      if (typeof input.query !== 'string') return errorResult('query must be a string');
+      if (input.query.length > 200) return errorResult('query is too long');
+      const query = input.query.trim().slice(0, 100);
       if (!query) return errorResult('query is required');
       if (input.kind && !KIND_BY_ID.has(input.kind)) return errorResult('unknown document kind');
       const where = {
@@ -615,7 +668,7 @@ async function callTool(name, args, ctx) {
         where,
         order: [['updatedAt', 'DESC']],
         limit: clampLimit(input.limit),
-        attributes: ['id', 'filename', 'kind', 'version', 'isPublic', 'folderId', 'updatedAt', 'createdAt', 'content'],
+        attributes: ['id', 'filename', 'kind', 'version', 'isPublic', 'starred', 'folderId', 'updatedAt', 'createdAt', 'content'],
       });
       return textResult({
         query,
@@ -662,21 +715,28 @@ async function callTool(name, args, ctx) {
       const file = await loadDoc(input.id, ctx.user);
       if (file.kind !== 'form') return errorResult('document is not a form');
       const form = parseContent(file);
+      const fields = (form.fields || []).map(({ id, type, label, required, options, help }) => ({
+        id, type, label, required: !!required, options: options || [], help: help || '',
+      }));
+      const attributes = ['id', 'data', 'createdAt'];
+      if (input.responseId !== undefined) {
+        const responseId = Number(input.responseId);
+        if (!Number.isInteger(responseId) || responseId < 1) return errorResult('responseId must be a positive integer');
+        const response = await FormResponse.findOne({
+          where: { id: responseId, fileId: file.id },
+          attributes,
+        });
+        if (!response) return errorResult('response not found');
+        return textResult({ id: file.id, name: file.filename, fields, response });
+      }
       const responses = await FormResponse.findAll({
         where: { fileId: file.id },
         order: [['id', 'DESC']],
         limit: clampLimit(input.limit),
         // Never expose the stored submitter IP through MCP.
-        attributes: ['id', 'data', 'createdAt'],
+        attributes,
       });
-      return textResult({
-        id: file.id,
-        name: file.filename,
-        fields: (form.fields || []).map(({ id, type, label, required, options, help }) => ({
-          id, type, label, required: !!required, options: options || [], help: help || '',
-        })),
-        responses,
-      });
+      return textResult({ id: file.id, name: file.filename, fields, responses });
     }
 
     return errorResult('tool not implemented');

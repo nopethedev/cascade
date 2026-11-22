@@ -40,6 +40,7 @@ export const FileRecord = sequelize.define(
     ownerId: DataTypes.STRING(36),
     ownerName: DataTypes.STRING(64),
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
+    starred: { type: DataTypes.BOOLEAN, defaultValue: false },
     replicas: { type: DataTypes.JSON, defaultValue: [] },
     primaryNode: DataTypes.STRING(32),
     // Workspace documents: kind=file for classic uploads, otherwise the editor
@@ -284,6 +285,7 @@ async function migrateSchema() {
       if (!have.has(name)) await sequelize.query(`ALTER TABLE \`files\` ADD COLUMN ${sql}`);
     };
     await add('kind', "`kind` VARCHAR(16) NOT NULL DEFAULT 'file'");
+    await add('starred', '`starred` BOOLEAN NOT NULL DEFAULT 0');
     await add('folderId', '`folderId` VARCHAR(36)');
     await add('content', '`content` TEXT');
     await add('version', '`version` INTEGER NOT NULL DEFAULT 0');
