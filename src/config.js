@@ -13,9 +13,9 @@ export const config = {
   envTheme: {
     siteName: process.env.SITE_NAME || 'Cascade',
     accent: process.env.THEME_ACCENT || '#e11d48',
-    bg: process.env.THEME_BG || '#0a0a0b',
-    surface: process.env.THEME_SURFACE || '#131316',
-    text: process.env.THEME_TEXT || '#f4f4f5',
+    bg: process.env.THEME_BG || '#08080a',
+    surface: process.env.THEME_SURFACE || '#101013',
+    text: process.env.THEME_TEXT || '#f3f3f4',
   },
 };
 

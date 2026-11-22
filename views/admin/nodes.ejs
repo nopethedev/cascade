@@ -1,71 +1,167 @@
-<%- include('../partials/head', { title: 'Nodes & replication' }) %>
-<h1>Nodes & replication</h1>
-<p class="muted">The main server stores locally too — it counts as the <span class="code">local</span> node. Add remote nodes with their URL + access key (the node prints its key on first boot, or set <span class="code">NODE_ACCESS_KEY</span>).</p>
+<%- include('../partials/head', { title: 'Admin · Nodes' }) %>
+<%- include('../partials/admin-tabs', { tab: 'nodes' }) %>
+<% const rep = replication; const selected = rep.selectedNodeIds || []; %>
 
-<div class="card">
-  <h2>Add node</h2>
-  <form method="post" action="/admin/nodes" class="row">
-    <input name="name" placeholder="Node name (e.g. node-eu)" required style="max-width:200px" />
-    <input name="url" placeholder="https://node.example.com" required style="max-width:280px" />
-    <input name="accessKey" placeholder="access key (x-node-key)" required style="max-width:280px" />
-    <button class="btn" type="submit">Add node</button>
-  </form>
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Nodes &amp; replication</h1>
+    <p class="lede">The main server stores locally too — it counts as the <span class="code">local</span> node.</p>
+  </div>
+  <div class="actions"><span class="badge"><%= nodes.length + 1 %> node<%= nodes.length === 0 ? '' : 's' %></span></div>
 </div>
 
-<div class="card">
-  <h2>Known nodes</h2>
-  <table>
-    <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-      <tr><td>This server (local)</td><td><span class="code">local</span></td><td><span class="badge badge-on">always on</span></td><td></td></tr>
-      <% for (const n of nodes) { const st = nodeStatus[n.id] || {}; %>
-      <tr>
-        <td><%= n.name %></td>
-        <td class="muted"><%= n.url %></td>
-        <td>
-          <% if (n.enabled === false) { %><span class="badge">disabled</span>
-          <% } else if (st.online) { %><span class="badge badge-on">online</span>
-          <% } else { %><span class="badge badge-off">offline</span><% } %>
-        </td>
-        <td class="row">
-          <form method="post" action="/admin/nodes/<%= n.id %>/toggle"><button class="btn btn-ghost btn-sm" type="submit"><%= n.enabled === false ? 'Enable' : 'Disable' %></button></form>
-          <form method="post" action="/admin/nodes/<%= n.id %>/delete" onsubmit="return confirm('Remove node? Files on it stay there.')"><button class="btn btn-danger btn-sm" type="submit">Remove</button></form>
-        </td>
-      </tr>
-      <% } %>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2>Replication</h2>
-  <form method="post" action="/admin/replication">
-    <label>Mode</label>
-    <select name="mode">
-      <option value="all" <%= replication.mode==='all'?'selected':'' %>>Replicate to all nodes</option>
-      <option value="select" <%= replication.mode==='select'?'selected':'' %>>Replicate to selected nodes</option>
-      <option value="single" <%= replication.mode==='single'?'selected':'' %>>Store on 1 node only (prefer local)</option>
-      <option value="default" <%= replication.mode==='default'?'selected':'' %>>Always use 1 default node</option>
-      <option value="n" <%= replication.mode==='n'?'selected':'' %>>Always keep N copies (heal to another node if one goes down)</option>
-    </select>
-    <label>Selected nodes (for “select” mode — ctrl/cmd-click for multiple)</label>
-    <select name="selectedNodeIds" multiple size="4">
-      <option value="local" <%= (replication.selectedNodeIds||[]).includes('local')?'selected':'' %>>This server (local)</option>
-      <% for (const n of nodes) { %><option value="<%= n.id %>" <%= (replication.selectedNodeIds||[]).includes(n.id)?'selected':'' %>><%= n.name %></option><% } %>
-    </select>
-    <div class="row">
-      <div style="flex:1"><label>Default node (for “default” mode)</label>
-        <select name="defaultNodeId">
-          <option value="local" <%= replication.defaultNodeId==='local'?'selected':'' %>>This server (local)</option>
-          <% for (const n of nodes) { %><option value="<%= n.id %>" <%= replication.defaultNodeId===n.id?'selected':'' %>><%= n.name %></option><% } %>
-        </select>
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Add a storage node</div>
+      <div class="panel-sub">Run Cascade with <span class="code">SERVER_MODE=node</span>, then paste its URL and access key here.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/admin/nodes" class="form-grid">
+      <div class="field">
+        <label class="label" for="nn">Name</label>
+        <input id="nn" name="name" placeholder="node-eu" required />
       </div>
-      <div style="flex:1"><label>Number of copies N (for “N copies” mode)</label>
-        <input name="replicaCount" type="number" min="1" max="20" value="<%= replication.replicaCount || 2 %>" />
+      <div class="field">
+        <label class="label" for="nu">URL</label>
+        <input id="nu" name="url" placeholder="https://node.example.com" required />
+      </div>
+      <div class="field span-2">
+        <label class="label" for="nk">Access key</label>
+        <input id="nk" name="accessKey" placeholder="value of x-node-key" required />
+        <span class="hint">The node prints its key on first boot, or set <span class="code">NODE_ACCESS_KEY</span>.</span>
+      </div>
+      <div class="span-2"><button class="btn" type="submit">Add node</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="panel has-table" style="margin-top:16px">
+  <div class="panel-head"><div class="panel-title">Known nodes</div></div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Node</th><th>Endpoint</th><th>Status</th><th class="right">Actions</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>
+            <div class="row" style="gap:9px"><span class="dot dot-ok"></span><strong>This server</strong></div>
+          </td>
+          <td><span class="code">local</span></td>
+          <td><span class="badge badge-ok">always on</span></td>
+          <td class="right muted">—</td>
+        </tr>
+        <% for (const n of nodes) { const st = nodeStatus[n.id] || {}; %>
+          <tr>
+            <td>
+              <div class="row" style="gap:9px">
+                <span class="dot <%= n.enabled === false ? '' : st.online ? 'dot-ok' : 'dot-bad' %>"></span>
+                <strong><%= n.name %></strong>
+              </div>
+            </td>
+            <td class="muted"><%= n.url %></td>
+            <td>
+              <% if (n.enabled === false) { %>
+                <span class="badge">disabled</span>
+              <% } else if (st.online) { %>
+                <span class="badge badge-ok">online<%= st.latencyMs != null ? ' · ' + st.latencyMs + 'ms' : '' %></span>
+              <% } else { %>
+                <span class="badge badge-bad">offline</span>
+              <% } %>
+            </td>
+            <td>
+              <div class="row" style="justify-content:flex-end;gap:6px">
+                <form method="post" action="/admin/nodes/<%= n.id %>/toggle">
+                  <button class="btn btn-ghost btn-sm" type="submit"><%= n.enabled === false ? 'Enable' : 'Disable' %></button>
+                </form>
+                <form method="post" action="/admin/nodes/<%= n.id %>/delete" onsubmit="return confirm('Remove this node? Files already on it stay there.')">
+                  <button class="btn btn-danger btn-sm" type="submit">Remove</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <% } %>
+        <% if (!nodes.length) { %>
+          <tr><td colspan="4" class="muted">No remote nodes yet. Everything is stored on this server.</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Replication</div>
+      <div class="panel-sub">Choose how many copies of each upload are kept and where.</div>
+    </div>
+  </div>
+  <form method="post" action="/admin/replication" class="panel-body stack">
+    <div class="field">
+      <span class="label">Mode</span>
+      <div class="opts">
+        <label class="opt">
+          <input type="radio" name="mode" value="all" <%= rep.mode === 'all' ? 'checked' : '' %> />
+          <span class="opt-body"><span><span class="opt-title">All nodes</span><span class="opt-sub">Write every file to every healthy node. Maximum redundancy.</span></span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="mode" value="select" <%= rep.mode === 'select' ? 'checked' : '' %> />
+          <span class="opt-body"><span><span class="opt-title">Selected nodes</span><span class="opt-sub">Only the nodes ticked below receive new files.</span></span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="mode" value="single" <%= rep.mode === 'single' ? 'checked' : '' %> />
+          <span class="opt-body"><span><span class="opt-title">One node</span><span class="opt-sub">A single copy, preferring this server.</span></span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="mode" value="default" <%= rep.mode === 'default' ? 'checked' : '' %> />
+          <span class="opt-body"><span><span class="opt-title">One default node</span><span class="opt-sub">Every upload goes to the node chosen below.</span></span></span>
+        </label>
+        <label class="opt">
+          <input type="radio" name="mode" value="n" <%= rep.mode === 'n' ? 'checked' : '' %> />
+          <span class="opt-body"><span><span class="opt-title">N copies</span><span class="opt-sub">Keep exactly N copies and re-replicate when a node goes down.</span></span></span>
+        </label>
       </div>
     </div>
-    <div style="margin-top:12px"><button class="btn" type="submit">Save replication</button></div>
+
+    <div class="form-grid">
+      <div class="field span-2">
+        <span class="label">Selected nodes</span>
+        <div class="stack" style="gap:6px">
+          <label class="check">
+            <input type="checkbox" name="selectedNodeIds" value="local" <%= selected.includes('local') ? 'checked' : '' %> />
+            <span>This server <span class="faint tiny mono">local</span></span>
+          </label>
+          <% for (const n of nodes) { %>
+            <label class="check">
+              <input type="checkbox" name="selectedNodeIds" value="<%= n.id %>" <%= selected.includes(n.id) ? 'checked' : '' %> />
+              <span><%= n.name %></span>
+            </label>
+          <% } %>
+        </div>
+        <span class="hint">Used by “Selected nodes” mode.</span>
+      </div>
+      <div class="field">
+        <label class="label" for="rep-default">Default node</label>
+        <select id="rep-default" name="defaultNodeId">
+          <option value="local" <%= rep.defaultNodeId === 'local' ? 'selected' : '' %>>This server</option>
+          <% for (const n of nodes) { %>
+            <option value="<%= n.id %>" <%= rep.defaultNodeId === n.id ? 'selected' : '' %>><%= n.name %></option>
+          <% } %>
+        </select>
+        <span class="hint">Used by “One default node” mode.</span>
+      </div>
+      <div class="field">
+        <label class="label" for="rep-n">Copies to keep (N)</label>
+        <input id="rep-n" name="replicaCount" type="number" min="1" max="20" value="<%= rep.replicaCount || 2 %>" />
+        <span class="hint">Used by “N copies” mode.</span>
+      </div>
+    </div>
+
+    <div class="row-between">
+      <button class="btn" type="submit">Save replication</button>
+      <span class="hint">Health checks every 30s · files heal onto another node when one drops.</span>
+    </div>
   </form>
-  <p class="muted" style="font-size:13px;margin-top:10px">Healing: in “all” and “N copies” modes the server health-checks nodes every 30s and copies files onto another healthy node when the desired count isn't met.</p>
-</div>
+</section>
 <%- include('../partials/foot') %>

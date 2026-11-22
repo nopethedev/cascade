@@ -1,5 +1,10 @@
 </main>
-<footer class="footer"><%= theme.siteName %> · self-hosted files & CDN · main + storage nodes with replication</footer>
+<footer class="foot">
+  <div class="foot-in">
+    <span><%= theme.siteName %> — self-hosted files</span>
+    <span class="foot-mono"><%= typeof mode !== 'undefined' ? mode : 'main' %> mode · Cascade</span>
+  </div>
+</footer>
 <script src="/public/app.js"></script>
 </body>
 </html>

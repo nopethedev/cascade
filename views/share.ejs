@@ -1,15 +1,51 @@
-<%- include('partials/head', { title: file.filename }) %>
-<div class="card" style="text-align:center">
-  <p class="muted">Shared via <%= theme.siteName %></p>
-  <h1><%= file.filename %></h1>
-  <p class="muted"><%= file.mime %> · <%= (file.size/1024).toFixed(1) %> KB</p>
-  <% if (file.mime && file.mime.startsWith('image/')) { %>
-    <img src="/raw/<%= file.slug %>" style="max-width:100%;border-radius:12px;margin:12px 0" />
-  <% } %>
-  <div class="row" style="justify-content:center">
-    <a class="btn" href="/raw/<%= file.slug %>">Download / open raw</a>
-    <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
-  </div>
-  <p class="muted" style="margin-top:12px;font-size:13px">Embed with the <span class="code">/raw/<%= file.slug %></span> URL — it serves the file with long cache headers like a CDN.</p>
+<%- include('partials/head', { title: file.filename, shellClass: 'shell shell-narrow' }) %>
+<%
+  const mime = file.mime || 'application/octet-stream';
+  const isImage = mime.startsWith('image/');
+  const isVideo = mime.startsWith('video/');
+  const isAudio = mime.startsWith('audio/');
+  const ext = file.filename.includes('.') ? file.filename.split('.').pop().slice(0, 5) : 'file';
+  const size = prettyBytes(file.size);
+%>
+
+<div style="text-align:center;margin-bottom:24px">
+  <div class="eyebrow">Shared file</div>
+  <h1 class="page-title" style="word-break:break-word"><%= file.filename %></h1>
+  <p class="lede" style="margin-left:auto;margin-right:auto"><%= mime %> · <%= size %> · shared via <%= theme.siteName %></p>
 </div>
+
+<section class="panel">
+  <div class="panel-body">
+    <div class="preview">
+      <% if (isImage) { %>
+        <img src="/raw/<%= file.slug %>" alt="<%= file.filename %>" />
+      <% } else if (isVideo) { %>
+        <video src="/raw/<%= file.slug %>" controls></video>
+      <% } else if (isAudio) { %>
+        <audio src="/raw/<%= file.slug %>" controls></audio>
+      <% } else { %>
+        <div class="preview-none">
+          <span class="file-ico"><%= ext %></span>
+          <strong>No inline preview</strong>
+          <span>Download the file to open it locally.</span>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="row" style="justify-content:center;margin-top:18px">
+      <a class="btn" href="/raw/<%= file.slug %>">Download</a>
+      <button class="btn btn-ghost" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
+    </div>
+
+    <div class="field" style="margin-top:20px">
+      <span class="label">CDN URL · immutable cache</span>
+      <div class="copyrow">
+        <input value="/raw/<%= file.slug %>" readonly aria-label="CDN path" />
+        <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<p class="hint" style="text-align:center;margin-top:16px">Embed this URL anywhere — it is served with long-lived cache headers.</p>
 <%- include('partials/foot') %>

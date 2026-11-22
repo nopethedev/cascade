@@ -1,44 +1,117 @@
 <%- include('partials/head', { title: file.filename }) %>
-<div class="card">
-  <a href="/">← Back</a>
-  <h1 style="margin-top:8px"><%= file.filename %></h1>
-  <p class="muted"><%= file.mime %> · <%= (file.size/1024).toFixed(1) %> KB · replicas: <%= (file.replicas||[]).join(', ') %></p>
-  <div class="row">
-    <a class="btn" href="/f/<%= file.id %>/raw">Download / open raw</a>
-    <button class="btn btn-ghost" onclick="cascadeRename('<%= file.id %>','<%= file.filename.replace(/'/g,'') %>')">Rename</button>
+<%
+  const mime = file.mime || 'application/octet-stream';
+  const isImage = mime.startsWith('image/');
+  const isVideo = mime.startsWith('video/');
+  const isAudio = mime.startsWith('audio/');
+  const ext = file.filename.includes('.') ? file.filename.split('.').pop().slice(0, 5) : 'file';
+  const size = prettyBytes(file.size);
+  const copies = (file.replicas || []).length;
+  const created = new Date(file.createdAt);
+%>
+
+<a class="back" href="/">← All files</a>
+
+<div class="page-head">
+  <div style="min-width:0">
+    <div class="eyebrow">File</div>
+    <h1 class="page-title" style="word-break:break-word"><%= file.filename %></h1>
+    <p class="lede"><%= mime %> · <%= size %> · stored on <%= copies %> node<%= copies === 1 ? '' : 's' %></p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/f/<%= file.id %>/raw">Download</a>
     <% if (file.isPublic) { %>
-      <button class="btn btn-ghost" onclick="cascadeToggleShare('<%= file.id %>', false)">Make private</button>
-      <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/c/<%= file.slug %>')">Copy share link</button>
-      <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
+      <button class="btn btn-ghost" type="button" onclick="cascadeToggleShare('<%= file.id %>', false)">Make private</button>
     <% } else { %>
-      <button class="btn" onclick="cascadeToggleShare('<%= file.id %>', true)">Share publicly</button>
+      <button class="btn btn-ghost" type="button" onclick="cascadeToggleShare('<%= file.id %>', true)">Share publicly</button>
+    <% } %>
+    <button class="btn btn-quiet" type="button" onclick="cascadeRename('<%= file.id %>','<%= file.filename.replace(/'/g, '') %>')">Rename</button>
+    <button class="btn btn-danger btn-sm" type="button" onclick="cascadeDelete('<%= file.id %>','<%= file.filename.replace(/'/g, '') %>')">Delete</button>
+  </div>
+</div>
+
+<div class="split">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Preview</div>
+        <a class="btn btn-quiet btn-sm" href="/f/<%= file.id %>/raw" target="_blank" rel="noopener">Open raw ↗</a>
+      </div>
+      <div class="panel-body">
+        <div class="preview">
+          <% if (isImage) { %>
+            <img src="/f/<%= file.id %>/raw" alt="<%= file.filename %>" />
+          <% } else if (isVideo) { %>
+            <video src="/f/<%= file.id %>/raw" controls></video>
+          <% } else if (isAudio) { %>
+            <audio src="/f/<%= file.id %>/raw" controls></audio>
+          <% } else { %>
+            <div class="preview-none">
+              <span class="file-ico"><%= ext %></span>
+              <strong>No inline preview</strong>
+              <span>Download the file to open it locally.</span>
+            </div>
+          <% } %>
+        </div>
+      </div>
+    </section>
+
+    <% if (editable) { %>
+      <section class="panel has-table">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Edit as text</div>
+            <div class="panel-sub">Writes to every replica · ⌘/Ctrl + S to save</div>
+          </div>
+          <button class="btn btn-sm" type="button" onclick="cascadeSaveEditor('<%= file.id %>')">Save</button>
+        </div>
+        <textarea id="editor" class="code-editor" spellcheck="false"></textarea>
+        <div class="panel-foot"><span id="editor-status">Loading…</span></div>
+      </section>
+      <script>window.addEventListener('DOMContentLoaded', () => cascadeLoadEditor('<%= file.id %>'));</script>
     <% } %>
   </div>
-  <% if (file.isPublic) { %>
-    <p class="muted" style="margin-top:10px">Public: <a href="/c/<%= file.slug %>">/c/<%= file.slug %></a> · CDN raw: <a href="/raw/<%= file.slug %>">/raw/<%= file.slug %></a></p>
-  <% } %>
-</div>
 
-<% if (file.mime && file.mime.startsWith('image/')) { %>
-<div class="card"><img src="/f/<%= file.id %>/raw" style="max-width:100%;border-radius:10px" /></div>
-<% } else if (file.mime && (file.mime.startsWith('video/') || file.mime.startsWith('audio/'))) { %>
-<div class="card">
-  <% if (file.mime.startsWith('video/')) { %><video src="/f/<%= file.id %>/raw" controls style="max-width:100%"></video>
-  <% } else { %><audio src="/f/<%= file.id %>/raw" controls style="width:100%"></audio><% } %>
-</div>
-<% } %>
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Details</div></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>ID</dt><dd><%= file.id %></dd>
+          <dt>Type</dt><dd><%= mime %></dd>
+          <dt>Size</dt><dd><%= size %></dd>
+          <dt>Created</dt><dd><%= created.toISOString().slice(0, 16).replace('T', ' ') %></dd>
+          <dt>Replicas</dt><dd><%= (file.replicas || []).join(', ') || '—' %></dd>
+          <dt>Visibility</dt><dd><%= file.isPublic ? 'public' : 'private' %></dd>
+        </dl>
+      </div>
+    </section>
 
-<% if (editable) { %>
-<div class="card">
-  <h2>Edit as text</h2>
-  <div id="editor-box">
-    <textarea id="editor" rows="18" style="font-family:monospace"></textarea>
-    <div class="row" style="margin-top:10px">
-      <button class="btn" onclick="cascadeSaveEditor('<%= file.id %>')">Save</button>
-      <span id="editor-status" class="muted"></span>
-    </div>
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Sharing</div></div>
+      <div class="panel-body stack">
+        <% if (file.isPublic) { %>
+          <div class="field">
+            <span class="label">Share page</span>
+            <div class="copyrow">
+              <input value="/c/<%= file.slug %>" readonly aria-label="Share page path" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(location.origin + '/c/<%= file.slug %>')">Copy</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">CDN URL</span>
+            <div class="copyrow">
+              <input value="/raw/<%= file.slug %>" readonly aria-label="CDN path" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy</button>
+            </div>
+          </div>
+          <p class="hint">The CDN URL serves the raw file with immutable cache headers.</p>
+        <% } else { %>
+          <p class="hint">This file is private. Share it to get a public page and a cacheable CDN URL.</p>
+          <div><button class="btn btn-ghost" type="button" onclick="cascadeToggleShare('<%= file.id %>', true)">Share publicly</button></div>
+        <% } %>
+      </div>
+    </section>
   </div>
-  <script>window.addEventListener('DOMContentLoaded', () => cascadeLoadEditor('<%= file.id %>'));</script>
 </div>
-<% } %>
 <%- include('partials/foot') %>

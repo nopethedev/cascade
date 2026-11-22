@@ -1,32 +1,94 @@
-<%- include('../partials/head', { title: 'Admin overview' }) %>
-<h1>Server overview</h1>
-<p class="muted">Whole server + nodes at a glance. Replication mode: <span class="badge badge-accent"><%= replication.mode %></span> · desired copies: <%= stats.desired %></p>
-<div class="grid grid-4">
-  <div class="stat"><b><%= stats.users %></b><span>users</span></div>
-  <div class="stat"><b><%= stats.files %></b><span>files</span></div>
-  <div class="stat"><b><%= (stats.bytes/1073741824).toFixed(2) %> GB</b><span>stored (metadata)</span></div>
-  <div class="stat"><b><%= stats.nodes %></b><span>nodes (incl. local)</span></div>
+<%- include('../partials/head', { title: 'Admin · Overview' }) %>
+<%- include('../partials/admin-tabs', { tab: 'overview' }) %>
+<%
+%>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Server overview</h1>
+    <p class="lede">One view of the main server and every storage node attached to it.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/admin/nodes">Add or manage nodes</a>
+    <a class="btn btn-quiet" href="/admin/files">All files</a>
+  </div>
 </div>
-<div class="card" style="margin-top:16px">
-  <h2>Nodes</h2>
-  <table>
-    <thead><tr><th>Node</th><th>Status</th><th>Usage</th></tr></thead>
-    <tbody>
-      <tr><td>This server (local) <span class="code">local</span></td>
-        <td><span class="badge badge-on">online</span></td>
-        <td><%= (local.bytes/1048576).toFixed(1) %> MB · <%= local.count %> objects</td></tr>
-      <% for (const r of remoteStats) { %>
-        <tr>
-          <td><%= r.node.name %><br /><span class="muted" style="font-size:12px"><%= r.node.url %></span></td>
-          <td>
-            <% if (r.status.online) { %><span class="badge badge-on">online <%= r.status.latencyMs ?? '' %>ms</span>
-            <% } else { %><span class="badge badge-off">offline</span><% } %>
-          </td>
-          <td><%= r.usage ? ((r.usage.bytes/1048576).toFixed(1) + ' MB · ' + r.usage.count + ' objects') : '—' %></td>
-        </tr>
-      <% } %>
-    </tbody>
-  </table>
-  <div class="row" style="margin-top:12px"><a class="btn" href="/admin/nodes">Manage nodes & replication</a><a class="btn btn-ghost" href="/admin/files">View all files</a></div>
+
+<div class="stat-grid">
+  <div class="stat"><b><%= stats.users %></b><span>Users</span></div>
+  <div class="stat"><b><%= stats.files %></b><span>Files</span></div>
+  <div class="stat"><b><%= prettyBytes(stats.bytes) %></b><span>Total stored</span></div>
+  <div class="stat stat-accent"><b><%= stats.nodes %></b><span>Nodes incl. local</span></div>
+</div>
+
+<div class="split" style="margin-top:16px">
+  <section class="panel has-table">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Nodes</div>
+        <div class="panel-sub">Local disk plus every remote storage node</div>
+      </div>
+      <span class="badge"><%= stats.nodes %> total</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Node</th><th>Status</th><th class="right">Usage</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="row" style="gap:9px">
+                <span class="dot dot-ok"></span>
+                <div>
+                  <strong>This server</strong>
+                  <div class="file-meta">local</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="badge badge-ok">always on</span></td>
+            <td class="right muted nowrap"><%= prettyBytes(local.bytes) %> · <%= local.count %> objects</td>
+          </tr>
+          <% for (const r of remoteStats) { const online = r.status.online; %>
+            <tr>
+              <td>
+                <div class="row" style="gap:9px">
+                  <span class="dot <%= online ? 'dot-ok' : 'dot-bad' %>"></span>
+                  <div style="min-width:0">
+                    <strong><%= r.node.name %></strong>
+                    <div class="file-meta"><%= r.node.url %></div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <% if (!online) { %>
+                  <span class="badge badge-bad">offline</span>
+                <% } else { %>
+                  <span class="badge badge-ok">online<%= r.status.latencyMs != null ? ' · ' + r.status.latencyMs + 'ms' : '' %></span>
+                <% } %>
+              </td>
+              <td class="right muted nowrap"><%= r.usage ? prettyBytes(r.usage.bytes) + ' · ' + r.usage.count + ' objects' : '—' %></td>
+            </tr>
+          <% } %>
+          <% if (!remoteStats.length) { %>
+            <tr><td colspan="3" class="muted">No remote nodes yet — this server is storing everything locally.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Replication</div></div>
+    <div class="panel-body stack">
+      <dl class="kv">
+        <dt>Mode</dt><dd><span class="badge badge-accent"><%= replication.mode %></span></dd>
+        <dt>Copies</dt><dd><%= stats.desired %></dd>
+        <dt>Selected</dt><dd><%= (replication.selectedNodeIds || []).join(', ') || '—' %></dd>
+        <dt>Default</dt><dd><%= replication.defaultNodeId || 'local' %></dd>
+      </dl>
+      <p class="hint">Health checks run every 30 seconds. In “all” and “N copies” modes, files are re-replicated when a node goes down.</p>
+      <div><a class="btn btn-ghost btn-sm" href="/admin/nodes">Change replication</a></div>
+    </div>
+  </section>
 </div>
 <%- include('../partials/foot') %>

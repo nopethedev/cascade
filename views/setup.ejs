@@ -1,22 +1,47 @@
-<%- include('partials/head', { title: 'Setup' }) %>
-<div class="card" style="max-width:560px;margin:30px auto">
-  <h1>Welcome to <%= theme.siteName %> �Cascade</h1>
-  <p class="muted">First-run wizard — create the admin account and name your server.</p>
-  <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
-  <form method="post" action="/setup">
-    <label>Site name</label>
-    <input name="siteName" value="Cascade" maxlength="60" />
-    <label>Admin username</label>
-    <input name="username" autocomplete="username" required />
-    <label>Admin password (min 6 chars)</label>
-    <input name="password" type="password" autocomplete="new-password" required />
-    <label>Accent color (customizable later in Admin → Appearance)</label>
-    <div class="row">
-      <input name="accent" type="color" value="#e11d48" style="width:64px;height:40px;padding:2px" />
-      <span class="muted">Default is Cascade red. Pick any color.</span>
+<%- include('partials/head', { title: 'Setup', shellClass: 'auth' }) %>
+<section class="auth-aside">
+  <div>
+    <div class="eyebrow">First run</div>
+    <h1 class="auth-statement">Your files. <em>Your server.</em></h1>
+    <p class="lede" style="margin-top:16px">Cascade is a self-hosted file server and CDN. This wizard creates the admin account.</p>
+    <div class="auth-points">
+      <div>Upload, edit and share files from one place</div>
+      <div>Add storage nodes and choose how many copies each file keeps</div>
+      <div>Per-user quotas, roles and a single server overview</div>
     </div>
-    <div style="margin-top:16px"><button class="btn" type="submit">Create admin & finish setup</button></div>
-  </form>
-  <p class="muted" style="margin-top:14px;font-size:13px">Tip: set <span class="code">SERVER_MODE=node</span> + <span class="code">NODE_ACCESS_KEY</span> to run a storage node instead.</p>
-</div>
+  </div>
+  <div class="foot-mono faint"><%= theme.siteName %> · main mode</div>
+</section>
+
+<section class="auth-main">
+  <div class="auth-card">
+    <h2 style="font-size:20px">Create the admin account</h2>
+    <p class="hint" style="margin:7px 0 22px">More users can be added later from the admin panel.</p>
+    <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
+    <form method="post" action="/setup" class="stack">
+      <div class="field">
+        <label class="label" for="siteName">Site name</label>
+        <input id="siteName" name="siteName" value="<%= theme.siteName %>" maxlength="60" />
+      </div>
+      <div class="field">
+        <label class="label" for="username">Admin username</label>
+        <input id="username" name="username" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+        <span class="hint">At least 6 characters.</span>
+      </div>
+      <div class="field">
+        <span class="label">Accent colour</span>
+        <div class="colorrow">
+          <input id="accent" name="accent" type="color" value="<%= theme.accent %>" />
+          <span class="hint">Buttons and highlights. Change it any time in Admin → Appearance.</span>
+        </div>
+      </div>
+      <button class="btn btn-block" type="submit">Create admin &amp; finish setup</button>
+    </form>
+    <p class="hint" style="margin-top:20px">Running a storage node? Set <span class="code">SERVER_MODE=node</span> and <span class="code">NODE_ACCESS_KEY</span> instead.</p>
+  </div>
+</section>
 <%- include('partials/foot') %>

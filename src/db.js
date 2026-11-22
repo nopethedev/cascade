@@ -10,9 +10,9 @@ const DEFAULTS = {
     setupDone: false,
     siteName: 'Cascade',
     accent: '#e11d48',
-    bg: '#0a0a0b',
-    surface: '#131316',
-    text: '#f4f4f5',
+    bg: '#08080a',
+    surface: '#101013',
+    text: '#f3f3f4',
     allowPublicSignup: false,
     replication: {
       mode: 'n', // all | select | single | default | n

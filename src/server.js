@@ -22,6 +22,14 @@ const upload = multer({
   limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB; quota enforced separately
 });
 
+function prettyBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function createMainApp() {
   const app = express();
   app.set('view engine', 'ejs');
@@ -44,6 +52,9 @@ export function createMainApp() {
     const db = getDb();
     res.locals.settings = db.settings;
     res.locals.user = req.session?.user || null;
+    res.locals.path = req.path;
+    res.locals.mode = config.mode;
+    res.locals.prettyBytes = prettyBytes;
     res.locals.theme = {
       siteName: db.settings.siteName || 'Cascade',
       accent: db.settings.accent || '#e11d48',

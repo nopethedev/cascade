@@ -1,12 +1,33 @@
-<%- include('partials/head', { title: 'Login' }) %>
-<div class="card" style="max-width:420px;margin:40px auto">
-  <h1>Login</h1>
-  <p class="muted">Accounts are created by an admin.</p>
-  <% if (error) { %><div class="alert"><%= error %></div><% } %>
-  <form method="post" action="/login">
-    <label>Username</label><input name="username" autocomplete="username" required />
-    <label>Password</label><input name="password" type="password" autocomplete="current-password" required />
-    <div style="margin-top:14px"><button class="btn" type="submit" style="width:100%">Sign in</button></div>
-  </form>
-</div>
+<%- include('partials/head', { title: 'Sign in', shellClass: 'auth' }) %>
+<section class="auth-aside">
+  <div>
+    <div class="eyebrow">Sign in</div>
+    <h1 class="auth-statement">Everything you uploaded, <em>in one place.</em></h1>
+    <div class="auth-points">
+      <div>Files are stored on your own hardware</div>
+      <div>Public links stay fast and cacheable</div>
+      <div>Every account has its own quota</div>
+    </div>
+  </div>
+  <div class="foot-mono faint"><%= theme.siteName %> · main mode</div>
+</section>
+
+<section class="auth-main">
+  <div class="auth-card">
+    <h2 style="font-size:20px">Sign in</h2>
+    <p class="hint" style="margin:7px 0 22px">Accounts are created by an administrator.</p>
+    <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
+    <form method="post" action="/login" class="stack">
+      <div class="field">
+        <label class="label" for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required autofocus />
+      </div>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+      <button class="btn btn-block" type="submit">Sign in</button>
+    </form>
+  </div>
+</section>
 <%- include('partials/foot') %>

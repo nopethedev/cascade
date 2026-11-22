@@ -1,20 +1,108 @@
-<%- include('../partials/head', { title: 'Appearance' }) %>
-<h1>Appearance</h1>
-<p class="muted">Simple black + red-accent theme. Change the accent (or the whole palette) — stored in settings, no rebuild needed.</p>
-<div class="card" style="max-width:560px">
-  <form method="post" action="/admin/appearance">
-    <label>Site name</label>
-    <input name="siteName" value="<%= s.siteName %>" maxlength="60" />
-    <div class="row">
-      <div style="flex:1"><label>Accent</label><input name="accent" type="color" value="<%= s.accent %>" /></div>
-      <div style="flex:1"><label>Background</label><input name="bg" type="color" value="<%= s.bg %>" /></div>
-      <div style="flex:1"><label>Surface</label><input name="surface" type="color" value="<%= s.surface %>" /></div>
-      <div style="flex:1"><label>Text</label><input name="text" type="color" value="<%= s.text %>" /></div>
-    </div>
-    <div style="margin-top:14px" class="row">
-      <button class="btn" type="submit">Save theme</button>
-      <button class="btn btn-ghost" type="button" onclick="document.querySelectorAll('input[type=color]').forEach((el,i)=>el.value=['#e11d48','#0a0a0b','#131316','#f4f4f5'][i])">Reset to Cascade red</button>
-    </div>
-  </form>
+<%- include('../partials/head', { title: 'Admin · Appearance' }) %>
+<%- include('../partials/admin-tabs', { tab: 'appearance' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Appearance</h1>
+    <p class="lede">Rename the site and tune the palette. Stored in settings — no rebuild needed.</p>
+  </div>
 </div>
+
+<div class="split">
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Theme</div></div>
+    <form method="post" action="/admin/appearance" class="panel-body stack">
+      <div class="field">
+        <label class="label" for="a-name">Site name</label>
+        <input id="a-name" name="siteName" value="<%= s.siteName %>" maxlength="60" />
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label class="label" for="c-accent">Accent</label>
+          <div class="colorrow">
+            <input id="c-accent" name="accent" type="color" value="<%= s.accent %>" />
+            <span class="code" id="v-accent"><%= s.accent %></span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="c-bg">Background</label>
+          <div class="colorrow">
+            <input id="c-bg" name="bg" type="color" value="<%= s.bg %>" />
+            <span class="code" id="v-bg"><%= s.bg %></span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="c-surface">Surface</label>
+          <div class="colorrow">
+            <input id="c-surface" name="surface" type="color" value="<%= s.surface %>" />
+            <span class="code" id="v-surface"><%= s.surface %></span>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="c-text">Text</label>
+          <div class="colorrow">
+            <input id="c-text" name="text" type="color" value="<%= s.text %>" />
+            <span class="code" id="v-text"><%= s.text %></span>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn" type="submit">Save theme</button>
+        <button class="btn btn-ghost" type="button" onclick="resetTheme()">Reset to Cascade red</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Live preview</div>
+        <div class="panel-sub">Updates as you pick colours</div>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="theme-preview" id="theme-preview">
+        <div class="eyebrow">Preview</div>
+        <div class="row-between">
+          <strong style="font-size:17px;letter-spacing:-0.025em">Your files</strong>
+          <span class="badge badge-accent">accent</span>
+        </div>
+        <div class="meter"><div class="meter-fill" style="width:62%"></div></div>
+        <div class="row">
+          <button class="btn btn-sm" type="button">Primary</button>
+          <button class="btn btn-ghost btn-sm" type="button">Secondary</button>
+          <span class="muted tiny">Muted text</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const themeIds = { accent: 'c-accent', bg: 'c-bg', surface: 'c-surface', text: 'c-text' };
+  const preview = document.getElementById('theme-preview');
+
+  function syncTheme() {
+    for (const [key, id] of Object.entries(themeIds)) {
+      const input = document.getElementById(id);
+      const value = document.getElementById('v-' + key);
+      if (!input) continue;
+      preview.style.setProperty('--' + key, input.value);
+      if (value) value.textContent = input.value;
+    }
+  }
+
+  function resetTheme() {
+    const defaults = { accent: '#e11d48', bg: '#08080a', surface: '#101013', text: '#f3f3f4' };
+    for (const [key, id] of Object.entries(themeIds)) {
+      const input = document.getElementById(id);
+      if (input) input.value = defaults[key];
+    }
+    syncTheme();
+  }
+
+  document.querySelectorAll('input[type="color"]').forEach((el) => el.addEventListener('input', syncTheme));
+  syncTheme();
+</script>
 <%- include('../partials/foot') %>
