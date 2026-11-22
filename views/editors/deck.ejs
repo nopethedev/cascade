@@ -1,0 +1,45 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar">
+  <div class="tool-group">
+    <button class="tool" type="button" id="add-text">+ Text</button>
+    <button class="tool" type="button" id="add-rect">+ Shape</button>
+    <button class="tool" type="button" id="add-image">+ Image</button>
+  </div>
+  <div class="tool-group">
+    <button class="tool" type="button" id="deck-undo" title="Undo">↶</button>
+    <button class="tool" type="button" id="deck-redo" title="Redo">↷</button>
+    <button class="tool" type="button" id="deck-delete">Delete</button>
+  </div>
+  <span class="tool-spacer"></span>
+  <span class="hint" id="deck-slide-label">Slide 1</span>
+  <button class="btn btn-ghost btn-sm" type="button" id="deck-present">Present</button>
+</div>
+
+<div class="deck-layout">
+  <aside class="deck-slides">
+    <div id="slide-list" class="slide-list"></div>
+    <button class="btn btn-ghost btn-sm btn-block" type="button" id="add-slide">+ Slide</button>
+  </aside>
+
+  <div class="deck-center">
+    <div class="deck-stage-wrap" id="stage-wrap">
+      <div class="deck-stage" id="stage"></div>
+    </div>
+  </div>
+
+  <aside class="deck-props panel" id="deck-props">
+    <div class="panel-head"><div class="panel-title">Inspector</div></div>
+    <div class="panel-body stack" id="props-body"></div>
+  </aside>
+</div>
+
+<input type="file" id="deck-image" accept="image/*" hidden />
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/editors/deck.js"></script>
+<%- include('../partials/foot') %>

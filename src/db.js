@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DataTypes, Sequelize } from 'sequelize';
+import { DataTypes, Sequelize, QueryTypes } from 'sequelize';
 import { config } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -42,8 +42,62 @@ export const FileRecord = sequelize.define(
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
     replicas: { type: DataTypes.JSON, defaultValue: [] },
     primaryNode: DataTypes.STRING(32),
+    // Workspace documents: kind=file for classic uploads, otherwise the editor
+    // type. Editor state lives in `content` (JSON text) and `version` is bumped
+    // on every save for optimistic concurrency.
+    kind: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'file' },
+    folderId: { type: DataTypes.STRING(36), allowNull: true },
+    content: { type: DataTypes.TEXT, allowNull: true },
+    version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    template: { type: DataTypes.STRING(48), allowNull: true },
   },
-  { tableName: 'files', indexes: [{ fields: ['ownerId'] }, { fields: ['slug'] }] },
+  { tableName: 'files', indexes: [{ fields: ['ownerId'] }, { fields: ['slug'] }, { fields: ['kind'] }] },
+);
+
+export const Folder = sequelize.define(
+  'folder',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    name: { type: DataTypes.STRING(80), allowNull: false },
+    ownerId: { type: DataTypes.STRING(36), allowNull: false },
+  },
+  { tableName: 'folders', indexes: [{ fields: ['ownerId'] }] },
+);
+
+export const DocVersion = sequelize.define(
+  'docVersion',
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    version: { type: DataTypes.INTEGER, allowNull: false },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    createdBy: { type: DataTypes.STRING(36), allowNull: true },
+  },
+  { tableName: 'doc_versions', indexes: [{ fields: ['fileId'] }] },
+);
+
+export const Template = sequelize.define(
+  'template',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    name: { type: DataTypes.STRING(80), allowNull: false },
+    kind: { type: DataTypes.STRING(16), allowNull: false },
+    category: { type: DataTypes.STRING(24), defaultValue: 'custom' },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    ownerId: { type: DataTypes.STRING(36), allowNull: true },
+  },
+  { tableName: 'templates', indexes: [{ fields: ['ownerId'] }, { fields: ['kind'] }] },
+);
+
+export const FormResponse = sequelize.define(
+  'formResponse',
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    data: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+    ip: { type: DataTypes.STRING(64), allowNull: true },
+  },
+  { tableName: 'form_responses', indexes: [{ fields: ['fileId'] }] },
 );
 
 export const NodeRecord = sequelize.define(
@@ -212,10 +266,32 @@ async function migrateLegacyJson() {
   }
 }
 
+// Additive, idempotent migrations that run *before* sync(): sequelize.sync()
+// never alters existing tables, and creating the new indexes would fail on a
+// database from the pre-workspace schema. Raw PRAGMA + ALTER keeps it simple
+// and works on every SQLite version Sequelize supports.
+async function migrateSchema() {
+  const tables = (await sequelize.getQueryInterface().showAllTables()).map((t) =>
+    String(typeof t === 'string' ? t : t.tableName || t).toLowerCase(),
+  );
+  if (!tables.includes('files')) return; // fresh database: sync() creates it
+  const columns = await sequelize.query('PRAGMA table_info(`files`)', { type: QueryTypes.SELECT });
+  const have = new Set(columns.map((c) => c.name));
+  const add = async (name, sql) => {
+    if (!have.has(name)) await sequelize.query(`ALTER TABLE \`files\` ADD COLUMN ${sql}`);
+  };
+  await add('kind', "`kind` VARCHAR(16) NOT NULL DEFAULT 'file'");
+  await add('folderId', '`folderId` VARCHAR(36)');
+  await add('content', '`content` TEXT');
+  await add('version', '`version` INTEGER NOT NULL DEFAULT 0');
+  await add('template', '`template` VARCHAR(48)');
+}
+
 export async function initDb() {
   fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
   fs.mkdirSync(config.storageDir, { recursive: true });
   await sequelize.authenticate();
+  await migrateSchema();
   await sequelize.sync();
   let row = await Setting.findByPk(1);
   if (!row) {

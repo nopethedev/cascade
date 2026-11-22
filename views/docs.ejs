@@ -11,6 +11,7 @@
 
 <nav class="doc-nav" style="margin-bottom:18px">
   <a href="#quick-start">Quick start</a>
+  <a href="#workspace">Workspace</a>
   <a href="#auth">Authentication</a>
   <a href="#api">API</a>
   <a href="#sharing">Sharing &amp; CDN</a>
@@ -34,6 +35,34 @@ npm start            <span class="cmt"># http://localhost:3000</span>
 docker compose up -d                                  <span class="cmt"># main server on :3000</span>
 SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"># storage node</span></pre>
     <p>Metadata lives in SQLite through Sequelize; file contents stay on disk in <span class="code">data/uploads</span> or on storage nodes.</p>
+  </div>
+</section>
+
+<section class="panel" id="workspace">
+  <div class="panel-head"><div class="panel-title">Workspace editors</div></div>
+  <div class="panel-body doc">
+    <p><span class="code">/create</span> opens the template gallery. Every editor saves automatically to the document record in SQLite and keeps a version history.</p>
+    <table class="table" style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden">
+      <thead><tr><th>Type</th><th>What works today</th></tr></thead>
+      <tbody>
+        <tr><td class="mono tiny">Document</td><td class="muted">Rich text, headings, lists, quotes, alignment, links, images, tables, header/footer, word count, HTML export.</td></tr>
+        <tr><td class="mono tiny">Spreadsheet</td><td class="muted">Formula engine with dependency tracking (SUM, AVERAGE, MIN, MAX, COUNT, PRODUCT, ROUND, ABS, IF), formatting, multiple sheets, column sort/filter, CSV export.</td></tr>
+        <tr><td class="mono tiny">Presentation</td><td class="muted">Drag/resize text, shapes and images, slide list, speaker notes, present mode, undo/redo, HTML export.</td></tr>
+        <tr><td class="mono tiny">Whiteboard</td><td class="muted">Infinite pan/zoom canvas, pen, rectangles, ellipses, arrows, text, sticky notes, eraser, undo/redo, SVG export.</td></tr>
+        <tr><td class="mono tiny">Form</td><td class="muted">Visual builder (8 field types), publish link, server-side validation, response storage, per-question analytics, CSV export.</td></tr>
+        <tr><td class="mono tiny">Code</td><td class="muted">Multi-file project with tabs, syntax highlighting, Tab indentation, rename/delete, autosave and export of the active file.</td></tr>
+      </tbody>
+    </table>
+    <h3>Saving, versions and sharing</h3>
+    <ul>
+      <li>Autosave debounces 0.8s; <span class="code">Ctrl/Cmd + S</span> saves immediately and the status chip shows the result.</li>
+      <li>Every save creates a snapshot; <strong>History</strong> in the editor bar lists the last 25 versions and can restore any of them.</li>
+      <li>If another session saved first, the editor shows a conflict bar: <em>Load theirs</em> or <em>Keep mine</em>.</li>
+      <li><strong>Save as template</strong> stores the current content under <em>Create → Custom</em>.</li>
+      <li><strong>Share</strong> publishes a read-only page at <span class="code">/c/:slug</span> (documents, decks, boards, sheets, code) and a public link for forms at <span class="code">/forms/:slug</span>.</li>
+    </ul>
+    <h3>Current limits</h3>
+    <p class="hint">Implemented deliberately without external editors or heavy dependencies. Not yet included: DOCX/XLSX/PPTX import and export, a PDF editor, live cursors and CRDT merge (collaboration is presence + optimistic versions), offline sync, AI assistance and a light theme. The editors are single-user with near-real-time presence and conflict detection.</p>
   </div>
 </section>
 

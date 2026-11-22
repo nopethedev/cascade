@@ -1,0 +1,56 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar" id="doc-toolbar">
+  <div class="tool-group">
+    <button class="tool" type="button" data-cmd="undo" title="Undo (Ctrl+Z)">↶</button>
+    <button class="tool" type="button" data-cmd="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  </div>
+  <select id="block-style" class="tool-select" aria-label="Paragraph style">
+    <option value="p">Body</option>
+    <option value="h1">Heading 1</option>
+    <option value="h2">Heading 2</option>
+    <option value="h3">Heading 3</option>
+    <option value="blockquote">Quote</option>
+    <option value="pre">Code block</option>
+  </select>
+  <div class="tool-group">
+    <button class="tool" type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+    <button class="tool" type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+    <button class="tool" type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+    <button class="tool" type="button" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+  </div>
+  <div class="tool-group">
+    <button class="tool" type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
+    <button class="tool" type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+  </div>
+  <div class="tool-group">
+    <button class="tool" type="button" data-cmd="justifyLeft" title="Align left">⇤</button>
+    <button class="tool" type="button" data-cmd="justifyCenter" title="Align center">↔</button>
+    <button class="tool" type="button" data-cmd="justifyRight" title="Align right">⇥</button>
+  </div>
+  <div class="tool-group">
+    <button class="tool" type="button" id="insert-link" title="Insert link">Link</button>
+    <button class="tool" type="button" id="insert-table" title="Insert 3×3 table">Table</button>
+    <button class="tool" type="button" id="insert-image" title="Insert image">Image</button>
+    <button class="tool" type="button" id="toggle-header" title="Show header and footer">Page</button>
+  </div>
+  <span class="tool-spacer"></span>
+  <span class="hint" id="word-count"></span>
+</div>
+
+<div class="doc-shell">
+  <div class="doc-page-wrap">
+    <input id="doc-header" class="doc-hf" placeholder="Header — appears on the shared/exported page" />
+    <div id="doc-page" class="doc-page" contenteditable="true" spellcheck="true"></div>
+    <input id="doc-footer" class="doc-hf" placeholder="Footer — e.g. confidential" />
+  </div>
+</div>
+<input type="file" id="doc-image" accept="image/*" hidden />
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/editors/doc.js"></script>
+<%- include('../partials/foot') %>

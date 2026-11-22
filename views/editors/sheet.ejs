@@ -1,0 +1,44 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar">
+  <div class="tool-group">
+    <button class="tool" type="button" id="sheet-bold" title="Bold"><b>B</b></button>
+    <button class="tool" type="button" id="sheet-italic" title="Italic"><i>I</i></button>
+    <select class="tool-select" id="sheet-align" aria-label="Alignment">
+      <option value="left">Left</option>
+      <option value="center">Center</option>
+      <option value="right">Right</option>
+    </select>
+    <label class="tool tool-color" title="Fill colour">Fill<input type="color" id="sheet-fill" value="#1f2937" /></label>
+    <label class="tool tool-color" title="Text colour">Text<input type="color" id="sheet-color" value="#f4f4f5" /></label>
+  </div>
+  <div class="tool-group">
+    <button class="tool" type="button" id="add-row">+ Row</button>
+    <button class="tool" type="button" id="add-col">+ Col</button>
+    <button class="tool" type="button" id="sort-asc" title="Sort the selected column, whole rows">Sort ↑</button>
+    <button class="tool" type="button" id="sort-desc">Sort ↓</button>
+    <input type="search" id="sheet-filter" class="tool-input" placeholder="Filter selected column…" aria-label="Filter rows" />
+  </div>
+  <span class="tool-spacer"></span>
+  <span class="hint">Formulas: =SUM(A1:A5), =AVERAGE(), =B2*C2</span>
+</div>
+
+<div class="sheet-formula">
+  <span id="cell-ref" class="cell-ref">A1</span>
+  <input id="formula-input" class="formula-input" placeholder="Type a value or =FORMULA, then Enter" aria-label="Formula bar" spellcheck="false" />
+</div>
+
+<div class="sheet-wrap"><div id="sheet-grid" class="sheet-grid"></div></div>
+
+<div class="sheet-tabs">
+  <div id="sheet-tabs" class="sheet-tab-list"></div>
+  <button class="btn btn-quiet btn-sm" type="button" id="add-sheet">+ Sheet</button>
+</div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/editors/sheet.js"></script>
+<%- include('../partials/foot') %>

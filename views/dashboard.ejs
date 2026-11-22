@@ -4,114 +4,140 @@
   const q = (query || '').toLowerCase();
   const list = files.filter((f) => !q || f.filename.toLowerCase().includes(q));
   const extOf = (name) => (name.includes('.') ? name.split('.').pop().slice(0, 4) : 'file');
+  const kindOf = (id) => kinds.find((k) => k.id === id) || null;
+  const openHref = (f) => (f.kind && f.kind !== 'file' ? '/edit/' + f.id : '/f/' + f.id);
 %>
 
 <div class="page-head">
   <div>
     <div class="eyebrow">Workspace</div>
     <h1 class="page-title">Your files</h1>
-    <p class="lede"><%= files.length %> file<%= files.length === 1 ? '' : 's' %> · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
+    <p class="lede"><%= files.length %> item<%= files.length === 1 ? '' : 's' %> in view · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
   </div>
   <div class="actions">
+    <a class="btn btn-ghost" href="/search">Search</a>
     <% if (user.role === 'admin') { %><a class="btn btn-ghost" href="/admin">Server overview</a><% } %>
   </div>
 </div>
 
-<div class="split">
-  <section class="panel">
-    <div class="panel-head">
-      <div>
-        <div class="panel-title">Upload</div>
-        <div class="panel-sub">Files are written to the nodes your replication mode selects.</div>
+<div class="ws-layout">
+  <aside class="ws-side">
+    <a class="btn btn-block create-cta" href="/create"><span>+</span> Create</a>
+
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Folders</div></div>
+      <div class="filter-list">
+        <a class="filter <%= !folderId ? 'is-active' : '' %>" href="/">All files <span><%= files.length %></span></a>
+        <% for (const f of folders) { %>
+          <a class="filter <%= folderId === f.id ? 'is-active' : '' %>" href="/?folder=<%= f.id %>"><%= f.name %></a>
+        <% } %>
+        <% if (!folders.length) { %><span class="hint" style="padding:6px 10px">No folders yet — create them while making a file.</span><% } %>
       </div>
     </div>
-    <div class="panel-body">
-      <form onsubmit="event.preventDefault(); cascadeUpload(this, document.getElementById('up-status'))">
-        <label class="drop" data-drop>
-          <input type="file" name="files" multiple />
-          <div class="drop-title">Drop files here</div>
-          <div class="drop-sub">or click to browse · up to 20 files at once</div>
-        </label>
-        <div class="row-between" style="margin-top:14px">
-          <div id="up-status" class="hint"></div>
-          <button class="btn" type="submit">Upload</button>
-        </div>
-      </form>
-    </div>
-  </section>
 
-  <section class="panel">
-    <div class="panel-head"><div class="panel-title">Quota</div></div>
-    <div class="panel-body stack">
-      <div>
-        <div class="meter-row">
-          <span><b><%= usedPct %>%</b> used</span>
-          <span><%= prettyBytes(used) %> / <%= (quota / 1073741824).toFixed(0) %> GB</span>
-        </div>
-        <div class="meter"><div class="meter-fill" style="width:<%= usedPct %>%"></div></div>
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">New</div></div>
+      <div class="filter-list">
+        <% for (const k of kinds) { %>
+          <a class="filter" href="/create?kind=<%= k.id %>"><span><span class="kind-ico"><%= k.icon %></span><%= k.label %></span></a>
+        <% } %>
       </div>
-      <dl class="kv">
-        <dt>Account</dt><dd><%= user.username %></dd>
-        <dt>Role</dt><dd><%= user.role %></dd>
-        <dt>Files</dt><dd><%= files.length %></dd>
-      </dl>
-      <% if (user.role === 'admin') { %><div><a class="btn btn-ghost btn-sm" href="/admin/users">Manage quotas</a></div><% } %>
     </div>
-  </section>
-</div>
 
-<section class="panel has-table" style="margin-top:16px">
-  <div class="panel-head">
-    <div>
-      <div class="panel-title">Files</div>
-      <div class="panel-sub"><%= list.length %> shown<%= q ? ' for “' + query + '”' : '' %></div>
+    <div class="panel">
+      <div class="panel-body stack" style="gap:12px">
+        <div>
+          <div class="meter-row"><span>Storage</span><span><%= usedPct %>%</span></div>
+          <div class="meter"><div class="meter-fill" style="width:<%= usedPct %>%"></div></div>
+        </div>
+        <dl class="kv">
+          <dt>Used</dt><dd><%= prettyBytes(used) %></dd>
+          <dt>Quota</dt><dd><%= (quota / 1073741824).toFixed(0) %> GB</dd>
+        </dl>
+      </div>
     </div>
-    <form method="get" action="/" class="row" style="gap:8px">
-      <input type="search" name="q" value="<%= query %>" placeholder="Search files…" style="width:220px;height:34px" aria-label="Search files" />
-      <button class="btn btn-ghost btn-sm" type="submit">Search</button>
-    </form>
+  </aside>
+
+  <div class="stack ws-main">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Upload files</div>
+          <div class="panel-sub">Written to the nodes your replication mode selects.</div>
+        </div>
+        <a class="btn btn-ghost btn-sm" href="/create">Create instead</a>
+      </div>
+      <div class="panel-body">
+        <form onsubmit="event.preventDefault(); cascadeUpload(this, document.getElementById('up-status'))">
+          <label class="drop" data-drop>
+            <input type="file" name="files" multiple />
+            <div class="drop-title">Drop files here</div>
+            <div class="drop-sub">or click to browse · up to 20 files at once</div>
+          </label>
+          <div class="row-between" style="margin-top:14px">
+            <div id="up-status" class="hint"></div>
+            <button class="btn" type="submit">Upload</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel has-table" style="margin-top:16px">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Files</div>
+          <div class="panel-sub"><%= list.length %> shown<%= q ? ' for “' + query + '”' : '' %></div>
+        </div>
+        <form method="get" action="/" class="row" style="gap:8px">
+          <% if (folderId) { %><input type="hidden" name="folder" value="<%= folderId %>" /><% } %>
+          <input type="search" name="q" value="<%= query %>" placeholder="Search files…" style="width:200px;height:34px" aria-label="Search files" />
+          <button class="btn btn-ghost btn-sm" type="submit">Search</button>
+        </form>
+      </div>
+
+      <% if (!list.length) { %>
+        <div class="panel-body">
+          <div class="empty">
+            <div class="empty-ico">∅</div>
+            <strong><%= q ? 'No matching files' : 'Nothing here yet' %></strong>
+            <span><%= q ? 'Try a different search term.' : 'Upload a file or create a document to get started.' %></span>
+            <% if (!q) { %><div style="margin-top:14px"><a class="btn" href="/create">+ Create</a></div><% } %>
+          </div>
+        </div>
+      <% } else { %>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Sharing</th><th class="right">Actions</th></tr></thead>
+            <tbody>
+              <% for (const f of list) { const k = kindOf(f.kind); %>
+                <tr>
+                  <td>
+                    <a class="file" href="<%= openHref(f) %>">
+                      <span class="file-ico"><%= k ? k.icon : extOf(f.filename) %></span>
+                      <span style="min-width:0">
+                        <span class="file-name"><%= f.filename %></span>
+                        <span class="file-meta"><%= f.mime %></span>
+                      </span>
+                    </a>
+                  </td>
+                  <td><span class="badge"><%= k ? k.label : 'Upload' %></span></td>
+                  <td class="muted nowrap"><%= prettyBytes(f.size) %></td>
+                  <td>
+                    <% if (f.isPublic) { %><span class="badge badge-accent">public</span><% } else { %><span class="badge">private</span><% } %>
+                  </td>
+                  <td>
+                    <div class="row" style="justify-content:flex-end;gap:4px">
+                      <a class="btn btn-quiet btn-sm" href="<%= openHref(f) %>"><%= k ? 'Edit' : 'Open' %></a>
+                      <button class="btn btn-quiet btn-sm" type="button" onclick="cascadeDelete('<%= f.id %>','<%= f.filename.replace(/'/g, '') %>')">Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </section>
   </div>
-
-  <% if (!list.length) { %>
-    <div class="panel-body">
-      <div class="empty">
-        <div class="empty-ico">∅</div>
-        <strong><%= q ? 'No matching files' : 'No files yet' %></strong>
-        <span><%= q ? 'Try a different search term.' : 'Upload something and it will show up here.' %></span>
-      </div>
-    </div>
-  <% } else { %>
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr><th>File</th><th>Size</th><th>Copies</th><th>Visibility</th><th class="right">Actions</th></tr>
-        </thead>
-        <tbody>
-          <% for (const f of list) { %>
-            <tr>
-              <td>
-                <a class="file" href="/f/<%= f.id %>">
-                  <span class="file-ico"><%= extOf(f.filename) %></span>
-                  <span style="min-width:0">
-                    <span class="file-name"><%= f.filename %></span>
-                    <span class="file-meta"><%= f.mime %></span>
-                  </span>
-                </a>
-              </td>
-              <td class="muted nowrap"><%= prettyBytes(f.size) %></td>
-              <td><span class="badge"><%= (f.replicas || []).length %>×</span></td>
-              <td><% if (f.isPublic) { %><span class="badge badge-accent">public</span><% } else { %><span class="badge">private</span><% } %></td>
-              <td>
-                <div class="row" style="justify-content:flex-end;gap:4px">
-                  <a class="btn btn-quiet btn-sm" href="/f/<%= f.id %>">Open</a>
-                  <button class="btn btn-quiet btn-sm" type="button" onclick="cascadeDelete('<%= f.id %>','<%= f.filename.replace(/'/g, '') %>')">Delete</button>
-                </div>
-              </td>
-            </tr>
-          <% } %>
-        </tbody>
-      </table>
-    </div>
-  <% } %>
-</section>
+</div>
 <%- include('partials/foot') %>

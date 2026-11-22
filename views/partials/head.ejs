@@ -25,6 +25,8 @@
     <nav class="nav">
       <% if (user) { %>
         <a href="/" class="<%= currentPath === '/' ? 'is-active' : '' %>">Files</a>
+        <a href="/create" class="<%= currentPath.startsWith('/create') ? 'is-active' : '' %>">Create</a>
+        <a href="/search" class="<%= currentPath === '/search' ? 'is-active' : '' %>">Search</a>
         <% if (user.role === 'admin') { %>
           <a href="/admin" class="<%= currentPath.startsWith('/admin') ? 'is-active' : '' %>">Admin</a>
         <% } %>

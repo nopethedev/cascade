@@ -1,0 +1,88 @@
+<%- include('partials/head', { title: 'Responses · ' + file.filename }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Form</div>
+    <h1 class="page-title">Responses</h1>
+    <p class="lede"><%= content.title || file.filename %> · <%= responses.length %> response<%= responses.length === 1 ? '' : 's' %> collected</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/edit/<%= file.id %>">Back to builder</a>
+    <a class="btn" href="/responses/<%= file.id %>.csv">Download CSV</a>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat"><b><%= responses.length %></b><span>Responses</span></div>
+  <div class="stat"><b><%= (content.fields || []).length %></b><span>Questions</span></div>
+  <div class="stat stat-accent"><b><%= file.isPublic ? 'Live' : 'Closed' %></b><span>Form status</span></div>
+</div>
+
+<div class="split" style="margin-top:16px">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Answer summary</div>
+          <div class="panel-sub">Counts for choice questions, latest answers for text.</div>
+        </div>
+      </div>
+      <div class="panel-body stack">
+        <% if (!responses.length) { %>
+          <div class="empty"><div class="empty-ico">∅</div><strong>No responses yet</strong><span>Share the published form to start collecting answers.</span></div>
+        <% } %>
+        <% for (const s of summary) { %>
+          <div class="resp-block">
+            <div class="row-between">
+              <strong><%= s.field.label %></strong>
+              <span class="hint"><%= s.answered %> answered</span>
+            </div>
+            <% if (s.counts) { %>
+              <% for (const c of s.counts) { %>
+                <div class="resp-row">
+                  <span class="resp-label"><%= c.option %></span>
+                  <span class="resp-bar"><i style="width:<%= c.pct %>%"></i></span>
+                  <span class="resp-count"><%= c.count %></span>
+                </div>
+              <% } if (!s.counts.length) { %><p class="hint">No options configured.</p><% } %>
+            <% } else { %>
+              <% if (!s.samples.length) { %><p class="hint">No answers yet.</p><% } %>
+              <ul class="resp-samples">
+                <% for (const v of s.samples) { %><li><%= Array.isArray(v) ? v.join(', ') : v %></li><% } %>
+              </ul>
+            <% } %>
+          </div>
+        <% } %>
+        <% if (!summary.length) { %><p class="hint">Add questions in the builder to see a summary.</p><% } %>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel has-table">
+    <div class="panel-head">
+      <div class="panel-title">Latest responses</div>
+      <span class="badge"><%= Math.min(responses.length, 50) %> shown</span>
+    </div>
+    <% if (!responses.length) { %>
+      <div class="panel-body"><div class="empty"><strong>Nothing yet</strong><span>Responses appear here as they arrive.</span></div></div>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>When</th><th>Answers</th></tr></thead>
+          <tbody>
+            <% for (const r of responses.slice(0, 50)) { %>
+              <tr>
+                <td class="muted nowrap"><%= prettyDateTime(r.createdAt) %></td>
+                <td class="muted">
+                  <% const pairs = (content.fields || []).map((f) => `${f.label}: ${Array.isArray(r.data[f.id]) ? r.data[f.id].join(', ') : r.data[f.id] ?? ''}`).filter((x) => !x.endsWith(': ')); %>
+                  <%= pairs.length ? pairs.join(' · ') : '—' %>
+                </td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </section>
+</div>
+<%- include('partials/foot') %>

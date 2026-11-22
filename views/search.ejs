@@ -1,0 +1,63 @@
+<%- include('partials/head', { title: 'Search' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Search</div>
+    <h1 class="page-title">Find anything</h1>
+    <p class="lede">Searches file names and the text inside every document, sheet, deck, board, form and code project.</p>
+  </div>
+</div>
+
+<form method="get" action="/search" class="panel" style="margin-bottom:16px">
+  <div class="panel-body">
+    <div class="copyrow">
+      <input type="search" name="q" value="<%= q %>" placeholder="Search names and contents…" aria-label="Search files" autofocus />
+      <button class="btn" type="submit">Search</button>
+    </div>
+  </div>
+</form>
+
+<% if (!q) { %>
+  <div class="empty">
+    <div class="empty-ico">⌕</div>
+    <strong>Type to search</strong>
+    <span>Try a file name, a phrase from a document, or a sheet label.</span>
+  </div>
+<% } else if (!results.length) { %>
+  <div class="empty">
+    <div class="empty-ico">∅</div>
+    <strong>No matches for “<%= q %>”</strong>
+    <span>Try a shorter phrase. Only files you can open are searched.</span>
+  </div>
+<% } else { %>
+  <section class="panel has-table">
+    <div class="panel-head">
+      <div class="panel-title"><%= results.length %> result<%= results.length === 1 ? '' : 's' %></div>
+      <span class="badge">for “<%= q %>”</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>File</th><th>Type</th><th>Match</th><th class="right"></th></tr></thead>
+        <tbody>
+          <% for (const r of results) { const f = r.file; const isDoc = f.kind && f.kind !== 'file'; %>
+            <tr>
+              <td>
+                <a class="file" href="<%= isDoc ? '/edit/' + f.id : '/f/' + f.id %>">
+                  <span class="file-ico"><%= (f.kind || 'file').slice(0, 4) %></span>
+                  <span style="min-width:0">
+                    <span class="file-name"><%= f.filename %></span>
+                    <span class="file-meta"><%= prettyDate(f.updatedAt) %> · <%= prettyBytes(f.size) %></span>
+                  </span>
+                </a>
+              </td>
+              <td><span class="badge"><%= isDoc ? f.kind : 'upload' %></span></td>
+              <td class="muted tiny">…<%= r.snippet %>…</td>
+              <td class="right"><a class="btn btn-quiet btn-sm" href="<%= isDoc ? '/edit/' + f.id : '/f/' + f.id %>">Open</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+<% } %>
+<%- include('partials/foot') %>

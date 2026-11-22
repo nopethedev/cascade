@@ -1,0 +1,34 @@
+<header class="ed-bar">
+  <div class="ed-left">
+    <a class="ed-back" href="/" title="Back to files">←</a>
+    <span class="kind-ico"><%= kind.icon %></span>
+    <div class="ed-name">
+      <strong><%= file.filename %></strong>
+      <span class="file-meta"><%= kind.label %><%= file.isPublic ? ' · shared' : '' %></span>
+    </div>
+  </div>
+  <div class="ed-right">
+    <span id="presence" class="presence"></span>
+    <span id="save-status" class="badge">Saved</span>
+    <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
+    <button id="btn-versions" class="btn btn-ghost btn-sm" type="button">History</button>
+    <button id="btn-save-template" class="btn btn-quiet btn-sm" type="button">Save as template</button>
+    <a class="btn btn-ghost btn-sm" href="/download/<%= file.id %>">Export</a>
+  </div>
+</header>
+
+<div id="conflict-bar" class="conflict-bar" hidden>
+  <span>Someone else saved a newer version of this file.</span>
+  <span class="row" style="gap:6px">
+    <button class="btn btn-ghost btn-sm" id="conflict-reload" type="button">Load theirs</button>
+    <button class="btn btn-danger btn-sm" id="conflict-overwrite" type="button">Keep mine</button>
+  </span>
+</div>
+
+<aside id="versions-panel" class="drawer" hidden>
+  <div class="drawer-head">
+    <strong>Version history</strong>
+    <button class="btn btn-quiet btn-sm" id="versions-close" type="button">Close</button>
+  </div>
+  <div id="versions-list" class="drawer-body">Loading…</div>
+</aside>

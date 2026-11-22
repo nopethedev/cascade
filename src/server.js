@@ -7,13 +7,16 @@ import { nanoid } from 'nanoid';
 import { v4 as uuid } from 'uuid';
 import mime from 'mime-types';
 import { config } from './config.js';
-import { sequelize, User, FileRecord, NodeRecord, getSettings, saveSettings, needsSetup } from './db.js';
+import { sequelize, User, FileRecord, NodeRecord, Folder, getSettings, saveSettings, needsSetup } from './db.js';
 import { requireLogin, requireAdmin, hashPassword, checkPassword, publicUser } from './auth.js';
 import { resolveTargets, storeToNode, readFileWithFallback, deleteFromNode, allTargets, localDiskUsage } from './storage.js';
 import { nodeStatus, startHealthLoop, checkAllNodes, desiredReplicasForDisplay } from './health.js';
 import { nodeStat } from './nodeClient.js';
 import { recordEvent, analyticsSummary } from './analytics.js';
 import { extractApiToken, authenticateApiKey, createApiKey, listApiKeys, revokeApiKey } from './apiKeys.js';
+import { createWorkspaceRouter } from './workspace.js';
+import { KIND_BY_ID, KINDS } from './templates.js';
+import { computeSheet } from './formula.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -61,7 +64,11 @@ function safeFile(f) {
     isPublic: !!f.isPublic,
     replicas: f.replicas || [],
     primaryNode: f.primaryNode,
+    kind: f.kind || 'file',
+    folderId: f.folderId || null,
+    version: f.version || 0,
     createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
   };
 }
 
@@ -181,10 +188,26 @@ export function createMainApp() {
 
   // ---------- Dashboard ----------
   app.get('/', requireLogin, wrap(async (req, res) => {
-    const files = await FileRecord.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'DESC']] });
-    const used = files.reduce((s, f) => s + (Number(f.size) || 0), 0);
-    const me = await User.findByPk(req.user.id);
-    res.render('dashboard', { files, used, quota: Number(me?.quotaBytes) || 0, query: req.query.q || '' });
+    const folderId = String(req.query.folder || '');
+    const [files, folders, me] = await Promise.all([
+      FileRecord.findAll({
+        where: { ownerId: req.user.id, ...(folderId ? { folderId } : {}) },
+        order: [['updatedAt', 'DESC']],
+      }),
+      Folder.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'DESC']] }),
+      User.findByPk(req.user.id),
+    ]);
+    const allMine = await FileRecord.findAll({ where: { ownerId: req.user.id }, attributes: ['size'] });
+    const used = allMine.reduce((s, f) => s + (Number(f.size) || 0), 0);
+    res.render('dashboard', {
+      files,
+      folders,
+      folderId,
+      kinds: KINDS,
+      used,
+      quota: Number(me?.quotaBytes) || 0,
+      query: req.query.q || '',
+    });
   }));
 
   // ---------- Upload ----------
@@ -376,12 +399,29 @@ export function createMainApp() {
     const file = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
     if (!file) return res.status(404).render('error', { message: 'This link is invalid or private.', status: 404 });
     recordEvent(req, 'view', { fileId: file.id });
+    if (file.kind && file.kind !== 'file') {
+      let content = {};
+      try {
+        content = JSON.parse(file.content || '{}');
+      } catch {
+        /* ignore */
+      }
+      let sheetValues = null;
+      if (file.kind === 'sheet') {
+        const first = (content.sheets || [])[0];
+        sheetValues = first ? computeSheet(first) : {};
+      }
+      // Documents may contain user-authored HTML — never run scripts on the share origin.
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:");
+      return res.render('share-doc', { file, content, kind: KIND_BY_ID.get(file.kind), sheetValues });
+    }
     res.render('share', { file });
   }));
 
   app.get('/raw/:slug', wrap(async (req, res) => {
     const file = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
     if (!file) return res.status(404).send('not found');
+    if (file.kind && file.kind !== 'file') return res.redirect(`/c/${file.slug}`);
     try {
       const { buffer, mime: m } = await readFileWithFallback(file);
       recordEvent(req, 'download', { fileId: file.id, bytes: buffer.length });
@@ -591,6 +631,9 @@ export function createMainApp() {
       nodes: (await allTargets()).map((n) => ({ id: n.id, name: n.name, status: nodeStatus.get(n.id) || null })),
     });
   }));
+
+  // Workspace: /create, /edit/:id, /api/workspace/*, /export/:id, /forms/:slug, /search
+  app.use(createWorkspaceRouter());
 
   // 404
   app.use((req, res) => res.status(404).render('error', { message: 'Page not found.', status: 404 }));

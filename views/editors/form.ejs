@@ -1,0 +1,79 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar">
+  <div class="tool-group" id="add-fields">
+    <button class="tool" type="button" data-add="text">+ Short text</button>
+    <button class="tool" type="button" data-add="textarea">+ Paragraph</button>
+    <button class="tool" type="button" data-add="email">+ Email</button>
+    <button class="tool" type="button" data-add="number">+ Number</button>
+    <button class="tool" type="button" data-add="date">+ Date</button>
+    <button class="tool" type="button" data-add="select">+ Dropdown</button>
+    <button class="tool" type="button" data-add="radio">+ Choice</button>
+    <button class="tool" type="button" data-add="checkbox">+ Checkboxes</button>
+  </div>
+  <span class="tool-spacer"></span>
+  <a class="btn btn-ghost btn-sm" href="/responses/<%= file.id %>">Responses</a>
+  <button class="btn btn-ghost btn-sm" type="button" id="form-preview">Preview form</button>
+</div>
+
+<div class="form-layout">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Form</div>
+          <div class="panel-sub">Title and intro shown at the top of the public form.</div>
+        </div>
+      </div>
+      <div class="panel-body stack">
+        <div class="field">
+          <label class="label" for="form-title">Title</label>
+          <input id="form-title" maxlength="120" />
+        </div>
+        <div class="field">
+          <label class="label" for="form-description">Description</label>
+          <textarea id="form-description" rows="3" maxlength="600"></textarea>
+        </div>
+        <div class="field">
+          <label class="label" for="form-success">Thank-you message</label>
+          <input id="form-success" maxlength="200" />
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Questions</div>
+        <span class="badge" id="field-count">0 fields</span>
+      </div>
+      <div class="panel-body stack" id="form-fields"></div>
+    </section>
+  </div>
+
+  <aside class="panel">
+    <div class="panel-head"><div class="panel-title">Publish</div></div>
+    <div class="panel-body stack">
+      <div id="publish-state" class="badge">private</div>
+      <p class="hint">Publish the form to get a public link anyone can submit. Responses are stored in this server's database.</p>
+      <button class="btn btn-block" type="button" id="form-publish">Publish form</button>
+      <div class="field" id="public-link-wrap" hidden>
+        <span class="label">Public link</span>
+        <div class="copyrow">
+          <input id="public-link" readonly aria-label="Public form link" />
+          <button class="btn btn-ghost btn-sm" type="button" id="copy-link">Copy</button>
+        </div>
+      </div>
+      <hr class="rule" />
+      <a class="btn btn-ghost btn-block" href="/responses/<%= file.id %>">View responses</a>
+      <p class="hint" id="response-count"></p>
+    </div>
+  </aside>
+</div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, slug: file.slug, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/editors/form.js"></script>
+<%- include('../partials/foot') %>

@@ -1,0 +1,33 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar">
+  <div class="tool-group">
+    <button class="tool" type="button" id="code-new">+ File</button>
+    <button class="tool" type="button" id="code-rename">Rename</button>
+    <button class="tool" type="button" id="code-delete">Delete</button>
+  </div>
+  <span class="tool-spacer"></span>
+  <span class="hint" id="code-status">—</span>
+</div>
+
+<div class="code-layout">
+  <aside class="code-files">
+    <div class="panel-head" style="padding:10px 12px"><div class="panel-title">Project</div></div>
+    <div id="code-file-list" class="code-file-list"></div>
+  </aside>
+  <div class="code-main">
+    <div class="code-tabs" id="code-tabs"></div>
+    <div class="code-editor-wrap">
+      <pre class="code-highlight" id="code-highlight" aria-hidden="true"></pre>
+      <textarea id="code-input" class="code-input" spellcheck="false" aria-label="Code editor"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/editors/code.js"></script>
+<%- include('../partials/foot') %>

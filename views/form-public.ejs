@@ -1,0 +1,79 @@
+<%- include('partials/head', { title: content.title || file.filename, shellClass: 'shell shell-narrow' }) %>
+<%
+  const err = (id) => (errors && errors[id]) || null;
+  const val = (id) => (values && values[id] !== undefined ? values[id] : '');
+  const needsOptions = (t) => ['select', 'radio', 'checkbox'].includes(t);
+%>
+
+<% if (done) { %>
+  <section class="panel" style="margin-top:24px">
+    <div class="panel-body stack" style="text-align:center;padding:56px 24px;place-items:center">
+      <div class="empty-ico">✓</div>
+      <h1 class="page-title"><%= content.success || 'Thanks — your response was recorded.' %></h1>
+      <p class="lede" style="margin-left:auto;margin-right:auto">This form is powered by <%= theme.siteName %>.</p>
+    </div>
+  </section>
+<% } else { %>
+  <div class="page-head" style="margin-top:10px">
+    <div>
+      <div class="eyebrow">Form</div>
+      <h1 class="page-title"><%= content.title || file.filename %></h1>
+      <% if (content.description) { %><p class="lede"><%= content.description %></p><% } %>
+    </div>
+  </div>
+
+  <form method="post" action="/forms/<%= file.slug %>" class="panel" novalidate>
+    <div class="panel-body stack">
+      <% for (const f of content.fields || []) { const e = err(f.id); %>
+        <div class="field public-field">
+          <label class="label" for="field-<%= f.id %>"><%= f.label %><%= f.required ? ' *' : '' %></label>
+
+          <% if (f.type === 'textarea') { %>
+            <textarea id="field-<%= f.id %>" name="<%= f.id %>" rows="4" <%= f.required ? 'required' : '' %>><%= val(f.id) %></textarea>
+          <% } else if (f.type === 'select') { %>
+            <select id="field-<%= f.id %>" name="<%= f.id %>" <%= f.required ? 'required' : '' %>>
+              <option value="">Choose…</option>
+              <% for (const o of f.options || []) { %><option value="<%= o %>" <%= val(f.id) === o ? 'selected' : '' %>><%= o %></option><% } %>
+            </select>
+          <% } else if (f.type === 'radio') { %>
+            <div class="stack" style="gap:6px">
+              <% for (const o of f.options || []) { %>
+                <label class="check">
+                  <input type="radio" name="<%= f.id %>" value="<%= o %>" <%= val(f.id) === o ? 'checked' : '' %> />
+                  <span><%= o %></span>
+                </label>
+              <% } %>
+            </div>
+          <% } else if (f.type === 'checkbox') { %>
+            <div class="stack" style="gap:6px">
+              <% const picked = Array.isArray(val(f.id)) ? val(f.id) : []; %>
+              <% for (const o of f.options || []) { %>
+                <label class="check">
+                  <input type="checkbox" name="<%= f.id %>" value="<%= o %>" <%= picked.includes(o) ? 'checked' : '' %> />
+                  <span><%= o %></span>
+                </label>
+              <% } %>
+            </div>
+          <% } else { %>
+            <input
+              id="field-<%= f.id %>"
+              name="<%= f.id %>"
+              type="<%= f.type === 'email' ? 'email' : f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text' %>"
+              value="<%= val(f.id) %>"
+              <%= f.required ? 'required' : '' %>
+            />
+          <% } %>
+
+          <% if (f.help) { %><span class="hint"><%= f.help %></span><% } %>
+          <% if (e) { %><span class="field-error"><%= e %></span><% } %>
+        </div>
+      <% } %>
+
+      <div class="row-between">
+        <span class="hint"><%= (content.fields || []).length %> question<%= (content.fields || []).length === 1 ? '' : 's' %></span>
+        <button class="btn" type="submit">Submit</button>
+      </div>
+    </div>
+  </form>
+<% } %>
+<%- include('partials/foot') %>

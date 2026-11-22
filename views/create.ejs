@@ -1,0 +1,164 @@
+<%- include('partials/head', { title: 'Create', shellClass: 'shell shell-wide' }) %>
+<%
+  const preview = (kind) => {
+    if (kind === 'sheet') return '<span class="pv-grid"></span>';
+    if (kind === 'deck') return '<span class="pv-slide"></span>';
+    if (kind === 'board') return '<span class="pv-board"><i></i><i></i><i></i></span>';
+    if (kind === 'form') return '<span class="pv-fields"><i></i><i></i><i></i></span>';
+    if (kind === 'code') return '<span class="pv-code"><i></i><i></i><i></i><i></i></span>';
+    return '<span class="pv-doc"><i class="w70"></i><i></i><i class="w90"></i><i class="w50"></i></span>';
+  };
+  const kindLabel = (id) => (kinds.find((k) => k.id === id) || {}).label || id;
+%>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Create</div>
+    <h1 class="page-title">What will you make?</h1>
+    <p class="lede">Documents, spreadsheets, decks, boards, forms and code — all stored and edited on this server.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/">Back to files</a>
+  </div>
+</div>
+
+<div class="create-layout">
+  <aside class="create-side">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Type</div></div>
+      <div class="filter-list" id="kind-filter">
+        <button type="button" class="filter is-active" data-kind="">All types <span><%= templates.length + customTemplates.length %></span></button>
+        <% for (const k of kinds) { const count = templates.filter((t) => t.kind === k.id).length + customTemplates.filter((t) => t.kind === k.id).length; %>
+          <button type="button" class="filter <%= kindParam === k.id ? 'is-active' : '' %>" data-kind="<%= k.id %>">
+            <span><span class="kind-ico"><%= k.icon %></span><%= k.label %></span><span><%= count %></span>
+          </button>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-head"><div class="panel-title">Category</div></div>
+      <div class="filter-list" id="category-filter">
+        <button type="button" class="filter is-active" data-category="">Everything</button>
+        <% for (const c of categories.filter((c) => c !== 'custom')) { %>
+          <button type="button" class="filter" data-category="<%= c %>"><%= c.charAt(0).toUpperCase() + c.slice(1) %></button>
+        <% } %>
+        <button type="button" class="filter" data-category="custom">Custom</button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-body">
+        <div class="create-search">
+          <input type="search" id="tpl-search" placeholder="Search templates — pitch deck, budget, lesson plan…" aria-label="Search templates" />
+          <span class="hint" id="tpl-count"><%= templates.length + customTemplates.length %> templates</span>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="row-between" style="margin-bottom:12px">
+        <div class="panel-title">Templates</div>
+        <span class="hint">Pick one, name it, start editing</span>
+      </div>
+      <div class="tpl-grid" id="tpl-grid">
+        <% for (const t of templates) { %>
+          <button type="button" class="tpl" data-template="<%= t.id %>" data-kind="<%= t.kind %>" data-category="<%= t.category %>" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
+            <span class="tpl-prev"><%- preview(t.kind) %><span class="tpl-kind"><%= kindLabel(t.kind) %></span></span>
+            <span class="tpl-meta">
+              <strong><%= t.name %></strong>
+              <span><%= t.category %> · <%= t.description %></span>
+            </span>
+          </button>
+        <% } %>
+        <% for (const t of customTemplates) { %>
+          <button type="button" class="tpl" data-template="custom:<%= t.id %>" data-kind="<%= t.kind %>" data-category="custom" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
+            <span class="tpl-prev"><%- preview(t.kind) %><span class="tpl-kind">Your template</span></span>
+            <span class="tpl-meta">
+              <strong><%= t.name %></strong>
+              <span>custom · saved by you</span>
+            </span>
+          </button>
+        <% } %>
+      </div>
+      <div class="empty" id="tpl-empty" hidden>
+        <div class="empty-ico">∅</div>
+        <strong>No templates match</strong>
+        <span>Try another search, type or category.</span>
+      </div>
+    </section>
+
+    <% if (recents.length) { %>
+      <section class="panel has-table">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Recently opened</div>
+            <div class="panel-sub">Jump back into your latest documents</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Name</th><th>Type</th><th>Updated</th><th class="right"></th></tr></thead>
+            <tbody>
+              <% for (const f of recents) { %>
+                <tr>
+                  <td><a href="/edit/<%= f.id %>"><strong><%= f.filename %></strong></a><div class="file-meta"><%= f.template || 'blank' %></div></td>
+                  <td><span class="badge"><%= kindLabel(f.kind) %></span></td>
+                  <td class="muted nowrap"><%= prettyDate(f.updatedAt) %></td>
+                  <td class="right"><a class="btn btn-quiet btn-sm" href="/edit/<%= f.id %>">Open</a></td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    <% } %>
+  </div>
+</div>
+
+<dialog class="dlg dlg-wide" id="create-dlg">
+  <form class="dlg-in" id="create-form">
+    <div>
+      <div class="dlg-title" id="dlg-title">New document</div>
+      <div class="dlg-msg" id="dlg-sub">Name it, choose a folder, and decide who can see it.</div>
+    </div>
+    <div class="field">
+      <label class="label" for="new-name">File name</label>
+      <input id="new-name" name="name" maxlength="120" required autocomplete="off" />
+    </div>
+    <div class="form-grid">
+      <div class="field">
+        <label class="label" for="new-folder">Folder</label>
+        <select id="new-folder" name="folderId">
+          <option value="">No folder</option>
+          <% for (const f of folders) { %><option value="<%= f.id %>"><%= f.name %></option><% } %>
+        </select>
+      </div>
+      <div class="field">
+        <label class="label" for="new-public">Sharing</label>
+        <label class="check" style="height:38px">
+          <input type="checkbox" id="new-public" name="isPublic" />
+          <span>Anyone with the link</span>
+        </label>
+      </div>
+    </div>
+    <div class="field">
+      <label class="label" for="new-folder-name">New folder</label>
+      <div class="copyrow">
+        <input id="new-folder-name" name="newFolder" placeholder="e.g. Client work" maxlength="80" />
+        <button class="btn btn-ghost btn-sm" type="button" id="add-folder">Add</button>
+      </div>
+    </div>
+    <input type="hidden" id="new-kind" />
+    <input type="hidden" id="new-template" />
+    <div class="dlg-actions">
+      <button class="btn btn-quiet" type="button" data-close>Cancel</button>
+      <button class="btn" type="submit" id="create-submit">Create &amp; open</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/public/workspace-create.js"></script>
+<%- include('partials/foot') %>

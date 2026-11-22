@@ -1,0 +1,72 @@
+<%
+  const wide = kind && (kind.id === 'deck' || kind.id === 'board' || kind.id === 'sheet');
+%>
+<%- include('partials/head', { title: file.filename, shellClass: wide ? 'shell shell-wide' : 'shell shell-narrow' }) %>
+<%
+  const sh = (content.sheets || [])[0] || { cells: {}, rows: 0, cols: 0 };
+  const colName = (i) => String.fromCharCode(65 + i);
+  const active = (content.files || [])[content.active || 0] || (content.files || [])[0];
+%>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Shared <%= kind ? kind.label.toLowerCase() : 'file' %></div>
+    <h1 class="page-title" style="word-break:break-word"><%= file.filename %></h1>
+    <p class="lede">Read-only view · shared via <%= theme.siteName %></p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/c/<%= file.slug %>/export?download=1">Download</a>
+    <% if (user) { %><a class="btn btn-quiet" href="/edit/<%= file.id %>">Open in editor</a><% } %>
+  </div>
+</div>
+
+<% if (kind && kind.id === 'doc') { %>
+  <div class="doc-shell">
+    <article class="doc-page doc-read">
+      <% if (content.header) { %><header class="doc-read-hf"><%= content.header %></header><% } %>
+      <%- content.html || '<p>This document is empty.</p>' %>
+      <% if (content.footer) { %><footer class="doc-read-hf"><%= content.footer %></footer><% } %>
+    </article>
+  </div>
+<% } else if (kind && kind.id === 'deck') { %>
+  <iframe class="share-frame" src="/c/<%= file.slug %>/export" title="<%= file.filename %>" loading="lazy"></iframe>
+<% } else if (kind && kind.id === 'board') { %>
+  <div class="panel"><div class="panel-body" style="text-align:center">
+    <img src="/c/<%= file.slug %>/export" alt="Whiteboard export" style="max-width:100%;border-radius:8px" />
+  </div></div>
+<% } else if (kind && kind.id === 'sheet') { %>
+  <section class="panel has-table">
+    <div class="panel-head"><div class="panel-title"><%= sh.name || 'Sheet1' %></div><span class="badge">values</span></div>
+    <div class="table-wrap">
+      <table class="table sheet-read">
+        <thead>
+          <tr><th></th><% for (let c = 0; c < Math.min(Number(sh.cols) || 0, 10); c++) { %><th><%= colName(c) %></th><% } %></tr>
+        </thead>
+        <tbody>
+          <% for (let r = 1; r <= Math.min(Number(sh.rows) || 0, 40); r++) { %>
+            <tr>
+              <th><%= r %></th>
+              <% for (let c = 0; c < Math.min(Number(sh.cols) || 0, 10); c++) { const ref = colName(c) + r; const cell = (sh.cells || {})[ref] || {}; %>
+                <td><%= sheetValues && sheetValues[ref] !== undefined ? sheetValues[ref] : cell.v || cell.f || '' %></td>
+              <% } %>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <p class="hint" style="margin-top:12px">Formulas are shown as written. Download the CSV for a spreadsheet copy.</p>
+<% } else if (kind && kind.id === 'code') { %>
+  <section class="panel has-table">
+    <div class="panel-head"><div class="panel-title"><%= active ? active.name : 'Code' %></div><span class="badge"><%= active ? active.language : '' %></span></div>
+    <pre class="snippet" style="border-radius:0;border:0;max-height:70vh"><%= active ? active.text : '' %></pre>
+  </section>
+<% } else if (kind && kind.id === 'form') { %>
+  <div class="panel"><div class="panel-body stack">
+    <p class="lede">This is a form. Open it to submit a response.</p>
+    <a class="btn" href="/forms/<%= file.slug %>">Open form</a>
+  </div></div>
+<% } else { %>
+  <div class="panel"><div class="panel-body"><p class="muted">This link is public, but there is nothing to preview.</p></div></div>
+<% } %>
+<%- include('partials/foot') %>

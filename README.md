@@ -6,9 +6,27 @@ Stack: **Express (ES Modules) + EJS + Sequelize/SQLite + hand-written CSS design
 
 Theme: flat black surfaces, hairline rules and one red accent, fully customizable in **Admin → Appearance** (or `.env`: `THEME_ACCENT`, `THEME_BG`, `THEME_SURFACE`, `THEME_TEXT`, `SITE_NAME`).
 
+## Workspace editors
+
+Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard sidebar, admin files) opens `/create`: a searchable template gallery with type and category filters, recent files, and your own saved templates. Pick a template, name the file, choose a folder, optionally share it, and the matching editor opens.
+
+| Editor | Implemented |
+|---|---|
+| **Document** | rich text, headings, lists, quotes, alignment, links, images, tables, header/footer, word count, HTML export |
+| **Spreadsheet** | formula engine with dependency tracking (`=SUM(A1:A5)`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `PRODUCT`, `ROUND`, `ABS`, `IF`, cell refs and ranges), formatting, multiple sheets, column sort + filter, CSV export |
+| **Presentation** | drag/resize text, shapes and images, slide list, speaker notes, present mode, undo/redo, HTML export |
+| **Whiteboard** | infinite pan/zoom canvas, pen, rectangle, ellipse, arrow, text, sticky notes, eraser, undo/redo, SVG export |
+| **Form** | 8 field types, visual builder, publish link, server-side validation, stored responses, per-question analytics, CSV export |
+| **Code** | multi-file project, tabs, syntax highlighting, rename/delete, export |
+
+Shared behaviour: debounced autosave, version history (last 25 snapshots, restorable), optimistic concurrency with a conflict bar when another session saves first, presence chips, share links, "save as template", and a global `/search` across file names and document contents.
+
+Not (yet) included, by design: DOCX/XLSX/PPTX import/export, a PDF editor, live cursors/CRDT collaboration, offline sync, AI assistance and a light theme.
+
 ## Features
 
 - Upload (multi-file, drag & drop, progress), view (images / video / audio inline), edit text files, rename, delete
+- Workspace editors for documents, spreadsheets, presentations, whiteboards, forms and code (see above)
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (immutable cache headers)
 - Roles: `admin` / `user`, per-user quota (GB)
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
@@ -75,6 +93,8 @@ curl -H "x-api-key: $KEY" -H "content-type: application/json" \
 | `POST /api/files/:id/share` | toggle public sharing |
 | `POST /api/files/:id/rename` | rename + re-detect MIME |
 | `DELETE /api/files/:id` | delete from every replica |
+
+Workspace API (same auth): `POST /api/workspace/docs`, `GET|PUT /api/workspace/docs/:id`, `GET /api/workspace/docs/:id/versions`, `POST /api/workspace/docs/:id/restore`, `POST /api/workspace/docs/:id/heartbeat`, `POST /api/workspace/docs/:id/template`, `POST /api/workspace/folders`, `GET /export/:id`, `GET /download/:id`.
 
 ## Node protocol (main → node, header `x-node-key`)
 
