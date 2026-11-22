@@ -139,10 +139,23 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
     return modal;
   }
 
+  async function safeStoragePath(value, fallback) {
+    const pathModule = await import('node:path');
+    const os = await import('node:os');
+    const raw = str(value || fallback);
+    const root = pathModule.resolve(process.cwd());
+    const temp = pathModule.resolve(os.tmpdir());
+    const resolved = pathModule.resolve(root, raw);
+    const allowed = resolved === root || resolved.startsWith(`${root}${pathModule.sep}`)
+      || resolved === temp || resolved.startsWith(`${temp}${pathModule.sep}`);
+    if (!allowed) throw new Error('Database path must stay inside the bot working directory or the OS temp directory');
+    return resolved;
+  }
+
   async function jsonDbInit() {
     const fsp = await import('node:fs/promises');
     const path = await import('node:path');
-    const file = project.database?.jsonPath || 'data/flow-db.json';
+    const file = await safeStoragePath(project.database?.jsonPath, 'data/flow-db.json');
     db.file = file;
     db.backend = 'json';
     try {
@@ -177,13 +190,14 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
     if (backend === 'sqlite') {
       const { Sequelize } = await import('sequelize');
       const env = project.database?.env || 'DATABASE_URL';
-      const fallback = `sqlite:${str(project.database?.jsonPath || 'data/flow.sqlite').replace(/\.json$/, '.sqlite')}`;
+      const fallbackPath = await safeStoragePath(project.database?.jsonPath, 'data/flow.sqlite');
+      const fallback = `sqlite:${fallbackPath.replace(/\.json$/, '.sqlite')}`;
       const url = process.env[env] || fallback;
       db.connection = new Sequelize(url, { logging: false });
       await db.connection.query('CREATE TABLE IF NOT EXISTS flow_records (collection TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY (collection, key))');
       db.backend = 'sqlite';
     } else if (backend === 'mongodb') {
-      const { MongoClient } = await import('mongodb');
+      const { MongoClient } = deps.mongodb || await import('mongodb');
       const env = project.database?.env || 'DATABASE_URL';
       db.connection = new MongoClient(process.env[env] || 'mongodb://127.0.0.1:27017/cascade_flow');
       await db.connection.connect();
@@ -274,15 +288,38 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
   async function openaiClient(args = {}) {
     const apiKey = process.env[str(args.env || 'OPENAI_API_KEY')];
     if (!apiKey) throw new Error(`Missing ${str(args.env || 'OPENAI_API_KEY')} in the environment`);
-    const imported = await import('openai');
+    const imported = deps.openai || await import('openai');
     const OpenAI = imported.default || imported.OpenAI;
     const baseURL = process.env[str(args.baseUrlEnv || 'OPENAI_BASE_URL')] || undefined;
     return new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
   }
 
+  async function assertPublicHttpUrl(url, label = 'HTTP') {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error(`${label} URL is invalid`); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(`${label} only supports http and https URLs`);
+    if (process.env.FLOW_ALLOW_PRIVATE_HTTP === '1') return parsed;
+    const net = await import('node:net');
+    const dns = await import('node:dns/promises');
+    const host = parsed.hostname.toLowerCase();
+    if (!host || host === 'localhost' || host.endsWith('.local') || host === '0.0.0.0') {
+      throw new Error(`${label} cannot reach a private or local host; set FLOW_ALLOW_PRIVATE_HTTP=1 to opt in`);
+    }
+    const addresses = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true });
+    for (const entry of addresses) {
+      const address = String(entry.address || '').toLowerCase();
+      const privateV4 = /^10\./.test(address) || /^127\./.test(address) || /^192\.168\./.test(address)
+        || /^169\.254\./.test(address) || /^172\.(1[6-9]|2\d|3[01])\./.test(address) || address === '0.0.0.0';
+      const privateV6 = address === '::1' || address.startsWith('fc') || address.startsWith('fd') || address.startsWith('fe80:');
+      if (privateV4 || privateV6) throw new Error(`${label} cannot reach a private or local address; set FLOW_ALLOW_PRIVATE_HTTP=1 to opt in`);
+    }
+    return parsed;
+  }
+
   async function httpRequest(args = {}) {
     const url = str(args.url);
     if (!url) throw new Error('HTTP request needs a URL');
+    await assertPublicHttpUrl(url);
     const method = str(args.method || 'GET').toUpperCase();
     const headers = { ...obj(args.headers) };
     for (const [key, value] of Object.entries(headers)) headers[key] = str(value);
@@ -299,7 +336,7 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        const res = await fetch(url, { method, headers, body, signal: controller.signal });
+        const res = await fetch(url, { method, headers, body, signal: controller.signal, redirect: 'manual' });
         clearTimeout(timer);
         const text = await res.text();
         let parsed = text;
@@ -318,7 +355,7 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
 
   async function musicManager(args = {}) {
     if (music.manager) return music.manager;
-    const imported = await import('shoukaku');
+    const imported = deps.shoukaku || await import('shoukaku');
     const nodes = arr(project.lavalink?.nodes || args.nodes).map((node) => ({
       name: str(node.name || 'main'),
       url: str(node.url || 'localhost:2333'),
@@ -818,9 +855,10 @@ export function createFlowRuntime({ client, project = {}, deps = {} }) {
         return { flagged: !!result.results?.[0]?.flagged, categories: result.results?.[0]?.categories || {} };
       }
       case 'http.request': return await httpRequest(args);
-      case 'http.webhook': return { payload: {} };
+      case 'http.webhook': return { payload: ctx?.payload ?? {}, headers: ctx?.headers ?? {}, method: ctx?.method || 'POST', query: ctx?.query ?? {}, rawBody: ctx?.rawBody ?? '' };
       case 'http.websocket': {
-        const ws = new WebSocket(str(args.url));
+        await assertPublicHttpUrl(str(args.url), 'WebSocket');
+    const ws = new WebSocket(str(args.url));
         const message = await new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error('WebSocket timeout')), 15000);
           ws.addEventListener('open', () => { if (args.message) ws.send(str(args.message)); });

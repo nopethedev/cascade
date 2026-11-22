@@ -6,6 +6,7 @@
  */
 import { NODE_BY_TYPE, EVENTS, PIN_TYPES } from '../../public/flow/nodes.mjs';
 import { normalizeFlow } from '../../public/flow/schema.mjs';
+import { scanFlowSecrets } from '../../public/flow/secrets.mjs';
 import { createFlowRuntime } from './runtime.js';
 
 const PRIVILEGED_INTENTS = ['MessageContent', 'GuildMembers', 'Presence', 'GuildPresences'];
@@ -28,6 +29,28 @@ function diag(diagnostics, severity, code, message, nodeId = null, scriptId = nu
   diagnostics.push({ severity, code, message, nodeId, scriptId, hint });
 }
 
+const PACKAGE_PERMISSIONS = {
+  'script.custom': 'unsafe-code',
+  'script.defineFunction': 'unsafe-code',
+  'http.request': 'network',
+  'http.websocket': 'network',
+  'http.webhook': 'network', 'http.paginate': 'network',
+  'db.set': 'database', 'db.get': 'database', 'db.delete': 'database', 'db.query': 'database',
+  'db.aggregate': 'database', 'db.transaction': 'database', 'db.connect': 'database', 'db.schema': 'database', 'db.inspect': 'database',
+  'ai.chat': 'ai', 'ai.json': 'ai', 'ai.tools': 'ai', 'ai.embed': 'ai', 'ai.image': 'ai', 'ai.moderation': 'ai', 'ai.memory': 'ai',
+  'music.connect': 'voice', 'music.play': 'voice', 'music.search': 'voice', 'music.queue': 'voice',
+  'music.join': 'voice', 'music.leave': 'voice', 'music.filter': 'voice', 'music.events': 'voice',
+};
+
+function packagePermissionError(pkg, base) {
+  const required = PACKAGE_PERMISSIONS[base?.operation];
+  if (!required) return null;
+  const permissions = asArray(pkg?.permissions).map((permission) => String(permission));
+  return permissions.includes(required)
+    ? null
+    : `Custom node “${pkg?.type || 'unnamed'}” aliases a ${required} operation; declare permissions: ["${required}"].`;
+}
+
 let customDefs = new Map();
 
 function loadCustomDefs(project) {
@@ -36,7 +59,8 @@ function loadCustomDefs(project) {
     if (!pkg || pkg.enabled === false || typeof pkg.type !== 'string' || !pkg.type.startsWith('custom:')) continue;
     const base = NODE_BY_TYPE.get(pkg.base);
     if (!base || !base.operation || (base.special && base.special !== 'data')) continue;
-    const def = { ...base, type: pkg.type, title: String(pkg.title || base.title), category: 'Custom', color: pkg.color || '#a855f7', custom: true, version: String(pkg.version || '1.0.0') };
+    if (packagePermissionError(pkg, base)) continue;
+    const def = { ...base, type: pkg.type, title: String(pkg.title || base.title), category: 'Custom', color: pkg.color || '#a855f7', custom: true, version: String(pkg.version || '1.0.0'), permissions: asArray(pkg.permissions) };
     customDefs.set(def.type, def);
   }
 }
@@ -82,6 +106,34 @@ function isDataOnly(node) {
   return !hasExecInput(node) && !isEntryNode(node) && !['comment', 'group'].includes(nodeDef(node)?.special);
 }
 
+function isWebhookNode(node) {
+  return nodeDef(node)?.operation === 'http.webhook';
+}
+
+function webhookPath(node) {
+  let value = String(node?.config?.path || '/webhook').trim();
+  if (!value.startsWith('/')) value = `/${value}`;
+  value = value.replace(/\/+$/, '') || '/';
+  return value;
+}
+
+function webhookRouteData(compiled) {
+  const routes = [];
+  for (const item of compiled) {
+    for (const node of item.script.graph.nodes || []) {
+      if (!isWebhookNode(node)) continue;
+      routes.push({
+        nodeId: node.id,
+        scriptId: item.script.id,
+        sid: item.sid,
+        path: webhookPath(node),
+        secretEnv: String(node.config?.secretEnv || 'WEBHOOK_SECRET').trim(),
+      });
+    }
+  }
+  return routes;
+}
+
 function defaultFor(node, key) {
   const field = (nodeDef(node)?.fields || []).find((f) => f.key === key);
   return field?.default;
@@ -100,6 +152,16 @@ class Builder {
   mark(nodeId, scriptId) { this.marks.push({ nodeId, scriptId, line: this.lines.length + 1 }); }
   toString() { return this.lines.join('\n'); }
   get lineCount() { return this.lines.length; }
+}
+
+function secretDiagnostics(content, project, diagnostics) {
+  const findings = scanFlowSecrets(content?.scripts || []);
+  for (const finding of findings) {
+    const match = /^\[(\d+)\]\.graph\.nodes\.\[(\d+)\]/.exec(finding.path);
+    const script = match ? project.scripts?.[Number(match[1])] : null;
+    const node = match ? script?.graph?.nodes?.[Number(match[2])] : null;
+    diag(diagnostics, 'error', 'flow.secret-in-graph', `A raw credential is stored at ${finding.path}. Use an *Env field or an environment variable name instead.`, node?.id || null, script?.id || null, 'Remove the raw credential from the graph before compiling or exporting.');
+  }
 }
 
 function runValidation(content, project, diagnostics) {
@@ -210,7 +272,7 @@ function runValidation(content, project, diagnostics) {
       };
       walk(entry.id);
       for (const node of nodes) {
-        if (hasExecInput(node) && !reachable.has(node.id) && node.id !== entry.id) {
+        if (hasExecInput(node) && !reachable.has(node.id) && node.id !== entry.id && !isWebhookNode(node)) {
           diag(diagnostics, 'warning', 'flow.unreachable', `${nodeDef(node)?.title || node.type} is not reachable from the entry point.`, node.id, script.id);
         }
       }
@@ -226,8 +288,29 @@ function runValidation(content, project, diagnostics) {
         const body = (script.graph.edges || []).find((e) => e.from?.node === node.id && e.from?.pin === 'body');
         if (!body) diag(diagnostics, 'warning', 'flow.loop-no-body', `${def.title} has no body connection.`, node.id, script.id);
       }
-      if (def?.type === 'custom-code' || def?.type === 'function-define') {
+      if (def?.type === 'custom-code' || def?.type === 'function-define' || def?.operation === 'script.custom' || def?.operation === 'script.defineFunction') {
         diag(diagnostics, 'warning', 'flow.custom-code', `${def.title} contains user JavaScript. Review it before exporting or hosting.`, node.id, script.id);
+      }
+    }
+  }
+
+  const webhookPaths = new Map();
+  for (const script of scripts) {
+    if (!script.enabled) continue;
+    for (const node of script.graph.nodes || []) {
+      if (!isWebhookNode(node)) continue;
+      const routePath = webhookPath(node);
+      if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/.test(routePath) || routePath.includes('..')) {
+        diag(diagnostics, 'error', 'flow.webhook-path', `Webhook path "${routePath}" is invalid. Use an absolute URL path without "..".`, node.id, script.id);
+      }
+      if (webhookPaths.has(routePath)) {
+        diag(diagnostics, 'error', 'flow.webhook-duplicate', `Webhook path "${routePath}" is registered more than once.`, node.id, script.id);
+      } else webhookPaths.set(routePath, node.id);
+      const secretEnv = String(node.config?.secretEnv || 'WEBHOOK_SECRET').trim();
+      if (secretEnv && !/^[A-Z_][A-Z0-9_]*$/.test(secretEnv)) {
+        diag(diagnostics, 'error', 'flow.webhook-secret-env', `Webhook secret variable "${secretEnv}" must be an uppercase environment variable name.`, node.id, script.id);
+      } else if (!secretEnv) {
+        diag(diagnostics, 'warning', 'flow.webhook-unauthenticated', 'This webhook has no secretEnv; anyone who can reach the port can invoke it.', node.id, script.id);
       }
     }
   }
@@ -647,6 +730,84 @@ function buildScripts(project, diagnostics) {
   return asArray(project.scripts).filter((s) => s.enabled).map((script) => compileScript(script, project, diagnostics, codeMap));
 }
 
+function webhookServerSource(routeExpression) {
+  return `const __flowWebhookRoutes = ${routeExpression};
+let __flowWebhookServer = null;
+async function __flowStartWebhooks() {
+  if (!__flowWebhookRoutes.length) return null;
+  const __http = await import('node:http');
+  const __crypto = await import('node:crypto');
+  const __port = Number(process.env.FLOW_WEBHOOK_PORT || 3001);
+  const __host = process.env.FLOW_WEBHOOK_HOST || '0.0.0.0';
+  const __server = __http.createServer(async (__req, __res) => {
+    const __json = (__status, __body) => {
+      __res.writeHead(__status, { 'content-type': 'application/json' });
+      __res.end(JSON.stringify(__body));
+    };
+    let __url;
+    try { __url = new URL(__req.url || '/', 'http://localhost'); } catch { return __json(400, { ok: false, error: 'bad request' }); }
+    const __route = __flowWebhookRoutes.find((__candidate) => __candidate.path === __url.pathname);
+    if (!__route) return __json(404, { ok: false, error: 'not found' });
+    let __raw = '';
+    try {
+      for await (const __chunk of __req) {
+        __raw += __chunk;
+        if (Buffer.byteLength(__raw) > 1024 * 1024) { __req.destroy(); return __json(413, { ok: false, error: 'payload too large' }); }
+      }
+    } catch { return __json(400, { ok: false, error: 'could not read body' }); }
+    if (__route.secretEnv) {
+      const __secret = process.env[__route.secretEnv];
+      if (!__secret) return __json(503, { ok: false, error: 'webhook secret is not configured' });
+      const __provided = String(__req.headers['x-webhook-secret'] || '');
+      const __signature = String(__req.headers['x-flow-signature'] || '');
+      let __valid = false;
+      try {
+        if (__provided && __provided.length === __secret.length) {
+          __valid = __crypto.timingSafeEqual(Buffer.from(__provided), Buffer.from(__secret));
+        }
+        if (!__valid && __signature) {
+          const __expected = 'sha256=' + __crypto.createHmac('sha256', __secret).update(__raw).digest('hex');
+          if (__signature.length === __expected.length) {
+            __valid = __crypto.timingSafeEqual(Buffer.from(__signature), Buffer.from(__expected));
+          }
+        }
+      } catch { __valid = false; }
+      if (!__valid) return __json(401, { ok: false, error: 'invalid signature' });
+    }
+    let __payload;
+    try { __payload = __raw ? JSON.parse(__raw) : {}; } catch { __payload = __raw; }
+    try {
+      await __route.run({
+        scriptId: __route.scriptId,
+        client,
+        payload: __payload,
+        headers: __req.headers,
+        method: __req.method,
+        query: Object.fromEntries(__url.searchParams),
+        rawBody: __raw,
+      });
+      return __json(200, { ok: true });
+    } catch (__error) {
+      console.error('[flow] webhook handler failed', __error);
+      return __json(500, { ok: false, error: 'handler failed' });
+    }
+  });
+  await new Promise((resolve, reject) => {
+    __server.once('error', reject);
+    __server.listen(__port, __host, resolve);
+  });
+  __flowWebhookServer = __server;
+  console.log('[flow] webhook listener on', __host, __port);
+  return __server;
+}
+const __flowWebhookReady = __flowStartWebhooks().catch((__error) => {
+  console.error('[flow] webhook listener failed', __error.message);
+  return null;
+});
+export { __flowWebhookServer, __flowWebhookReady };
+`;
+}
+
 function renderSingle(project, compiled, diagnostics) {
   const lines = [];
   const header = `// Cascade Flow — generated Discord.js bot
@@ -769,6 +930,13 @@ const __flow = (${createFlowRuntime.toString()})({
     lines.push('});');
   }
 
+  const webhookRoutes = webhookRouteData(compiled);
+  if (webhookRoutes.length) {
+    const routeExpression = `[\n${webhookRoutes.map((route) => `  { path: ${q(route.path)}, scriptId: ${q(route.scriptId)}, secretEnv: ${q(route.secretEnv)}, run: (__ctx) => flow_${route.sid}(__ctx, ${q(route.nodeId)}) },`).join('\n')}\n]`;
+    lines.push(webhookServerSource(routeExpression));
+    lines.push('');
+  }
+
   lines.push('');
   lines.push('process.on("unhandledRejection", (__error) => console.error("[flow] unhandled rejection", __error));');
   lines.push('process.on("uncaughtException", (__error) => console.error("[flow] uncaught exception", __error));');
@@ -857,6 +1025,14 @@ function envExample(project) {
     '# Lavalink (only when the graph uses music nodes)',
     'LAVALINK_PASSWORD=',
     '',
+    '# Webhook listener (only when the graph has a Webhook Handler node)',
+    'FLOW_WEBHOOK_HOST=0.0.0.0',
+    'FLOW_WEBHOOK_PORT=3001',
+    'WEBHOOK_SECRET=',
+    '',
+    '# Opt in only for trusted private-network HTTP calls',
+    'FLOW_ALLOW_PRIVATE_HTTP=',
+    '',
     'WELCOME_CHANNEL_ID=',
   ];
   return `${lines.join('\n')}\n`;
@@ -880,6 +1056,10 @@ This project was generated by Cascade Flow. The graph is the source of truth; ed
 
 The project is a normal Node.js 20+ application. It works on any host that can run Node and reach the Discord gateway. Keep \`.env\` out of source control. Database and Lavalink credentials are read from environment variables and are never written into the generated source.
 
+## Webhooks
+
+If the graph contains a Webhook Handler node, the generated bot starts an HTTP listener on \`FLOW_WEBHOOK_PORT\` (default 3001, bound to \`FLOW_WEBHOOK_HOST\`, default 0.0.0.0). Expose that port through your hosting provider's HTTPS router; the Discord gateway port is separate. Each node's path is matched exactly. When \`secretEnv\` is set, set that environment variable and send either \`x-webhook-secret: <secret>\` or \`x-flow-signature: sha256=<HMAC-SHA256(rawBody, secret)>\`; missing secret configuration fails closed with 503, bad credentials return 401, unknown paths return 404, and bodies over 1 MiB return 413. The listener invokes the graph beginning at the Webhook Handler node with \`payload\`, \`headers\`, \`method\`, \`query\` and \`rawBody\` in context. The Discord client does not need to be logged in for the listener to start.
+
 ## Structure
 
 ${modular ? `- \`main.js\` — entry point and Discord event wiring\n- \`client.js\` — gateway client and intents\n- \`commands/\` — one file per command\n- \`events/\` — one file per event script\n- \`modules/\` — module scripts\n- \`runtime.js\` — Cascade Flow runtime\n- \`database/models.js\` — model metadata` : '- `bot.js` — the complete bot\n- `package.json` — dependencies'}
@@ -897,7 +1077,7 @@ function renderModular(project, compiled) {
   files['package.json'] = packageJson(project).replace('"main": "bot.js"', '"main": "main.js"').replace('"start": "node bot.js"', '"start": "node main.js"').replace(/\n    "check": "node --check bot.js",/, '\n    "check": "node --check main.js",').replace(/\n    "start:modular": "node main.js"/, '');
   files['client.js'] = `import { Client, GatewayIntentBits, Partials } from 'discord.js';\n\nexport const client = new Client({\n  intents: [${discordIntentExpr(intents)}],\n  partials: [${discordPartialExpr(partials)}],\n});\n`;
   files['config.js'] = `export const project = ${JSON.stringify(publicProjectSettings(project.project), null, 2)};\n`;
-  files['runtime.js'] = `${createFlowRuntime.toString()}\n`;
+  files['runtime.js'] = `export ${createFlowRuntime.toString()}\n`;
   files['runtime-context.js'] = `import * as discord from 'discord.js';\nimport { createFlowRuntime } from './runtime.js';\nimport { client } from './client.js';\nimport { project } from './config.js';\n\nexport const flow = createFlowRuntime({ client, project, deps: discord });\nexport { client };\n`;
   files['database/models.js'] = `// Generated model metadata. The runtime uses the generic flow_records\n// collection for SQLite/MongoDB and atomic JSON storage for the JSON backend.\nexport const models = {\n  flow_records: { collection: 'default', fields: { key: 'string', value: 'json' } },\n};\n`;
   files['.env.example'] = envExample(project);
@@ -911,21 +1091,21 @@ function renderModular(project, compiled) {
     const fileSlug = slug(s.name || s.id);
     if (s.type === 'command') {
       const file = `commands/${fileSlug}.js`;
-      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport const data = ${JSON.stringify(commandData(s), null, 2)};\nexport const kind = ${q(s.command?.kind || 'slash')};\nexport const name = ${q(String(s.command?.name || '').toLowerCase())};\nexport async function execute(__interaction) {\n  const __ctx = { scriptId: ${q(s.id)}, client: (await import('../client.js')).client, ...${commandContextExpression(s)} };\n  return run_${item.sid}(__ctx);\n}\n`;
+      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport const data = ${JSON.stringify(commandData(s), null, 2)};\nexport const kind = ${q(s.command?.kind || 'slash')};\nexport const name = ${q(String(s.command?.name || '').toLowerCase())};\nexport async function execute(__interaction) {\n  const __ctx = { scriptId: ${q(s.id)}, client: (await import('../client.js')).client, ...${commandContextExpression(s)} };\n  return run_${item.sid}(__ctx);\n}\nexport async function runFrom(__ctx, __start) { return flow_${item.sid}(__ctx, __start); }\n`;
       commandImports.push({ file, item });
     } else if (s.type === 'event') {
       const file = `events/${fileSlug}.js`;
       const mapping = EVENTS[s.event];
       const eventName = mapping?.discord || s.event;
-      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport const event = ${q(eventName)};\nexport function buildContext(...__a) { return ${eventContextExpression(s.event)}; }\nexport async function execute(__ctx) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\n`;
+      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport const event = ${q(eventName)};\nexport function buildContext(...__a) { return ${eventContextExpression(s.event)}; }\nexport async function execute(__ctx) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\nexport async function runFrom(__ctx, __start) { return flow_${item.sid}(__ctx, __start); }\n`;
       eventImports.push({ file, item });
     } else if (s.type === 'module') {
       const file = `modules/${fileSlug}.js`;
-      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport async function run(__ctx = {}) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\n`;
+      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport async function run(__ctx = {}) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\nexport async function runFrom(__ctx, __start) { return flow_${item.sid}(__ctx, __start); }\n`;
       moduleImports.push({ file, item });
     } else if (s.type === 'main') {
       const file = `modules/${fileSlug}.js`;
-      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport async function run(__ctx = {}) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\n`;
+      files[file] = `import { flow as __flow, client } from '../runtime-context.js';\n\n${item.code}\n\nexport async function run(__ctx = {}) { return run_${item.sid}({ scriptId: ${q(s.id)}, ...__ctx }); }\nexport async function runFrom(__ctx, __start) { return flow_${item.sid}(__ctx, __start); }\n`;
       moduleImports.push({ file, item });
     }
   }
@@ -933,8 +1113,22 @@ function renderModular(project, compiled) {
   files['package.json'] = modularPackageJson(project);
   files['events/index.js'] = `${eventImports.map(({ file }) => `import * as __m_${safe(file)} from './${file.split('/').pop()}';`).join('\n')}\n\nexport const events = [${eventImports.map(({ file }) => `__m_${safe(file)}`).join(', ')}];\n`;
   files['modules/index.js'] = `${moduleImports.map(({ file }) => `import * as __m_${safe(file)} from './${file.split('/').pop()}';`).join('\n')}\n\nexport const modules = [${moduleImports.map(({ file }) => `__m_${safe(file)}`).join(', ')}];\n`;
+  const scriptFile = (script) => script.type === 'command'
+    ? `commands/${slug(script.name || script.id)}.js`
+    : script.type === 'event' ? `events/${slug(script.name || script.id)}.js` : `modules/${slug(script.name || script.id)}.js`;
+  const webhookRoutes = webhookRouteData(compiled).map((route) => {
+    const script = compiled.find((item) => item.script.id === route.scriptId)?.script;
+    return { ...route, file: scriptFile(script || {}) };
+  });
+  if (webhookRoutes.length) {
+    const routeModules = new Map();
+    for (const route of webhookRoutes) routeModules.set(route.file, `__w_${safe(route.file)}`);
+    const imports = [...routeModules].map(([file, name]) => `import * as ${name} from './${file}';`).join('\n');
+    const routeExpression = `[\n${webhookRoutes.map((route) => `  { path: ${q(route.path)}, scriptId: ${q(route.scriptId)}, secretEnv: ${q(route.secretEnv)}, run: (__ctx) => ${routeModules.get(route.file)}.runFrom(__ctx, ${q(route.nodeId)}) },`).join('\n')}\n]`;
+    files['webhooks.js'] = `import 'dotenv/config';\nimport { client } from './runtime-context.js';\n${imports}\n\n${webhookServerSource(routeExpression)}`;
+  }
   const slash = compiled.filter((s) => s.script.type === 'command' && ['slash', 'user', 'message'].includes(s.script.command?.kind || 'slash'));
-  files['main.js'] = `import 'dotenv/config';\nimport { Events, REST, Routes } from 'discord.js';\nimport { client } from './client.js';\nimport { project } from './config.js';\nimport { commands } from './commands/index.js';\nimport { events } from './events/index.js';\nimport { modules } from './modules/index.js';\n\nconst commandMap = Object.create(null);\nfor (const command of commands) commandMap[command.name] = command;\nclient.on(Events.InteractionCreate, async (interaction) => {\n  let name = null;\n  if (interaction.isChatInputCommand?.() || interaction.isUserContextMenuCommand?.() || interaction.isMessageContextMenuCommand?.()) name = interaction.commandName;\n  if (name && commandMap[name]) {\n    try { await commandMap[name].execute(interaction); } catch (error) { console.error('[flow]', name, error); }\n  }\n});\nclient.on(Events.MessageCreate, async (message) => {\n  if (!message || message.author?.bot || !message.content) return;\n  const prefix = process.env[project.prefixEnv || 'PREFIX'] || project.prefix || '!';\n  if (!message.content.startsWith(prefix)) return;\n  const parts = message.content.slice(prefix.length).trim().split(/\\s+/);\n  const name = (parts.shift() || '').toLowerCase();\n  const command = commandMap[name];\n  if (!command || command.kind !== 'prefix') return;\n  try { await command.execute({ message, author: message.author, channel: message.channel, guild: message.guild, member: message.member, args: parts, content: message.content }); } catch (error) { console.error('[flow]', name, error); }\n});\nfor (const mod of events) {\n  client.on(mod.event, async (...args) => {\n    try { await mod.execute(mod.buildContext(...args)); } catch (error) { console.error('[flow]', mod.event, error); }\n  });\n}\nclient.on(Events.ClientReady, async () => {\n  for (const mod of modules) { try { await mod.run({ client }); } catch (error) { console.error('[flow]', error); } }\n  const token = process.env[project.tokenEnv || 'DISCORD_TOKEN'];\n  const data = commands.filter((c) => ['slash', 'user', 'message'].includes(c.kind)).map((c) => c.data);\n  if (token && data.length && process.env.FLOW_DRY_RUN !== '1') {\n    const rest = new REST({ version: '10' }).setToken(token);\n    const guild = process.env[project.guildIdEnv || 'GUILD_ID'];\n    const route = guild ? Routes.applicationGuildCommands(client.user.id, guild) : Routes.applicationCommands(client.user.id);\n    try { await rest.put(route, { body: data }); } catch (error) { console.error('[flow] registration failed', error); }\n  }\n});\nprocess.on('unhandledRejection', (error) => console.error('[flow] unhandled rejection', error));\nif (process.env.FLOW_DRY_RUN !== '1') {\n  const token = process.env[project.tokenEnv || 'DISCORD_TOKEN'];\n  if (!token) console.error('[flow] Discord token is not set');\n  else client.login(token).catch((error) => { console.error('[flow] login failed', error); process.exitCode = 1; });\n}\n`;
+  files['main.js'] = `${webhookRoutes.length ? `import { __flowWebhookReady } from './webhooks.js';\nvoid __flowWebhookReady;\n` : ''}import 'dotenv/config';\nimport { Events, REST, Routes } from 'discord.js';\nimport { client } from './client.js';\nimport { project } from './config.js';\nimport { commands } from './commands/index.js';\nimport { events } from './events/index.js';\nimport { modules } from './modules/index.js';\n\nconst commandMap = Object.create(null);\nfor (const command of commands) commandMap[command.name] = command;\nclient.on(Events.InteractionCreate, async (interaction) => {\n  let name = null;\n  if (interaction.isChatInputCommand?.() || interaction.isUserContextMenuCommand?.() || interaction.isMessageContextMenuCommand?.()) name = interaction.commandName;\n  if (name && commandMap[name]) {\n    try { await commandMap[name].execute(interaction); } catch (error) { console.error('[flow]', name, error); }\n  }\n});\nclient.on(Events.MessageCreate, async (message) => {\n  if (!message || message.author?.bot || !message.content) return;\n  const prefix = process.env[project.prefixEnv || 'PREFIX'] || project.prefix || '!';\n  if (!message.content.startsWith(prefix)) return;\n  const parts = message.content.slice(prefix.length).trim().split(/\\s+/);\n  const name = (parts.shift() || '').toLowerCase();\n  const command = commandMap[name];\n  if (!command || command.kind !== 'prefix') return;\n  try { await command.execute({ message, author: message.author, channel: message.channel, guild: message.guild, member: message.member, args: parts, content: message.content }); } catch (error) { console.error('[flow]', name, error); }\n});\nfor (const mod of events) {\n  client.on(mod.event, async (...args) => {\n    try { await mod.execute(mod.buildContext(...args)); } catch (error) { console.error('[flow]', mod.event, error); }\n  });\n}\nclient.on(Events.ClientReady, async () => {\n  for (const mod of modules) { try { await mod.run({ client }); } catch (error) { console.error('[flow]', error); } }\n  const token = process.env[project.tokenEnv || 'DISCORD_TOKEN'];\n  const data = commands.filter((c) => ['slash', 'user', 'message'].includes(c.kind)).map((c) => c.data);\n  if (token && data.length && process.env.FLOW_DRY_RUN !== '1') {\n    const rest = new REST({ version: '10' }).setToken(token);\n    const guild = process.env[project.guildIdEnv || 'GUILD_ID'];\n    const route = guild ? Routes.applicationGuildCommands(client.user.id, guild) : Routes.applicationCommands(client.user.id);\n    try { await rest.put(route, { body: data }); } catch (error) { console.error('[flow] registration failed', error); }\n  }\n});\nprocess.on('unhandledRejection', (error) => console.error('[flow] unhandled rejection', error));\nif (process.env.FLOW_DRY_RUN !== '1') {\n  const token = process.env[project.tokenEnv || 'DISCORD_TOKEN'];\n  if (!token) console.error('[flow] Discord token is not set');\n  else client.login(token).catch((error) => { console.error('[flow] login failed', error); process.exitCode = 1; });\n}\n`;
   return files;
 }
 
@@ -943,11 +1137,15 @@ export function compileFlow(content, options = {}) {
   loadCustomDefs(project);
   const diagnostics = [];
   runValidation(content, project, diagnostics);
+  secretDiagnostics(content, project, diagnostics);
   for (const pkg of asArray(project.customNodes)) {
     if (!pkg || pkg.enabled === false) continue;
     const base = NODE_BY_TYPE.get(pkg.base);
     if (typeof pkg.type !== 'string' || !pkg.type.startsWith('custom:') || !base || !base.operation || (base.special && base.special !== 'data')) {
       diag(diagnostics, 'warning', 'flow.custom-node-invalid', `Custom node package “${pkg.type || 'unnamed'}” needs a custom: type and a supported base node.`, null, null, 'Open Project settings and fix the customNodes JSON.');
+    } else {
+      const permissionError = packagePermissionError(pkg, base);
+      if (permissionError) diag(diagnostics, 'error', 'flow.custom-node-permission', permissionError, null, null, 'Add the declared permission to the package only after reviewing the operation.');
     }
   }
   const errors = diagnostics.filter((d) => d.severity === 'error');
@@ -986,6 +1184,7 @@ export function validateFlow(content) {
   const project = normalizeFlow(content);
   const diagnostics = [];
   runValidation(content, project, diagnostics);
+  secretDiagnostics(content, project, diagnostics);
   return { ok: diagnostics.every((d) => d.severity !== 'error'), diagnostics, errors: diagnostics.filter((d) => d.severity === 'error'), project };
 }
 

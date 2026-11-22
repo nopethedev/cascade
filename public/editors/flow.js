@@ -3,6 +3,7 @@
    schedules the shared autosave and the server-side compiler. */
 import { NODE_LIBRARY, NODE_BY_TYPE, NODE_CATEGORIES, COMMAND_TYPES, EVENTS } from '/public/flow/nodes.mjs';
 import { normalizeFlow, blankScript, flowId, SCRIPT_TYPES } from '/public/flow/schema.mjs';
+import { scanFlowSecrets, redactFlowSecrets } from '/public/flow/secrets.mjs';
 
 const $ = (id) => document.getElementById(id);
 const DOC = window.__DOC__ || {};
@@ -40,20 +41,32 @@ const collapsedFolders = new Set();
 const consoleLines = [];
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeColor = (value) => /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? String(value) : '#f43f5e';
 const activeScript = () => content.scripts.find((s) => s.id === activeScriptId) || content.scripts[0] || null;
 const nodeById = (id) => activeScript()?.graph.nodes.find((n) => n.id === id) || null;
 const customDefs = new Map();
+const CUSTOM_PERMISSIONS = {
+  'script.custom': 'unsafe-code', 'script.defineFunction': 'unsafe-code',
+  'http.request': 'network', 'http.websocket': 'network', 'http.webhook': 'network', 'http.paginate': 'network',
+  'db.set': 'database', 'db.get': 'database', 'db.delete': 'database', 'db.query': 'database',
+  'db.aggregate': 'database', 'db.transaction': 'database', 'db.connect': 'database', 'db.schema': 'database', 'db.inspect': 'database',
+  'ai.chat': 'ai', 'ai.json': 'ai', 'ai.tools': 'ai', 'ai.embed': 'ai', 'ai.image': 'ai', 'ai.moderation': 'ai', 'ai.memory': 'ai',
+  'music.connect': 'voice', 'music.play': 'voice', 'music.search': 'voice', 'music.queue': 'voice',
+  'music.join': 'voice', 'music.leave': 'voice', 'music.filter': 'voice', 'music.events': 'voice',
+};
 function rebuildCustomDefs() {
   customDefs.clear();
   for (const pkg of content.customNodes || []) {
     if (!pkg || pkg.enabled === false || typeof pkg.type !== 'string' || !pkg.type.startsWith('custom:')) continue;
     const base = NODE_BY_TYPE.get(pkg.base);
     if (!base || !base.operation || (base.special && base.special !== 'data')) continue;
+    const required = CUSTOM_PERMISSIONS[base.operation];
+    if (required && !(Array.isArray(pkg.permissions) && pkg.permissions.includes(required))) continue;
     const def = JSON.parse(JSON.stringify(base));
     def.type = pkg.type;
     def.title = String(pkg.title || base.title);
     def.category = 'Custom';
-    def.color = pkg.color || '#a855f7';
+    def.color = safeColor(pkg.color || '#a855f7');
     def.custom = true;
     def.version = String(pkg.version || '1.0.0');
     def.description = `${def.title} · custom package ${def.version} (${base.title})`;
@@ -290,7 +303,7 @@ function renderNodes() {
     const inputs = (def.inputs || []).map((pin) => pinHtml(node, pin, 'in')).join('');
     const outputs = (def.outputs || []).map((pin) => pinHtml(node, pin, 'out')).join('');
     const summary = nodeSummary(node, def);
-    return `<div class="flow-node ${selected === node.id ? 'selected' : ''}" data-id="${esc(node.id)}" style="left:${Number(node.x) || 0}px;top:${Number(node.y) || 0}px;width:${def.width || 230}px;--node-color:${def.color || '#f43f5e'}">
+    return `<div class="flow-node ${selected === node.id ? 'selected' : ''}" data-id="${esc(node.id)}" style="left:${Number(node.x) || 0}px;top:${Number(node.y) || 0}px;width:${def.width || 230}px;--node-color:${safeColor(def.color)}">
       <div class="fn-head"><span class="fn-ico">${esc(def.icon || 'N')}</span><span class="fn-title">${esc(def.title)}</span><span class="fn-badge">${esc(def.category)}</span></div>
       <div class="fn-body"><div class="fn-col in">${inputs}</div><div class="fn-col out">${outputs}</div></div>
       ${summary ? `<div class="fn-summary">${esc(summary)}</div>` : ''}
@@ -592,7 +605,7 @@ function renderInspector() {
         return fieldHtml({ key: pin.id, label: pin.label || pin.id, type, help: `${pin.type} input · unconnected fallback` }, node.config?.[pin.id], 'node', node.id);
       }).join('');
       const connectedChips = inputs.filter((pin) => connected.has(pin.id)).map((pin) => `<span class="fi-chip">${esc(pin.label || pin.id)} · connected</span>`).join('');
-      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico" style="background:${def.color}22;color:${def.color}">${esc(def.icon || 'N')}</span><div><b>${esc(def.title)}</b><small>${esc(def.category)} · ${esc(node.id)}</small></div></div>
+      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico" style="background:${safeColor(def.color)}22;color:${safeColor(def.color)}">${esc(def.icon || 'N')}</span><div><b>${esc(def.title)}</b><small>${esc(def.category)} · ${esc(node.id)}</small></div></div>
         <p class="fi-desc">${esc(def.description || 'No description for this node.')}</p>
         ${inputFields || connectedChips ? `<div class="fi-section"><b>Inputs</b>${inputFields}${connectedChips ? `<div class="fi-chiprow">${connectedChips}</div>` : ''}</div>` : ''}
         <div class="fi-section"><b>Configuration</b>${(def.fields || []).map((f) => fieldHtml(f, node.config?.[f.key], 'node', node.id)).join('') || '<div class="fi-empty">This node has no configurable fields.</div>'}</div>
@@ -695,7 +708,7 @@ function renderProjectInspector() {
     </div>
     <div class="fi-section"><b>Custom nodes</b>
       ${fieldHtml({ key: 'customNodes', label: 'Package metadata (JSON)', type: 'json' }, content.customNodes || [], 'project', 'project')}
-      <div class="fi-help">Example: <code>[{"type":"custom:double","title":"Double","base":"math-op","version":"1.0.0","enabled":true}]</code>. Custom packages reuse a built-in operation and appear under the Custom library category.</div>
+      <div class="fi-help">Example: <code>[{"type":"custom:double","title":"Double","base":"math-op","version":"1.0.0","enabled":true}]</code>. Packages reusing <code>script.custom</code>, HTTP, database, AI or music operations must declare <code>permissions: ["unsafe-code"]</code>, <code>["network"]</code>, <code>["database"]</code>, <code>["ai"]</code> or <code>["voice"]</code>; they appear under the Custom library category only when permitted.</div>
     </div>`;
   fiBody.querySelectorAll('[data-intent]').forEach((btn) => btn.addEventListener('click', () => {
     const set = new Set(content.project.intents || []);
@@ -823,7 +836,7 @@ function renderLibrary() {
   const q = libraryQuery.toLowerCase();
   const list = allNodes.filter((n) => (libraryCategory === 'All' || n.category === libraryCategory)
     && (!q || `${n.title} ${n.type} ${n.category} ${n.description}`.toLowerCase().includes(q)));
-  results.innerHTML = list.slice(0, 120).map((n) => `<button class="library-node" type="button" data-library-node="${esc(n.type)}" style="--node-color:${n.color}"><b>${esc(n.title)}</b><small>${esc(n.description || n.category)}</small><em>${esc(n.category)} · ${esc(n.type)}</em></button>`).join('') || '<div class="fi-empty">No nodes match that search.</div>';
+  results.innerHTML = list.slice(0, 120).map((n) => `<button class="library-node" type="button" data-library-node="${esc(n.type)}" style="--node-color:${safeColor(n.color)}"><b>${esc(n.title)}</b><small>${esc(n.description || n.category)}</small><em>${esc(n.category)} · ${esc(n.type)}</em></button>`).join('') || '<div class="fi-empty">No nodes match that search.</div>';
   cats.querySelectorAll('[data-library-cat]').forEach((btn) => btn.addEventListener('click', () => { libraryCategory = btn.dataset.libraryCat; renderLibrary(); }));
   results.querySelectorAll('[data-library-node]').forEach((btn) => btn.addEventListener('click', () => {
     addNode(btn.dataset.libraryNode);
@@ -866,6 +879,12 @@ function addNode(type) {
 /* ------------------------------------------------------------------ compiler */
 async function compile(silent = false) {
   if (!DOC.id) return;
+  const secrets = scanFlowSecrets(content);
+  if (secrets.length) {
+    renderProblems([{ severity: 'error', code: 'flow.secret-in-graph', message: `Remove raw credentials before compiling (${secrets[0].path}). Use an *Env field.`, hint: 'Credentials must come from environment variables, never graph properties.' }]);
+    toast('Remove raw credentials before compiling', true);
+    return;
+  }
   const seq = ++compileSeq;
   setCompileStatus('Compiling…', '');
   if (!silent) setStatus('Compiling…', '');
@@ -1526,7 +1545,14 @@ function boot() {
     canEdit: !READONLY,
     filename: DOC.filename,
     isPublic: DOC.isPublic,
-    collect: () => content,
+    collect: () => {
+      const findings = scanFlowSecrets(content);
+      if (findings.length) {
+        toast(`Raw credentials are not saved (${findings[0].path})`, true);
+        return redactFlowSecrets(content);
+      }
+      return content;
+    },
     apply: (next) => {
       content = normalizeFlow(next || {});
       if (!content.scripts.find((s) => s.id === activeScriptId)) activeScriptId = content.scripts[0]?.id || null;

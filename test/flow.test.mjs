@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 import ejs from 'ejs';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,7 @@ import { TEMPLATES } from '../src/templates.js';
 import { compileFlow, modularExport, singleFileExport } from '../src/flow/compiler.js';
 import { createFlowRuntime } from '../src/flow/runtime.js';
 import { blankFlow, blankScript, flowId } from '../public/flow/schema.mjs';
+import { redactFlowSecrets } from '../public/flow/secrets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -155,6 +157,40 @@ test('array operations map, filter and find real fields instead of returning the
   assert.deepEqual((await runtime.op({}, 'data.arrayOp', { operation: 'find', input: rows, argument: 'name=Grace' })).value, rows[1]);
 });
 
+test('raw credentials block Flow compilation and can be redacted for reads', () => {
+  const project = blankFlow('Secret graph');
+  project.scripts[0].graph.nodes.push({ id: 'n_secret', type: 'log', x: 0, y: 0, config: { message: 'sk-live-abcdefghijklmnopqrstuvwxyz' } });
+  const result = singleFileExport(project);
+  assert.equal(result.ok, false);
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.code === 'flow.secret-in-graph'));
+  assert.equal(result.code, null);
+  assert.ok(!JSON.stringify(result.files || {}).includes('sk-live-'));
+  const redacted = redactFlowSecrets(project);
+  assert.ok(!JSON.stringify(redacted).includes('sk-live-'));
+  assert.match(JSON.stringify(redacted), /\[redacted\]/);
+});
+
+test('custom packages cannot alias unsafe code or network operations without declared permissions', () => {
+  const project = blankFlow('Custom permissions');
+  project.customNodes = [{ type: 'custom:runner', base: 'custom-code', version: '1.0.0' }];
+  project.scripts[0].graph.nodes.push({ id: 'n_runner', type: 'custom:runner', x: 0, y: 0, config: { code: 'return { value: 1 };' } });
+  const blocked = compileFlow(project);
+  assert.equal(blocked.ok, false);
+  assert.ok(blocked.diagnostics.some((diagnostic) => diagnostic.code === 'flow.custom-node-permission'));
+  project.customNodes[0].permissions = ['unsafe-code'];
+  const allowed = compileFlow(project);
+  assert.equal(allowed.ok, true, allowed.errors.map((error) => error.message).join('; '));
+  assert.ok(allowed.diagnostics.some((diagnostic) => diagnostic.code === 'flow.custom-code'));
+});
+
+test('runtime rejects traversal database paths and private-network HTTP targets', async () => {
+  const traversal = createFlowRuntime({ client: {}, project: { database: { backend: 'json', jsonPath: '../../etc/passwd' } } });
+  await assert.rejects(traversal.op({}, 'db.connect', {}), /Database path must stay inside/);
+  const ssrf = createFlowRuntime({ client: {} });
+  await assert.rejects(ssrf.op({}, 'http.request', { url: 'http://127.0.0.1:3000/secret' }), /private or local/);
+  await assert.rejects(ssrf.op({}, 'http.request', { url: 'file:///etc/passwd' }), /http and https/);
+});
+
 test('custom node packages resolve to real runtime operations with versioned metadata', () => {
   const project = blankFlow('Custom nodes');
   const command = blankScript('s_custom', 'Custom command', 'command');
@@ -170,6 +206,166 @@ test('custom node packages resolve to real runtime operations with versioned met
   const disabled = blankFlow('Bad custom nodes');
   disabled.customNodes = [{ type: 'custom:bad', base: 'does-not-exist', enabled: true }];
   assert.ok(compileFlow(disabled).diagnostics.some((d) => d.code === 'flow.custom-node-invalid'));
+});
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+test('exported bots run a real authenticated webhook listener', { timeout: 20000 }, async () => {
+  const project = blankFlow('Webhook bot');
+  const main = project.scripts[0];
+  const entry = main.graph.nodes.find((node) => node.type === 'main-entry');
+  const webhook = { id: 'n_webhook', type: 'webhook-handler', x: 300, y: 120, config: { path: '/hooks/cascade', secretEnv: 'WEBHOOK_SECRET' } };
+  const log = { id: 'n_webhook_log', type: 'log', x: 600, y: 120, config: {} };
+  main.graph.nodes.push(webhook, log);
+  main.graph.edges.push(
+    edge(entry.id, 'next', webhook.id, 'exec'),
+    edge(webhook.id, 'next', log.id, 'exec'),
+    edge(webhook.id, 'payload', log.id, 'message', 'data'),
+  );
+  const exported = singleFileExport(project);
+  assert.equal(exported.ok, true, exported.errors.map((error) => error.message).join('; '));
+  const dir = writeProject(exported.files);
+  const port = await freePort();
+  const child = spawn(process.execPath, ['bot.js'], {
+    cwd: dir,
+    env: { ...process.env, FLOW_DRY_RUN: '1', FLOW_WEBHOOK_PORT: String(port), FLOW_WEBHOOK_HOST: '127.0.0.1', WEBHOOK_SECRET: 'cascade-webhook-secret' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { stdout += chunk.toString(); });
+  try {
+    const deadline = Date.now() + 8000;
+    while (!stdout.includes('webhook listener') && Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`webhook bot exited early:\n${stdout}`);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    assert.match(stdout, /webhook listener/, 'webhook listener did not start');
+    const wrong = await fetch(`http://127.0.0.1:${port}/hooks/cascade`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-webhook-secret': 'wrong' }, body: '{"secret":"bad"}',
+    });
+    assert.equal(wrong.status, 401);
+    const response = await fetch(`http://127.0.0.1:${port}/hooks/cascade`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-webhook-secret': 'cascade-webhook-secret' }, body: '{"hello":"world"}',
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.match(stdout, /hello: 'world'/);
+    const missing = await fetch(`http://127.0.0.1:${port}/missing`, { method: 'POST', body: '{}' });
+    assert.equal(missing.status, 404);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => { child.once('exit', resolve); setTimeout(resolve, 1500); });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('modular export includes a working webhook listener', { timeout: 20000 }, async () => {
+  const project = blankFlow('Modular webhook');
+  const main = project.scripts[0];
+  const entry = main.graph.nodes.find((node) => node.type === 'main-entry');
+  const webhook = { id: 'n_modular_webhook', type: 'webhook-handler', x: 300, y: 120, config: { path: '/hooks/modular', secretEnv: 'WEBHOOK_SECRET' } };
+  const log = { id: 'n_modular_log', type: 'log', x: 600, y: 120, config: {} };
+  main.graph.nodes.push(webhook, log);
+  main.graph.edges.push(edge(entry.id, 'next', webhook.id, 'exec'), edge(webhook.id, 'next', log.id, 'exec'), edge(webhook.id, 'payload', log.id, 'message', 'data'));
+  const exported = modularExport(project);
+  assert.equal(exported.ok, true, exported.errors.map((error) => error.message).join('; '));
+  assert.ok(exported.files['webhooks.js'].includes('createServer'));
+  assert.ok(exported.files['main.js'].includes("./webhooks.js"));
+  syntaxCheck(exported.files);
+  const dir = writeProject(exported.files);
+  const port = await freePort();
+  const child = spawn(process.execPath, ['main.js'], {
+    cwd: dir,
+    env: { ...process.env, FLOW_DRY_RUN: '1', FLOW_WEBHOOK_PORT: String(port), FLOW_WEBHOOK_HOST: '127.0.0.1', WEBHOOK_SECRET: 'modular-webhook-secret' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on('data', (chunk) => { stdout += chunk.toString(); });
+  try {
+    const deadline = Date.now() + 8000;
+    while (!stdout.includes('webhook listener') && Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`modular webhook bot exited early:\n${stdout}`);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    assert.match(stdout, /webhook listener/, 'modular webhook listener did not start');
+    const response = await fetch(`http://127.0.0.1:${port}/hooks/modular`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-webhook-secret': 'modular-webhook-secret' }, body: '{"modular":true}',
+    });
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.match(stdout, /modular: true/);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => { child.once('exit', resolve); setTimeout(resolve, 1500); });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offline contracts cover OpenAI, MongoDB and Lavalink shapes without live services', async () => {
+  process.env.FLOW_TEST_OPENAI_KEY = 'offline-key';
+  process.env.FLOW_TEST_MONGO_URI = 'mongodb://stub/flow';
+  process.env.FLOW_TEST_LAVALINK = 'offline-lavalink';
+  try {
+    class OpenAIStub {
+      constructor(options) { this.options = options; this.chat = { completions: { create: async (body) => ({ choices: [{ message: { content: `stub:${body.messages.at(-1).content}` } }], usage: { total_tokens: 7 } }) } }; }
+    }
+    const ai = createFlowRuntime({ client: {}, deps: { openai: { default: OpenAIStub } } });
+    const completion = await ai.op({}, 'ai.chat', { prompt: 'hello', env: 'FLOW_TEST_OPENAI_KEY', model: 'stub-model' });
+    assert.equal(completion.text, 'stub:hello');
+    assert.equal(completion.usage.total_tokens, 7);
+
+    const rows = [];
+    class CollectionStub {
+      async createIndex(index) { this.index = index; }
+      async updateOne(filter, update) { const i = rows.findIndex((row) => row.collection === filter.collection && row.key === filter.key); const next = update.$set; if (i >= 0) rows[i] = next; else rows.push(next); }
+      async findOne(filter) { return rows.find((row) => row.collection === filter.collection && row.key === filter.key) || null; }
+      find(filter) { return { toArray: async () => rows.filter((row) => row.collection === filter.collection) }; }
+      async deleteOne(filter) { const i = rows.findIndex((row) => row.collection === filter.collection && row.key === filter.key); if (i >= 0) rows.splice(i, 1); return { deletedCount: i >= 0 ? 1 : 0 }; }
+    }
+    class MongoClientStub {
+      constructor(uri) { this.uri = uri; this.collection = new CollectionStub(); }
+      async connect() { this.connected = true; }
+      db() { return { collection: () => this.collection }; }
+    }
+    const mongo = createFlowRuntime({ client: {}, deps: { mongodb: { MongoClient: MongoClientStub } }, project: { database: { backend: 'mongodb', env: 'FLOW_TEST_MONGO_URI' } } });
+    await mongo.op({}, 'db.connect', {});
+    await mongo.op({}, 'db.set', { collection: 'users', key: 'u1', value: { name: 'Ada' } });
+    assert.deepEqual((await mongo.op({}, 'db.get', { collection: 'users', key: 'u1' })).value, { name: 'Ada' });
+    assert.equal((await mongo.op({}, 'db.inspect', { collection: 'users' })).rows.length, 1);
+    assert.equal((await mongo.op({}, 'db.delete', { collection: 'users', key: 'u1' })).deleted, true);
+
+    class ShoukakuStub {
+      constructor(connector, nodes, options) { this.connector = connector; this.nodes = nodes; this.options = options; this.players = new Map(); }
+      getIdealNode() { return { rest: { resolve: async (query) => ({ tracks: [{ encoded: 'track', info: { title: query } }] }) } }; }
+      async joinVoiceChannel({ guildId, channelId }) { const player = { guildId, channelId, queue: [] }; this.players.set(guildId, player); return player; }
+    }
+    const music = createFlowRuntime({
+      client: {},
+      deps: { shoukaku: { Connectors: { DiscordJS: class { constructor(client) { this.client = client; } } }, Shoukaku: ShoukakuStub } },
+      project: { lavalink: { enabled: true, nodes: [{ name: 'offline', url: 'localhost:2333', authEnv: 'FLOW_TEST_LAVALINK' }] } },
+    });
+    const manager = (await music.op({}, 'music.connect', {})).manager;
+    assert.equal(manager.nodes.length, 1);
+    assert.equal(manager.nodes[0].auth, 'offline-lavalink');
+    const search = await music.op({}, 'music.search', { query: 'cascade' });
+    assert.equal(search.tracks[0].info.title, 'cascade');
+  } finally {
+    delete process.env.FLOW_TEST_OPENAI_KEY;
+    delete process.env.FLOW_TEST_MONGO_URI;
+    delete process.env.FLOW_TEST_LAVALINK;
+  }
 });
 
 test('single-file export runs a real graph, returns a reply and supports prefix commands', async () => {

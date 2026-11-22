@@ -43,6 +43,7 @@ import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.
 import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
 import { compileFlow, singleFileExport, modularExport } from './flow/compiler.js';
+import { redactFlowSecrets, scanFlowSecrets } from '../public/flow/secrets.mjs';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const MAX_CONTENT = 12 * 1024 * 1024; // editor JSON per document (PDFs are base64)
@@ -426,7 +427,7 @@ export function createWorkspaceRouter() {
       slug: file.slug,
       folderId: file.folderId,
       updatedAt: file.updatedAt,
-      content: parseContent(file),
+      content: file.kind === 'flow' ? redactFlowSecrets(parseContent(file)) : parseContent(file),
       viewers: viewersOf(file.id),
       exportUrl: `/export/${file.id}`,
       downloadUrl: `/download/${file.id}`,
@@ -439,6 +440,10 @@ export function createWorkspaceRouter() {
     const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file) return res.status(404).json({ error: 'not found' });
     const body = req.body || {};
+    if (file.kind === 'flow') {
+      const findings = scanFlowSecrets(body.content ?? {});
+      if (findings.length) return res.status(422).json({ error: 'Flow projects may not store raw credentials; use an *Env field.', paths: findings.map((finding) => finding.path) });
+    }
     const serialized = JSON.stringify(body.content ?? {});
     if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'document too large' });
     const incomingVersion = Number(body.version) || 0;
@@ -489,6 +494,8 @@ export function createWorkspaceRouter() {
     if (!file || file.kind !== 'flow') return res.status(404).json({ error: 'not found' });
     const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
     const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    const secretFindings = scanFlowSecrets(content);
+    if (secretFindings.length) return res.status(422).json({ error: 'Flow projects may not store raw credentials; use an *Env field.', paths: secretFindings.map((finding) => finding.path) });
     const serialized = JSON.stringify(content);
     if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'project too large' });
     const result = compileFlow(content);
@@ -509,6 +516,8 @@ export function createWorkspaceRouter() {
     if (!file || file.kind !== 'flow') return res.status(404).json({ error: 'not found' });
     const supplied = req.body && Object.prototype.hasOwnProperty.call(req.body, 'content') ? req.body.content : null;
     const content = supplied && typeof supplied === 'object' ? supplied : parseContent(file);
+    const secretFindings = scanFlowSecrets(content);
+    if (secretFindings.length) return res.status(422).json({ error: 'Flow projects may not store raw credentials; use an *Env field.', paths: secretFindings.map((finding) => finding.path) });
     if (Buffer.byteLength(JSON.stringify(content)) > MAX_CONTENT) return res.status(413).json({ error: 'project too large' });
     const mode = req.body?.mode === 'modular' ? 'modular' : 'single';
     const result = mode === 'modular' ? modularExport(content) : singleFileExport(content);
@@ -556,7 +565,8 @@ export function createWorkspaceRouter() {
       order: [['id', 'DESC']],
     });
     if (!snap) return res.status(404).json({ error: 'version not found' });
-    res.json({ ok: true, version: snap.version, content: JSON.parse(snap.content) });
+    const versionContent = JSON.parse(snap.content);
+    res.json({ ok: true, version: snap.version, content: file.kind === 'flow' ? redactFlowSecrets(versionContent) : versionContent });
   }));
 
   r.post('/api/workspace/docs/:id/restore', requireLogin, wrap(async (req, res) => {

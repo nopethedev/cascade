@@ -5,6 +5,7 @@ import { FileRecord, DocVersion, Folder, Template, FormResponse, StudioCommand, 
 import { validateCommand, applyCommandToContent } from './studio.js';
 import { KIND_BY_ID, TEMPLATES, buildContent } from './templates.js';
 import { blankScript, normalizeFlow } from '../public/flow/schema.mjs';
+import { redactFlowSecrets, scanFlowSecrets } from '../public/flow/secrets.mjs';
 import { compileFlow, renderExport, validateFlow } from './flow/compiler.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { recordEvent } from './analytics.js';
@@ -535,7 +536,8 @@ async function callTool(name, args, ctx) {
 
     if (name === 'get_document') {
       const file = await loadDoc(input.id, ctx.user);
-      return textResult({ document: { ...docMeta(file), content: parseContent(file) } });
+      const content = parseContent(file);
+      return textResult({ document: { ...docMeta(file), content: file.kind === 'flow' ? redactFlowSecrets(content) : content } });
     }
 
     if (name === 'list_versions') {
@@ -564,7 +566,7 @@ async function callTool(name, args, ctx) {
       } catch {
         return errorResult('version is not valid JSON');
       }
-      return textResult({ id: file.id, version: snap.version, content });
+      return textResult({ id: file.id, version: snap.version, content: file.kind === 'flow' ? redactFlowSecrets(content) : content });
     }
 
     if (name === 'create_document') {
@@ -588,6 +590,7 @@ async function callTool(name, args, ctx) {
         content = await contentFor(kind, input.templateId);
       }
       if (!content) content = kind === 'pdf' ? await buildPdfTemplate('pdf-blank') : buildContent(null, kind);
+      if (kind === 'flow' && scanFlowSecrets(content).length) return errorResult('Flow projects may not store raw credentials; use an *Env field');
       const serialized = serializedSize(content);
       const name = String(input.name || '').trim().slice(0, 120) || defaultName(kind);
       const file = await FileRecord.create({
@@ -614,6 +617,7 @@ async function callTool(name, args, ctx) {
     if (name === 'update_document') {
       const file = await loadDoc(input.id, ctx.user);
       assertContentObject(input.content);
+      if (file.kind === 'flow' && scanFlowSecrets(input.content).length) return errorResult('Flow projects may not store raw credentials; use an *Env field');
       const serialized = serializedSize(input.content);
       const incomingVersion = Number(input.version) || 0;
       if (!input.force && incomingVersion && incomingVersion !== file.version) {
@@ -822,7 +826,11 @@ async function callTool(name, args, ctx) {
       return textResult({
         query,
         documents: files.map((file) => {
-          const plain = String(file.content || '')
+          const searchable = (() => {
+            if (file.kind !== 'flow') return file.content || '';
+            try { return JSON.stringify(redactFlowSecrets(JSON.parse(file.content || '{}'))); } catch { return ''; }
+          })();
+          const plain = String(searchable)
             .replace(/<[^>]+>/g, ' ')
             .replace(/\\[nrt]/g, ' ')
             .replace(/\s+/g, ' ')
@@ -869,7 +877,7 @@ async function callTool(name, args, ctx) {
     if (name === 'flow_get_project') {
       const file = await loadDoc(input.id, ctx.user);
       if (file.kind !== 'flow') return errorResult('not a Flow project');
-      const content = normalizeFlow(parseContent(file));
+      const content = normalizeFlow(redactFlowSecrets(parseContent(file)));
       const validation = validateFlow(content);
       return textResult({
         project: docMeta(file),

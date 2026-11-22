@@ -127,6 +127,26 @@ test('Flow HTTP compile/export and MCP tools work with owner scope and scoped ke
     assert.equal((await anonymous.request(`/api/workspace/docs/${flowId}/flow/compile`, { method: 'POST', json: {} })).status, 401);
     assert.equal((await anonymous.request(`/api/workspace/docs/${flowId}/flow/export`, { method: 'POST', json: { mode: 'single' } })).status, 401);
 
+    const existing = await json(await admin.request(`/api/workspace/docs/${flowId}`));
+    const tampered = structuredClone(existing.content);
+    tampered.scripts[0].graph.nodes.push({ id: 'n_secret_api', type: 'log', x: 0, y: 0, config: { message: 'sk-live-abcdefghijklmnopqrstuvwxyz' } });
+    assert.equal((await admin.request(`/api/workspace/docs/${flowId}`, { method: 'PUT', json: { content: tampered, version: existing.version } })).status, 422);
+    assert.equal((await admin.request(`/api/workspace/docs/${flowId}/flow/compile`, { method: 'POST', json: { content: tampered } })).status, 422);
+    assert.equal((await admin.request(`/api/workspace/docs/${flowId}/flow/export`, { method: 'POST', json: { content: tampered, mode: 'single' } })).status, 422);
+
+    assert.equal((await admin.request('/admin/users', {
+      method: 'POST',
+      form: new URLSearchParams({ username: 'flow-other', password: 'flow-other-password' }).toString(),
+    })).status, 302);
+    const other = createClient(base);
+    assert.equal((await other.request('/login', {
+      method: 'POST',
+      form: new URLSearchParams({ username: 'flow-other', password: 'flow-other-password' }).toString(),
+    })).status, 302);
+    assert.equal((await other.request(`/api/workspace/docs/${flowId}`)).status, 404);
+    assert.equal((await other.request(`/api/workspace/docs/${flowId}/flow/compile`, { method: 'POST', json: {} })).status, 404);
+    assert.equal((await other.request(`/api/workspace/docs/${flowId}/flow/export`, { method: 'POST', json: { mode: 'single' } })).status, 404);
+
     const compile = await admin.request(`/api/workspace/docs/${flowId}/flow/compile`, { method: 'POST', json: {} });
     assert.equal(compile.status, 200);
     const compiled = await json(compile);
