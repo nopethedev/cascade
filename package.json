@@ -6,25 +6,34 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "docx": "^9.16.0",
     "dotenv": "^16.4.5",
     "ejs": "^3.1.10",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
+    "image-size": "^2.1.0",
     "mime-types": "^2.1.35",
     "multer": "^1.4.5-lts.1",
     "nanoid": "^5.0.7",
+    "node-html-parser": "^9.0.7",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",
+    "pptxgenjs": "^4.0.1",
     "sequelize": "^6.37.8",
     "sqlite3": "^5.1.7",
     "uuid": "^9.0.1"
   },
   "engines": {
     "node": ">=18"
+  },
+  "overrides": {
+    "image-size": "^2.1.0"
   }
 }

@@ -91,29 +91,46 @@
     changed();
   });
 
-  const imageInput = document.getElementById('doc-image');
-  document.getElementById('insert-image').addEventListener('click', () => imageInput.click());
-  imageInput.addEventListener('change', async () => {
-    const file = imageInput.files && imageInput.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) return window.cascadeToast?.('Pick an image file', true);
-    const body = new FormData();
-    body.append('files', file);
-    ws.status('Uploading image…');
-    try {
-      const r = await fetch('/api/upload', { method: 'POST', body });
-      const j = await r.json();
-      const created = j.files && j.files.find((f) => f.id);
-      if (!r.ok || !created) throw new Error(created?.error || 'upload failed');
-      document.execCommand('insertHTML', false, `<img src="/f/${created.id}/raw" alt="${file.name}"><p><br></p>`);
-      changed();
-      ws.status('Saved');
-    } catch (err) {
-      window.cascadeToast?.(err.message || 'Image upload failed', true);
-      ws.status('Upload failed', 'badge-bad');
-    } finally {
-      imageInput.value = '';
-    }
+  let imageRange = null;
+  const imageButton = document.getElementById('insert-image');
+  imageButton.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && page.contains(sel.anchorNode)) imageRange = sel.getRangeAt(0).cloneRange();
+  });
+  imageButton.addEventListener('click', () => {
+    window.CascadeImages?.open({
+      onPick({ src, alt, credit }) {
+        const figure = document.createElement('figure');
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = alt || '';
+        figure.append(img);
+        if (credit) {
+          const caption = document.createElement('figcaption');
+          caption.textContent = credit;
+          figure.append(caption);
+        }
+        const tail = document.createElement('p');
+        tail.append(document.createElement('br'));
+        page.focus();
+        let anchor = null;
+        try {
+          const start = imageRange?.startContainer;
+          const el = start?.nodeType === 1 ? start : start?.parentElement;
+          anchor = el?.closest?.('figure,p,h1,h2,h3,h4,h5,h6,li,blockquote,table,pre') || null;
+        } catch {
+          anchor = null;
+        }
+        if (anchor && anchor !== page && page.contains(anchor)) {
+          anchor.after(figure, tail);
+        } else {
+          page.append(figure, tail);
+        }
+        imageRange = null;
+        changed();
+      },
+    });
   });
 
   document.getElementById('toggle-header').addEventListener('click', () => {

@@ -13,7 +13,6 @@
   const slideList = document.getElementById('slide-list');
   const propsBody = document.getElementById('props-body');
   const slideLabel = document.getElementById('deck-slide-label');
-  const imageInput = document.getElementById('deck-image');
 
   let index = 0;
   let selected = null;
@@ -81,7 +80,8 @@
     } else if (e.type === 'image') {
       const img = document.createElement('img');
       img.src = e.src;
-      img.alt = '';
+      img.alt = e.alt || '';
+      img.title = e.credit || '';
       img.draggable = false;
       node.append(img);
       node.style.overflow = 'hidden';
@@ -393,28 +393,18 @@
     ws.schedule();
   });
 
-  document.getElementById('add-image').addEventListener('click', () => imageInput.click());
-  imageInput.addEventListener('change', async () => {
-    const f = imageInput.files && imageInput.files[0];
-    if (!f) return;
-    const body = new FormData();
-    body.append('files', f);
-    ws.status('Uploading…');
-    try {
-      const r = await fetch('/api/upload', { method: 'POST', body });
-      const j = await r.json();
-      const created = j.files && j.files.find((x) => x.id);
-      if (!r.ok || !created) throw new Error(created?.error || 'upload failed');
-      snapshot();
-      slide().elements.push({ id: uid(), type: 'image', src: `/f/${created.id}/raw`, x: 340, y: 160, w: 600, h: 400 });
-      selected = slide().elements[slide().elements.length - 1].id;
-      render();
-      ws.schedule();
-    } catch (err) {
-      window.cascadeToast?.(err.message, true);
-    } finally {
-      imageInput.value = '';
-    }
+  document.getElementById('add-image').addEventListener('click', () => {
+    window.CascadeImages?.open({
+      onPick({ src, alt, credit }) {
+        snapshot();
+        slide().elements.push({
+          id: uid(), type: 'image', src, alt: alt || '', credit: credit || '', x: 340, y: 160, w: 600, h: 400,
+        });
+        selected = slide().elements[slide().elements.length - 1].id;
+        render();
+        ws.schedule();
+      },
+    });
   });
 
   document.getElementById('deck-undo').addEventListener('click', undo);

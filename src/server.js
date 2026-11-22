@@ -15,6 +15,7 @@ import { nodeStat } from './nodeClient.js';
 import { recordEvent, analyticsSummary } from './analytics.js';
 import { extractApiToken, authenticateApiKey, createApiKey, listApiKeys, revokeApiKey } from './apiKeys.js';
 import { createWorkspaceRouter } from './workspace.js';
+import { createImageRouter } from './images.js';
 import { KIND_BY_ID, KINDS } from './templates.js';
 import { computeSheet } from './formula.js';
 
@@ -414,6 +415,11 @@ export function createMainApp() {
         const first = (content.sheets || [])[0];
         sheetValues = first ? computeSheet(first) : {};
       }
+      if (file.kind === 'doc' && content.html) {
+        // Private uploads use /f/:id/raw; expose only images owned by the
+        // document owner through the public document asset route.
+        content.html = String(content.html).replace(/\/f\/([A-Za-z0-9_-]+)\/raw/g, `/c/${file.slug}/asset/$1`);
+      }
       // Documents may contain user-authored HTML — never run scripts on the share origin.
       res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:");
       return res.render('share-doc', { file, content, kind: KIND_BY_ID.get(file.kind), sheetValues });
@@ -634,6 +640,9 @@ export function createMainApp() {
       nodes: (await allTargets()).map((n) => ({ id: n.id, name: n.name, status: nodeStatus.get(n.id) || null })),
     });
   }));
+
+  // Image library: keyless Wikimedia Commons search plus a constrained proxy.
+  app.use('/api/images', createImageRouter());
 
   // Workspace: /create, /edit/:id, /api/workspace/*, /export/:id, /forms/:slug, /search
   app.use(createWorkspaceRouter());

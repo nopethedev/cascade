@@ -31,7 +31,7 @@
 <% } else if (kind && kind.id === 'pdf') { %>
   <iframe class="share-frame" src="/c/<%= file.slug %>/export" title="<%= file.filename %>" style="min-height:78vh" loading="lazy"></iframe>
 <% } else if (kind && kind.id === 'deck') { %>
-  <iframe class="share-frame" src="/c/<%= file.slug %>/export" title="<%= file.filename %>" loading="lazy"></iframe>
+  <iframe class="share-frame" src="/c/<%= file.slug %>/preview" title="<%= file.filename %>" loading="lazy"></iframe>
 <% } else if (kind && kind.id === 'board') { %>
   <div class="panel"><div class="panel-body" style="text-align:center">
     <img src="/c/<%= file.slug %>/export" alt="Whiteboard export" style="max-width:100%;border-radius:8px" />

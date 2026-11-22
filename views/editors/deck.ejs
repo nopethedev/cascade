@@ -35,11 +35,10 @@
   </aside>
 </div>
 
-<input type="file" id="deck-image" accept="image/*" hidden />
-
 <script>
   window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
 </script>
 <script src="/public/editors/common.js"></script>
+<script src="/public/image-library.js"></script>
 <script src="/public/editors/deck.js"></script>
 <%- include('../partials/foot') %>

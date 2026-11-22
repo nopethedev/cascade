@@ -8,6 +8,8 @@ import { KINDS, CATEGORIES, TEMPLATES, buildContent, templatesFor, KIND_BY_ID } 
 import { recordEvent } from './analytics.js';
 import { computeSheet } from './formula.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
+import { readFileWithFallback } from './storage.js';
+import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
 import { PDFDocument as ServerPDF, StandardFonts, rgb } from 'pdf-lib';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -52,6 +54,38 @@ function defaultName(kind) {
   return `${label} ${d.toISOString().slice(0, 10)}`;
 }
 
+// Resolve an image reference stored in editor content. Only images owned by
+// the document owner (or already public images) can be embedded in exports.
+async function resolveDocImage(src, ownerId) {
+  const value = String(src || '');
+  const data = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(value);
+  if (data) {
+    return { mime: data[1].toLowerCase(), buffer: Buffer.from(data[2].replace(/\s+/g, ''), 'base64') };
+  }
+  let pathname = value;
+  try {
+    pathname = new URL(value, 'http://local').pathname;
+  } catch {
+    return null;
+  }
+  const local = /^\/f\/([A-Za-z0-9_-]+)\/raw$/.exec(pathname);
+  if (local) {
+    const img = await FileRecord.findByPk(local[1]);
+    if (!img || !String(img.mime || '').startsWith('image/')) return null;
+    if (img.ownerId !== ownerId) return null;
+    const { buffer } = await readFileWithFallback(img);
+    return { mime: img.mime, buffer };
+  }
+  const pub = /^\/raw\/([A-Za-z0-9_-]+)$/.exec(pathname);
+  if (pub) {
+    const img = await FileRecord.findOne({ where: { slug: pub[1], isPublic: true } });
+    if (!img || img.kind !== 'file' || !String(img.mime || '').startsWith('image/')) return null;
+    const { buffer } = await readFileWithFallback(img);
+    return { mime: img.mime, buffer };
+  }
+  return null;
+}
+
 async function snapshot(file, userId) {
   await DocVersion.create({
     fileId: file.id,
@@ -73,46 +107,16 @@ async function snapshot(file, userId) {
 const escapeHtml = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function docToHtml(file, content) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.filename)}</title>
-<style>
-  @page { size: A4; margin: 20mm; }
-  body { font: 16px/1.65 Georgia, 'Times New Roman', serif; max-width: 780px; margin: 40px auto; padding: 0 24px; color: #111; }
-  h1 { font-size: 32px; } h2 { font-size: 22px; margin-top: 28px; }
-  table { border-collapse: collapse; width: 100%; margin: 14px 0; } td, th { border: 1px solid #bbb; padding: 7px 9px; text-align: left; }
-  img { max-width: 100%; } blockquote { border-left: 3px solid #e11d48; margin-left: 0; padding-left: 14px; color: #444; }
-  header, footer { font-size: 12px; color: #666; } header { margin-bottom: 26px; } footer { margin-top: 30px; border-top: 1px solid #ddd; padding-top: 10px; }
-</style></head><body>
-${content.header ? `<header>${escapeHtml(content.header)}</header>` : ''}
-${content.html || ''}
-${content.footer ? `<footer>${escapeHtml(content.footer)}</footer>` : ''}
-</body></html>`;
-}
-
-function sheetToCsv(content) {
-  const sheet = (content.sheets || [])[content.active || 0] || (content.sheets || [])[0];
-  if (!sheet) return '';
-  const cells = sheet.cells || {};
-  const computed = computeSheet(sheet);
-  const rows = Number(sheet.rows) || 20;
-  const cols = Number(sheet.cols) || 10;
-  const colName = (n) => String.fromCharCode(65 + (n % 26));
-  const line = [];
-  for (let r = 1; r <= rows; r++) {
-    const row = [];
-    for (let c = 0; c < cols; c++) {
-      const ref = colName(c) + r;
-      const cell = cells[ref];
-      const v = cell ? computed[ref] ?? cell.v ?? cell.f ?? '' : '';
-      row.push(/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-    }
-    line.push(row.join(','));
-  }
-  return line.join('\n');
-}
-
-function deckToHtml(file, content) {
+async function deckToHtml(file, content) {
   const slides = content.slides || [];
+  const imageCache = new Map();
+  for (const s of slides) {
+    for (const e of s.elements || []) {
+      if (e.type === 'image' && e.src && !imageCache.has(e.src)) {
+        imageCache.set(e.src, await inlineImageSource(e.src, (src) => resolveDocImage(src, file.ownerId)));
+      }
+    }
+  }
   const el = (e) => {
     if (e.type === 'text') {
       return `<div style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;color:${e.color || '#fff'};font-size:${e.size || 28}px;font-weight:${e.bold ? 700 : 400};text-align:${e.align || 'left'};white-space:pre-wrap">${escapeHtml(e.text)}</div>`;
@@ -121,7 +125,8 @@ function deckToHtml(file, content) {
       return `<div style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;background:${e.fill || '#e11d48'}"></div>`;
     }
     if (e.type === 'image') {
-      return `<img src="${escapeHtml(e.src)}" style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;object-fit:cover" alt="" />`;
+      const src = imageCache.get(e.src) || e.src;
+      return `<img src="${escapeHtml(src)}" style="position:absolute;left:${e.x}px;top:${e.y}px;width:${e.w}px;height:${e.h}px;object-fit:cover" alt="${escapeHtml(e.alt || '')}" />`;
     }
     return '';
   };
@@ -515,9 +520,28 @@ export function createWorkspaceRouter() {
   async function exportPayload(file) {
     const content = parseContent(file);
     const base = String(file.filename || 'document').replace(/[^\w.-]+/g, '-').replace(/\.pdf$/i, '');
-    if (file.kind === 'doc') return { body: docToHtml(file, content), type: 'text/html; charset=utf-8', filename: `${base}.html` };
-    if (file.kind === 'sheet') return { body: sheetToCsv(content), type: 'text/csv; charset=utf-8', filename: `${base}.csv` };
-    if (file.kind === 'deck') return { body: deckToHtml(file, content), type: 'text/html; charset=utf-8', filename: `${base}.html` };
+    const resolveImage = (src) => resolveDocImage(src, file.ownerId);
+    if (file.kind === 'doc') {
+      return {
+        body: await docToDocx(file, content, resolveImage),
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: `${base}.docx`,
+      };
+    }
+    if (file.kind === 'sheet') {
+      return {
+        body: await sheetToXlsx(content),
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename: `${base}.xlsx`,
+      };
+    }
+    if (file.kind === 'deck') {
+      return {
+        body: await deckToPptx(file, content, resolveImage),
+        type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        filename: `${base}.pptx`,
+      };
+    }
     if (file.kind === 'board') return { body: boardToSvg(file, content), type: 'image/svg+xml; charset=utf-8', filename: `${base}.svg` };
     if (file.kind === 'pdf') return { body: await renderPdfBuffer(content), type: 'application/pdf', filename: `${base}.pdf` };
     if (file.kind === 'code') {
@@ -546,6 +570,34 @@ export function createWorkspaceRouter() {
     res.setHeader('Content-Type', out.type);
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
     res.send(out.body);
+  }));
+
+  // Public image assets referenced by a shared document. A document can only
+  // expose images uploaded by its own owner.
+  r.get('/c/:slug/asset/:id', wrap(async (req, res) => {
+    const doc = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
+    if (!doc || doc.kind === 'file') return res.status(404).send('not found');
+    const img = await FileRecord.findByPk(req.params.id);
+    if (!img || img.kind !== 'file' || img.ownerId !== doc.ownerId || !String(img.mime || '').startsWith('image/')) {
+      return res.status(404).send('not found');
+    }
+    try {
+      const { buffer } = await readFileWithFallback(img);
+      res.setHeader('Content-Type', img.mime);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(buffer);
+    } catch {
+      res.status(502).send('no healthy replica');
+    }
+  }));
+
+  // HTML preview for public decks (the export itself is a PowerPoint file).
+  r.get('/c/:slug/preview', wrap(async (req, res) => {
+    const file = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
+    if (!file || file.kind !== 'deck') return res.status(404).send('not found');
+    const out = await deckToHtml(file, parseContent(file));
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(out);
   }));
 
   // Public render/export for a shared workspace document (used by /c/:slug).
