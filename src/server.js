@@ -152,6 +152,15 @@ function uniqueNameForFolder(name, takenNames) {
   return `${base} ${n}`.slice(0, 80);
 }
 
+// Busboy (via multer 1.x) decodes multipart filename parameters as latin1.
+// Browsers send UTF-8, so non-ASCII names arrive mojibaked. Decode only when
+// the bytes form valid UTF-8; a genuine latin1 name keeps its original value.
+function decodeUploadFilename(filename) {
+  const raw = String(filename || '');
+  const decoded = Buffer.from(raw, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? raw : decoded;
+}
+
 function uniqueFileName(filename, takenNames) {
   const taken = new Set([...takenNames].map(nameKey));
   const raw = String(filename || 'File').trim() || 'File';
@@ -423,13 +432,14 @@ export function createMainApp() {
     const results = [];
     let uploadedBytes = 0;
     for (const f of req.files || []) {
+      const originalName = decodeUploadFilename(f.originalname);
       if (used + f.size > (Number(me.quotaBytes) || 0)) {
-        results.push({ filename: f.originalname, error: 'quota exceeded' });
+        results.push({ filename: originalName, error: 'quota exceeded' });
         continue;
       }
       const id = nanoid(12);
       const slug = nanoid(10);
-      const filename = uniqueFileName(f.originalname, takenNames);
+      const filename = uniqueFileName(originalName, takenNames);
       takenNames.push(filename);
       const stored = [];
       let firstErr = null;
@@ -442,7 +452,7 @@ export function createMainApp() {
         }
       }
       if (!stored.length) {
-        results.push({ filename: f.originalname, error: `all nodes failed (${firstErr?.message || 'unknown'})` });
+        results.push({ filename: originalName, error: `all nodes failed (${firstErr?.message || 'unknown'})` });
         continue;
       }
       await FileRecord.create({

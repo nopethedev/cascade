@@ -429,7 +429,7 @@ export async function sheetToXlsx(content, resolveImage) {
         // value the Cascade formula engine computed.
         target.value = cell.f && String(cell.f).startsWith('=')
           ? { formula: String(cell.f).slice(1), result: value }
-          : typeof value === 'number' ? value : String(value);
+          : typeof value === 'number' || typeof value === 'boolean' ? value : String(value);
         const len = String(value).length;
         widths.set(col, Math.max(widths.get(col) || 10, Math.min(60, Math.max(10, len + 2))));
       }

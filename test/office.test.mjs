@@ -28,7 +28,7 @@ test('DOCX export is a valid ZIP with headings, lists, tables and an embedded im
 test('XLSX export preserves values, computed formulas and sheet names', async () => {
   const buffer = await sheetToXlsx({
     sheets: [
-      { name: 'Numbers', cells: { A1: { v: 2 }, A2: { v: 3 }, A3: { f: '=SUM(A1:A2)' }, B1: { v: 'Hello' } } },
+      { name: 'Numbers', cells: { A1: { v: 2 }, A2: { v: 3 }, A3: { f: '=SUM(A1:A2)' }, B1: { v: 'Hello' }, C1: { v: false }, C2: { v: true } } },
       { name: 'Second', cells: { A1: { v: 'Other' } } },
     ],
   });
@@ -37,6 +37,8 @@ test('XLSX export preserves values, computed formulas and sheet names', async ()
   await workbook.xlsx.load(buffer);
   assert.deepEqual(workbook.worksheets.map((w) => w.name), ['Numbers', 'Second']);
   assert.deepEqual(workbook.getWorksheet('Numbers').getCell('A3').value, { formula: 'SUM(A1:A2)', result: 5 });
+  assert.equal(workbook.getWorksheet('Numbers').getCell('C1').value, false, 'boolean false must not become the string "false"');
+  assert.equal(workbook.getWorksheet('Numbers').getCell('C2').value, true, 'boolean true must stay boolean');
   assert.equal(workbook.getWorksheet('Second').getCell('A1').value, 'Other');
 });
 

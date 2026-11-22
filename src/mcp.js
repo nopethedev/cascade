@@ -383,6 +383,52 @@ const tools = [
   },
 ];
 
+function matchesSchemaType(value, type) {
+  if (type === 'null') return value === null;
+  if (type === 'array') return Array.isArray(value);
+  if (type === 'object') return !!value && typeof value === 'object' && !Array.isArray(value);
+  if (type === 'integer') return typeof value === 'number' && Number.isInteger(value);
+  if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  return typeof value === type;
+}
+
+// MCP clients rely on the advertised inputSchema. Enforce it at the boundary
+// instead of letting unknown properties and wrong JSON types reach handlers,
+// where they could be coerced into a different operation than the caller saw.
+export function validateToolInput(args, schema) {
+  if (args === undefined) args = {};
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return 'arguments must be an object';
+  const properties = schema?.properties || {};
+  for (const required of schema?.required || []) {
+    if (!(required in args)) return `missing required argument: ${required}`;
+  }
+  if (schema?.additionalProperties === false) {
+    const unknown = Object.keys(args).find((key) => !(key in properties));
+    if (unknown) return `unknown argument: ${unknown}`;
+  }
+  for (const [key, rule] of Object.entries(properties)) {
+    if (!(key in args) || args[key] === undefined) continue;
+    const value = args[key];
+    const types = Array.isArray(rule.type) ? rule.type : rule.type ? [rule.type] : [];
+    if (types.length && !types.some((type) => matchesSchemaType(value, type))) {
+      if (types.length === 1 && types[0] === 'object') return `${key} must be a JSON object`;
+      const expected = types.map((type) => type === 'null' ? 'null' : `${['integer', 'object', 'array'].includes(type) ? 'an' : 'a'} ${type}`).join(' or ');
+      return `${key} must be ${expected}`;
+    }
+    if (typeof value === 'string') {
+      if (rule.minLength !== undefined && value.length < rule.minLength) return `${key} is too short`;
+      if (rule.maxLength !== undefined && value.length > rule.maxLength) return `${key} is too long`;
+    }
+    if (typeof value === 'number') {
+      if (rule.minimum !== undefined && value < rule.minimum) return `${key} is below the minimum`;
+      // Upper bounds such as `limit` are deliberately clamped by the handlers
+      // rather than rejected, so older clients asking for 1000 still get 100.
+    }
+    if (rule.enum && !rule.enum.includes(value)) return `${key} is not an allowed value`;
+  }
+  return null;
+}
+
 const toolByName = new Map(tools.map((tool) => [tool.name, tool]));
 
 function textResult(value) {
@@ -404,10 +450,9 @@ async function callTool(name, args, ctx) {
   if (ctx.apiKey?.scope === 'read' && !READ_TOOLS.has(name)) {
     return errorResult('API key scope is read-only');
   }
-  const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
-  if (tool.inputSchema.required && !tool.inputSchema.required.every((key) => key in input)) {
-    return errorResult(`missing required argument: ${tool.inputSchema.required.find((key) => !(key in input))}`);
-  }
+  const schemaError = validateToolInput(args, tool.inputSchema);
+  if (schemaError) return errorResult(schemaError);
+  const input = args || {};
 
   try {
     if (name === 'whoami') {

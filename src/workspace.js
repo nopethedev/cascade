@@ -1,4 +1,8 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import fontkit from '@pdf-lib/fontkit';
 import { nanoid } from 'nanoid';
 import { v4 as uuid } from 'uuid';
 import { Op } from 'sequelize';
@@ -36,10 +40,26 @@ import { allowFormSubmission } from './formRateLimit.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { readFileWithFallback } from './storage.js';
 import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
-import { PDFDocument as ServerPDF, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const MAX_CONTENT = 12 * 1024 * 1024; // editor JSON per document (PDFs are base64)
+const PDF_FONT_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'fonts', 'NotoSansJP-Regular.ttf');
+let pdfFontBytes = null;
+function loadPdfFontBytes() {
+  if (!pdfFontBytes) pdfFontBytes = fs.readFileSync(PDF_FONT_PATH);
+  return pdfFontBytes;
+}
+// pdf-lib's standard fonts are WinAnsi-only, so annotation text such as
+// "café 日本語" crashed export. Embed an OFL-licensed Unicode font and replace
+// only glyphs that font genuinely lacks (for example colour emoji).
+function pdfSafeText(text, font) {
+  const supported = font.__cascadeCharset ||= new Set(font.getCharacterSet());
+  return [...String(text || '')].map((char) => {
+    const cp = char.codePointAt(0);
+    return cp === 10 || cp === 13 || cp === 9 || supported.has(cp) ? char : '?';
+  }).join('');
+}
 
 // In-memory presence: fileId -> userId -> { username, at }
 const presence = new Map();
@@ -430,13 +450,31 @@ export function createWorkspaceRouter() {
     }
     const changed = serialized !== (file.content || '');
     if (changed) {
+      // Compare-and-swap, not a read-then-write. Concurrent editors that both
+      // loaded version N must not both succeed and silently overwrite each
+      // other; exactly one wins and the rest receive the latest content.
+      const expectedVersion = incomingVersion || file.version;
+      const [affected] = await FileRecord.update(
+        {
+          content: serialized,
+          size: Buffer.byteLength(serialized),
+          version: sequelize.literal('version + 1'),
+          updatedAt: new Date(),
+        },
+        { where: body.force ? { id: file.id } : { id: file.id, version: expectedVersion } },
+      );
+      if (!affected) {
+        const latest = await FileRecord.findByPk(file.id);
+        if (!latest) return res.status(404).json({ error: 'not found' });
+        return res.status(409).json({
+          error: 'conflict',
+          version: latest.version,
+          content: parseContent(latest),
+          updatedAt: latest.updatedAt,
+        });
+      }
       await snapshot(file, req.user.id);
-      await file.update({
-        content: serialized,
-        size: Buffer.byteLength(serialized),
-        version: file.version + 1,
-        updatedAt: new Date(),
-      });
+      await file.reload();
       recordEvent(req, 'edit', { fileId: file.id });
     }
     touchPresence(file.id, req.user);
@@ -483,8 +521,19 @@ export function createWorkspaceRouter() {
       order: [['id', 'DESC']],
     });
     if (!snap) return res.status(404).json({ error: 'version not found' });
+    // A restore is also a write; do not overwrite an edit that arrived while
+    // history was loading.
+    const [affected] = await FileRecord.update(
+      { content: snap.content, version: sequelize.literal('version + 1'), size: Buffer.byteLength(snap.content), updatedAt: new Date() },
+      { where: { id: file.id, version: file.version } },
+    );
+    if (!affected) {
+      const latest = await FileRecord.findByPk(file.id);
+      if (!latest) return res.status(404).json({ error: 'not found' });
+      return res.status(409).json({ error: 'conflict', version: latest.version, content: parseContent(latest) });
+    }
     await snapshot(file, req.user.id);
-    await file.update({ content: snap.content, version: file.version + 1, size: Buffer.byteLength(snap.content), updatedAt: new Date() });
+    await file.reload();
     res.json({ ok: true, version: file.version, content: JSON.parse(snap.content) });
   }));
 
@@ -844,7 +893,7 @@ export function createWorkspaceRouter() {
 
   function wrapPdfText(text, maxWidth, font, size) {
     const lines = [];
-    for (const paragraph of String(text || '').split('\n')) {
+    for (const paragraph of pdfSafeText(text, font).split('\n')) {
       let line = '';
       for (const word of paragraph.split(/\s+/)) {
         const test = line ? `${line} ${word}` : word;
@@ -862,7 +911,8 @@ export function createWorkspaceRouter() {
   async function renderPdfBuffer(content, ownerId) {
     const bytes = Buffer.from(String(content.pdf || ''), 'base64');
     const doc = await ServerPDF.load(bytes);
-    const font = await doc.embedFont(StandardFonts.Helvetica);
+    doc.registerFontkit(fontkit);
+    const font = await doc.embedFont(loadPdfFontBytes(), { subset: true });
     const pages = doc.getPages();
     const signatures = new Map();
     const images = new Map();

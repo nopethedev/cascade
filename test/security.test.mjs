@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import sqlite3 from 'sqlite3';
 import { WebSocket } from 'ws';
 import * as Y from 'yjs';
@@ -263,7 +263,10 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.match(pdfInfo.content.pdf, /^JVBERi/);
     const pdfWithImage = await putContent(owner, pdfId, {
       ...pdfInfo.content,
-      annotations: [{ id: 'security-pdf-image', page: 1, type: 'image', x: 30, y: 80, w: 80, h: 80, src: `/f/${pdfImageId}/raw`, alt: 'pixel' }],
+      annotations: [
+        { id: 'security-pdf-image', page: 1, type: 'image', x: 30, y: 80, w: 80, h: 80, src: `/f/${pdfImageId}/raw`, alt: 'pixel' },
+        { id: 'security-pdf-unicode', page: 1, type: 'text', x: 30, y: 300, w: 300, h: 50, text: 'QA PDF UNICODE — café 日本語', fontSize: 14 },
+      ],
     }, pdfInfo.version);
     assert.equal(pdfWithImage.status, 200);
     const otherImage = await upload(other, 'other.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
@@ -287,6 +290,9 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal(traversal.payload.files[0].filename, 'escape.txt');
     assert.ok(fs.existsSync(path.join(storageDir, traversalId)), 'traversal upload must use the generated id');
     assert.ok(!fs.existsSync(path.join(dir, 'escape.txt')), 'traversal filename must not escape storage');
+    const unicodeUpload = await upload(owner, 'café-✔-owner.png', PNG_1X1, 'image/png');
+    assert.equal(unicodeUpload.res.status, 200);
+    assert.equal(unicodeUpload.payload.files[0].filename, 'café-✔-owner.png', 'UTF-8 upload filename must survive multipart decoding');
 
     assert.equal((await owner.request(`/api/files/${publicFileId}/share`, { method: 'POST', json: { isPublic: true } })).status, 200);
     const publicInfo = await json(await owner.request(`/api/workspace/docs/${publicDocId}`));
@@ -367,6 +373,24 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     const ownerDoc = await owner.request(`/api/workspace/docs/${docId}`);
     assert.equal(ownerDoc.status, 200);
     assert.match(await bodyText(ownerDoc), /PRIVATE SECURITY MARKER/);
+    // Two editors holding the same version must not both succeed and
+    // overwrite each other. Exactly one CAS write wins; the rest see 409.
+    const raceDocId = await createDoc(owner, 'doc', 'Concurrent race document');
+    const raceInfo = await json(await owner.request(`/api/workspace/docs/${raceDocId}`));
+    const raceVersion = raceInfo.version;
+    const raceNonce = crypto.randomUUID();
+    const raceResults = await Promise.all(Array.from({ length: 20 }, async (_, i) => {
+      const html = `RACE ${raceNonce} ${i}`;
+      const res = await putContent(owner, raceDocId, { html }, raceVersion);
+      return { i, html, status: res.status, body: await json(res) };
+    }));
+    const raceWinners = raceResults.filter((row) => row.status === 200);
+    assert.equal(raceWinners.length, 1, `exactly one concurrent save may win, got ${raceWinners.length}`);
+    assert.equal(raceResults.filter((row) => row.status === 409).length, 19, 'losing concurrent saves must return 409');
+    assert.equal(raceWinners[0].body.version, raceVersion + 1, 'winning save must advance exactly one version');
+    const raceAfter = await json(await owner.request(`/api/workspace/docs/${raceDocId}`));
+    assert.equal(raceAfter.version, raceVersion + 1, 'concurrent saves must not skip or double-bump versions');
+    assert.equal(raceAfter.content.html, raceWinners[0].html, 'the winning concurrent save must be the persisted content');
     assert.equal((await owner.request(`/download/${docId}`)).status, 200);
     assert.equal((await owner.request(`/export/${sheetId}`)).status, 200);
     assert.equal((await owner.request(`/export/${deckId}`)).status, 200);
@@ -376,6 +400,14 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal(pdfExport.headers.get('content-type'), 'application/pdf');
     const pdfBytes = Buffer.from(await pdfExport.arrayBuffer());
     assert.match(pdfBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'PDF image annotation must survive export');
+    const pdfPath = path.join(dir, 'unicode.pdf');
+    fs.writeFileSync(pdfPath, pdfBytes);
+    const python = process.env.PYTHON_BIN || 'python3';
+    if (spawnSync(python, ['-c', 'import pypdf'], { encoding: 'utf8' }).status === 0) {
+      const extracted = spawnSync(python, ['-c', 'from pypdf import PdfReader\nimport sys\nprint("\\n".join((p.extract_text() or "") for p in PdfReader(sys.argv[1]).pages))', pdfPath], { encoding: 'utf8' });
+      assert.equal(extracted.status, 0, extracted.stderr || 'pypdf failed on PDF export');
+      assert.match(extracted.stdout, /QA PDF UNICODE — café 日本語/, 'PDF Unicode annotation text was not extractable');
+    }
     const latestPdf = await json(await owner.request(`/api/workspace/docs/${pdfId}`));
     const foreignPdf = await putContent(owner, pdfId, {
       ...latestPdf.content,
@@ -750,6 +782,18 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal(otherRead.res.status, 200);
     assert.equal(otherRead.body.result.isError, true, 'cross-user MCP read must fail');
     assert.ok(!otherRead.text.includes(PRIVATE_MARKER), 'cross-user MCP read must not leak content');
+    const wrongType = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 4.1, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: 123 } },
+    });
+    assert.equal(wrongType.body.result.isError, true, 'MCP must reject a non-string id');
+    assert.match(wrongType.body.result.content[0].text, /id must be a string/);
+    const extraArg = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 4.2, method: 'tools/call',
+      params: { name: 'whoami', arguments: { extra: true } },
+    });
+    assert.equal(extraArg.body.result.isError, true, 'MCP must reject undeclared arguments');
+    assert.match(extraArg.body.result.content[0].text, /unknown argument/);
 
     const crossOriginMcp = await owner.request('/mcp', {
       method: 'POST',
