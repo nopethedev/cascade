@@ -1,0 +1,104 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ed-toolbar pdf-toolbar" id="pdf-toolbar">
+  <div class="tool-group" id="pdf-tools">
+    <button type="button" class="tool is-active" data-tool="select" title="Select text or an annotation">Select</button>
+    <button type="button" class="tool" data-tool="highlight" title="Highlight the selected text (or drag a box)">Highlight</button>
+    <button type="button" class="tool" data-tool="text" title="Place a text box on the page">Text</button>
+    <button type="button" class="tool" data-tool="note" title="Place a comment">Note</button>
+    <button type="button" class="tool" data-tool="signature" title="Place a signature">Sign</button>
+  </div>
+  <div class="tool-group">
+    <button type="button" class="tool" id="pdf-undo" title="Undo (Ctrl+Z)">↶</button>
+    <button type="button" class="tool" id="pdf-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  </div>
+  <div class="tool-group">
+    <label class="tool-label" for="pdf-color">Colour</label>
+    <input id="pdf-color" type="color" value="#f5c518" title="Annotation colour" />
+    <select id="pdf-size" class="tool-select" title="Text size">
+      <option value="10">10 pt</option>
+      <option value="12">12 pt</option>
+      <option value="14" selected>14 pt</option>
+      <option value="18">18 pt</option>
+      <option value="24">24 pt</option>
+      <option value="32">32 pt</option>
+    </select>
+  </div>
+  <span class="tool-spacer"></span>
+  <div class="tool-group">
+    <button type="button" class="tool" id="pdf-zoom-out" title="Zoom out">−</button>
+    <span class="badge" id="pdf-zoom-label">100%</span>
+    <button type="button" class="tool" id="pdf-zoom-in" title="Zoom in">+</button>
+    <button type="button" class="tool" id="pdf-zoom-fit" title="Fit width">Fit</button>
+  </div>
+  <div class="tool-group">
+    <button type="button" class="tool" id="pdf-page-prev" title="Previous page">‹</button>
+    <span class="badge" id="pdf-page-label">1 / 1</span>
+    <button type="button" class="tool" id="pdf-page-next" title="Next page">›</button>
+  </div>
+</div>
+
+<div class="pdf-shell">
+  <aside class="pdf-side">
+    <div class="pdf-side-head">Pages</div>
+    <div id="pdf-thumbs" class="pdf-thumbs"></div>
+    <div class="pdf-side-head">Page operations</div>
+    <div class="pdf-ops">
+      <button type="button" class="btn btn-quiet btn-sm" id="pdf-page-rotate">Rotate 90°</button>
+      <button type="button" class="btn btn-quiet btn-sm" id="pdf-page-left">Move left</button>
+      <button type="button" class="btn btn-quiet btn-sm" id="pdf-page-right">Move right</button>
+      <button type="button" class="btn btn-quiet btn-sm" id="pdf-page-duplicate">Duplicate</button>
+      <button type="button" class="btn btn-quiet btn-sm" id="pdf-page-insert">Insert blank</button>
+      <button type="button" class="btn btn-danger btn-sm" id="pdf-page-delete">Delete page</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="pdf-merge">Merge PDF…</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="pdf-split">Split out page</button>
+      <input type="file" id="pdf-merge-input" accept="application/pdf,.pdf" hidden />
+    </div>
+    <div class="pdf-side-head">Signatures</div>
+    <div id="pdf-signatures" class="sig-list"></div>
+    <button type="button" class="btn btn-ghost btn-sm" id="pdf-signature-new">New signature</button>
+  </aside>
+
+  <section class="pdf-main">
+    <div class="pdf-viewport" id="pdf-viewport">
+      <div class="pdf-page-stage" id="pdf-stage">
+        <canvas id="pdf-canvas"></canvas>
+        <div id="pdf-text-layer" class="textLayer"></div>
+        <div id="pdf-overlay" class="pdf-overlay"></div>
+      </div>
+    </div>
+    <div class="pdf-status" id="pdf-hint">Select text then Highlight, or pick Text / Note / Sign to place something.</div>
+  </section>
+
+  <aside class="pdf-inspector">
+    <div class="pdf-side-head">Annotations</div>
+    <div id="pdf-annotations" class="annot-list"></div>
+    <button type="button" class="btn btn-danger btn-sm" id="pdf-annotation-delete" disabled>Delete selected</button>
+  </aside>
+</div>
+
+<dialog class="dlg" id="pdf-signature-dlg">
+  <div class="dlg-in">
+    <div>
+      <div class="dlg-title">Add a signature</div>
+      <div class="dlg-msg">Draw below, or upload a PNG/JPEG with a transparent background.</div>
+    </div>
+    <div class="sig-pad-wrap"><canvas id="sig-pad" width="520" height="180"></canvas></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn btn-quiet btn-sm" id="sig-clear">Clear</button>
+      <label class="btn btn-ghost btn-sm">Upload image<input type="file" id="sig-file" accept="image/png,image/jpeg" hidden /></label>
+      <span class="tool-spacer"></span>
+      <button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button>
+      <button type="button" class="btn btn-sm" id="sig-save">Save signature</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/vendor/pdf-lib.min.js"></script>
+<script src="/public/editors/common.js"></script>
+<script type="module" src="/public/editors/pdf.js"></script>
+<%- include('../partials/foot') %>

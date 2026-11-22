@@ -48,6 +48,7 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
         <tr><td class="mono tiny">Document</td><td class="muted">Rich text, headings, lists, quotes, alignment, links, images, tables, header/footer, word count, HTML export.</td></tr>
         <tr><td class="mono tiny">Spreadsheet</td><td class="muted">Formula engine with dependency tracking (SUM, AVERAGE, MIN, MAX, COUNT, PRODUCT, ROUND, ABS, IF), formatting, multiple sheets, column sort/filter, CSV export.</td></tr>
         <tr><td class="mono tiny">Presentation</td><td class="muted">Drag/resize text, shapes and images, slide list, speaker notes, present mode, undo/redo, HTML export.</td></tr>
+        <tr><td class="mono tiny">PDF</td><td class="muted">Real PDF rendering with zoom, page navigation and text selection; highlight selections, place text boxes, comments and drawn/uploaded signatures; rotate, reorder, duplicate, insert, delete, merge and split pages; export burns every annotation into a downloadable PDF. Starter templates: blank, ruled notes, cover, checklist.</td></tr>
         <tr><td class="mono tiny">Whiteboard</td><td class="muted">Infinite pan/zoom canvas, pen, rectangles, ellipses, arrows, text, sticky notes, eraser, undo/redo, SVG export.</td></tr>
         <tr><td class="mono tiny">Form</td><td class="muted">Visual builder (8 field types), publish link, server-side validation, response storage, per-question analytics, CSV export.</td></tr>
         <tr><td class="mono tiny">Code</td><td class="muted">Multi-file project with tabs, syntax highlighting, Tab indentation, rename/delete, autosave and export of the active file.</td></tr>
@@ -62,7 +63,7 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
       <li><strong>Share</strong> publishes a read-only page at <span class="code">/c/:slug</span> (documents, decks, boards, sheets, code) and a public link for forms at <span class="code">/forms/:slug</span>.</li>
     </ul>
     <h3>Current limits</h3>
-    <p class="hint">Implemented deliberately without external editors or heavy dependencies. Not yet included: DOCX/XLSX/PPTX import and export, a PDF editor, live cursors and CRDT merge (collaboration is presence + optimistic versions), offline sync, AI assistance and a light theme. The editors are single-user with near-real-time presence and conflict detection.</p>
+    <p class="hint">Implemented deliberately without external editing services. PDF pages are rendered with pdf.js and rewritten with pdf-lib in the browser; exports apply annotations server-side. Not yet included: DOCX/XLSX/PPTX import and export, live cursors and CRDT merge (collaboration is presence + optimistic versions), offline sync, AI assistance and a light theme. The editors are single-user with near-real-time presence and conflict detection.</p>
   </div>
 </section>
 

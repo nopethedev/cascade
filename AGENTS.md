@@ -23,7 +23,10 @@ No need to ask for confirmation first.
 ## Workspace suite
 
 - `/create`, `/edit/:id`, `/api/workspace/*`, `/export/:id`, `/forms/:slug`, `/responses/:id` and `/search` live in `src/workspace.js` (mounted from `src/server.js`).
-- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|board|form|code`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
+- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|pdf|board|form|code`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
+- PDFs store their real source bytes base64-encoded in `content.pdf`; annotations/signatures live beside it in the same JSON. The editor (`public/editors/pdf.js`) renders with pdf.js and performs page operations with pdf-lib in the browser; `renderPdfBuffer()` in `src/workspace.js` burns annotations and signatures into exports with pdf-lib.
+- pdf.js and pdf-lib are vendored, not installed at runtime: `public/vendor/pdfjs/{pdf.mjs,pdf.worker.mjs,standard_fonts/}` and `public/vendor/pdf-lib.min.js`. Refresh them after upgrading with:
+  `cp node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs} public/vendor/pdfjs/ && cp node_modules/pdfjs-dist/standard_fonts/*.pfb public/vendor/pdfjs/standard_fonts/ && cp node_modules/pdf-lib/dist/pdf-lib.min.js public/vendor/`
 - Each editor is its own view (`views/editors/*.ejs`) + engine (`public/editors/*.js`) over the shared runtime in `public/editors/common.js` (autosave, versions, conflicts, presence, sharing, templates).
 - Templates (built-in and user-saved) are in `src/templates.js` and the `templates` table.
 - Migrations: `migrateSchema()` in `src/db.js` runs *before* `sequelize.sync()` and adds new columns to an existing `files` table via PRAGMA/ALTER. New tables come from `sync()`.

@@ -7,9 +7,11 @@ import { requireLogin, requireAdmin } from './auth.js';
 import { KINDS, CATEGORIES, TEMPLATES, buildContent, templatesFor, KIND_BY_ID } from './templates.js';
 import { recordEvent } from './analytics.js';
 import { computeSheet } from './formula.js';
+import { buildPdfTemplate } from './pdfTemplates.js';
+import { PDFDocument as ServerPDF, StandardFonts, rgb } from 'pdf-lib';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const MAX_CONTENT = 2 * 1024 * 1024; // 2 MB of editor JSON per document
+const MAX_CONTENT = 12 * 1024 * 1024; // editor JSON per document (PDFs are base64)
 
 // In-memory presence: fileId -> userId -> { username, at }
 const presence = new Map();
@@ -234,11 +236,14 @@ export function createWorkspaceRouter() {
         content = JSON.parse(tpl.content);
         templateName = tpl.name;
       }
+    } else if (kind === 'pdf') {
+      content = await buildPdfTemplate(String(templateId || 'pdf-blank'));
+      templateName = templateId ? String(templateId) : 'pdf-blank';
     } else if (templateId) {
       content = buildContent(String(templateId), kind);
       templateName = templateId;
     }
-    if (!content) content = buildContent(null, kind);
+    if (!content) content = kind === 'pdf' ? await buildPdfTemplate('pdf-blank') : buildContent(null, kind);
 
     let folder = null;
     if (folderId) {
@@ -391,14 +396,127 @@ export function createWorkspaceRouter() {
     res.json({ ok: true, template: { id: `custom:${tpl.id}`, name: tpl.name, kind: tpl.kind } });
   }));
 
+  // ---------- Create a new PDF from pages split out of an editor ----------
+  r.post('/api/workspace/pdf', requireLogin, wrap(async (req, res) => {
+    const name = String(req.body?.name || 'Split document').trim().slice(0, 120) || 'Split document';
+    const raw = String(req.body?.pdf || '');
+    if (!raw) return res.status(400).json({ error: 'pdf required' });
+    const bytes = Buffer.from(raw, 'base64');
+    if (bytes.slice(0, 5).toString() !== '%PDF-') return res.status(400).json({ error: 'invalid pdf' });
+    if (bytes.length > MAX_CONTENT) return res.status(413).json({ error: 'pdf too large' });
+    try {
+      await ServerPDF.load(bytes);
+    } catch {
+      return res.status(400).json({ error: 'invalid pdf' });
+    }
+    const content = { pdf: raw };
+    const serialized = JSON.stringify(content);
+    const file = await FileRecord.create({
+      id: nanoid(12),
+      slug: nanoid(10),
+      filename: name.replace(/\.pdf$/i, ''),
+      mime: 'application/x-cascade-pdf',
+      size: Buffer.byteLength(serialized),
+      ownerId: req.user.id,
+      ownerName: req.user.username,
+      isPublic: false,
+      replicas: [],
+      content: serialized,
+      kind: 'pdf',
+      folderId: null,
+      template: null,
+      version: 1,
+    });
+    await snapshot(file, req.user.id);
+    recordEvent(req, 'create', { fileId: file.id });
+    res.json({ ok: true, id: file.id, url: `/edit/${file.id}` });
+  }));
+
+  // ---------- PDF rendering / export ----------
+  const hexColor = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return rgb(0.98, 0.8, 0.08);
+    const n = parseInt(m[1], 16);
+    return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+  };
+
+  function wrapPdfText(text, maxWidth, font, size) {
+    const lines = [];
+    for (const paragraph of String(text || '').split('\n')) {
+      let line = '';
+      for (const word of paragraph.split(/\s+/)) {
+        const test = line ? `${line} ${word}` : word;
+        if (font.widthOfTextAtSize(test, size) > maxWidth && line) {
+          lines.push(line);
+          line = word;
+        } else line = test;
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+
+  // Burn highlights, text overlays, notes and signatures into a real PDF.
+  async function renderPdfBuffer(content) {
+    const bytes = Buffer.from(String(content.pdf || ''), 'base64');
+    const doc = await ServerPDF.load(bytes);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const pages = doc.getPages();
+    const signatures = new Map();
+
+    for (const a of content.annotations || []) {
+      const page = pages[(Number(a.page) || 1) - 1];
+      if (!page) continue;
+      const color = hexColor(a.color);
+      if (a.type === 'highlight') {
+        page.drawRectangle({ x: a.x, y: a.y, width: a.w, height: a.h, color, opacity: 0.35 });
+      } else if (a.type === 'text') {
+        const size = Number(a.fontSize) || 14;
+        wrapPdfText(a.text, Math.max(40, a.w || 240), font, size).forEach((line, i) => {
+          page.drawText(line, { x: a.x, y: a.y + a.h - size - i * size * 1.25, size, font, color });
+        });
+      } else if (a.type === 'note') {
+        page.drawRectangle({ x: a.x, y: a.y + a.h - 14, width: 14, height: 14, color, borderColor: rgb(0.2, 0.2, 0.2), borderWidth: 0.6 });
+        const lines = wrapPdfText(a.text, 180, font, 8);
+        const boxH = lines.length * 10 + 8;
+        page.drawRectangle({
+          x: a.x,
+          y: a.y + a.h - 14 - boxH - 2,
+          width: 190,
+          height: boxH,
+          color: rgb(1, 1, 0.92),
+          borderColor: color,
+          borderWidth: 0.6,
+          opacity: 0.95,
+        });
+        lines.forEach((line, i) => {
+          page.drawText(line, { x: a.x + 4, y: a.y + a.h - 24 - i * 10, size: 8, font, color: rgb(0.15, 0.15, 0.15) });
+        });
+      } else if (a.type === 'signature') {
+        const sig = (content.signatures || []).find((s) => s.id === a.signatureId);
+        if (!sig || !sig.dataUrl) continue;
+        if (!signatures.has(sig.id)) {
+          const raw = sig.dataUrl.split(',')[1] || '';
+          const img = sig.dataUrl.startsWith('data:image/jpeg')
+            ? await doc.embedJpg(Buffer.from(raw, 'base64'))
+            : await doc.embedPng(Buffer.from(raw, 'base64'));
+          signatures.set(sig.id, img);
+        }
+        page.drawImage(signatures.get(sig.id), { x: a.x, y: a.y, width: a.w, height: a.h });
+      }
+    }
+    return Buffer.from(await doc.save());
+  }
+
   // ---------- Export ----------
-  function exportPayload(file) {
+  async function exportPayload(file) {
     const content = parseContent(file);
-    const base = String(file.filename || 'document').replace(/[^\w.-]+/g, '-');
+    const base = String(file.filename || 'document').replace(/[^\w.-]+/g, '-').replace(/\.pdf$/i, '');
     if (file.kind === 'doc') return { body: docToHtml(file, content), type: 'text/html; charset=utf-8', filename: `${base}.html` };
     if (file.kind === 'sheet') return { body: sheetToCsv(content), type: 'text/csv; charset=utf-8', filename: `${base}.csv` };
     if (file.kind === 'deck') return { body: deckToHtml(file, content), type: 'text/html; charset=utf-8', filename: `${base}.html` };
     if (file.kind === 'board') return { body: boardToSvg(file, content), type: 'image/svg+xml; charset=utf-8', filename: `${base}.svg` };
+    if (file.kind === 'pdf') return { body: await renderPdfBuffer(content), type: 'application/pdf', filename: `${base}.pdf` };
     if (file.kind === 'code') {
       const active = (content.files || [])[content.active || 0] || (content.files || [])[0];
       const safe = (active?.name || 'file.txt').replace(/[^\w.-]+/g, '-');
@@ -413,7 +531,7 @@ export function createWorkspaceRouter() {
   r.get('/export/:id', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user);
     if (!file) return res.status(404).send('not found');
-    const out = exportPayload(file);
+    const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
     res.send(out.body);
   }));
@@ -421,7 +539,7 @@ export function createWorkspaceRouter() {
   r.get('/download/:id', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user);
     if (!file) return res.status(404).send('not found');
-    const out = exportPayload(file);
+    const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
     res.send(out.body);
@@ -431,7 +549,7 @@ export function createWorkspaceRouter() {
   r.get('/c/:slug/export', wrap(async (req, res) => {
     const file = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
     if (!file || file.kind === 'file') return res.status(404).send('not found');
-    const out = exportPayload(file);
+    const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
     if (req.query.download === '1') {
       res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);

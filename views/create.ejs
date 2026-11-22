@@ -3,6 +3,7 @@
   const preview = (kind) => {
     if (kind === 'sheet') return '<span class="pv-grid"></span>';
     if (kind === 'deck') return '<span class="pv-slide"></span>';
+    if (kind === 'pdf') return '<span class="pv-pdf"><i class="pn"></i><i class="ln w80"></i><i class="ln"></i><i class="ln w60"></i><i class="tag">PDF</i></span>';
     if (kind === 'board') return '<span class="pv-board"><i></i><i></i><i></i></span>';
     if (kind === 'form') return '<span class="pv-fields"><i></i><i></i><i></i></span>';
     if (kind === 'code') return '<span class="pv-code"><i></i><i></i><i></i><i></i></span>';
@@ -15,7 +16,7 @@
   <div>
     <div class="eyebrow">Create</div>
     <h1 class="page-title">What will you make?</h1>
-    <p class="lede">Documents, spreadsheets, decks, boards, forms and code — all stored and edited on this server.</p>
+    <p class="lede">Documents, spreadsheets, decks, PDFs, whiteboards, forms and code — all stored and edited on this server.</p>
   </div>
   <div class="actions">
     <a class="btn btn-ghost" href="/">Back to files</a>

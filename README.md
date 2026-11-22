@@ -15,18 +15,19 @@ Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard s
 | **Document** | rich text, headings, lists, quotes, alignment, links, images, tables, header/footer, word count, HTML export |
 | **Spreadsheet** | formula engine with dependency tracking (`=SUM(A1:A5)`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `PRODUCT`, `ROUND`, `ABS`, `IF`, cell refs and ranges), formatting, multiple sheets, column sort + filter, CSV export |
 | **Presentation** | drag/resize text, shapes and images, slide list, speaker notes, present mode, undo/redo, HTML export |
+| **PDF** | pdf.js rendering with zoom/page navigation and text selection, highlight/text/comment/signature annotations, page rotate/reorder/duplicate/insert/delete, merge another PDF, split out selected pages, exported PDFs burn annotations in |
 | **Whiteboard** | infinite pan/zoom canvas, pen, rectangle, ellipse, arrow, text, sticky notes, eraser, undo/redo, SVG export |
 | **Form** | 8 field types, visual builder, publish link, server-side validation, stored responses, per-question analytics, CSV export |
 | **Code** | multi-file project, tabs, syntax highlighting, rename/delete, export |
 
 Shared behaviour: debounced autosave, version history (last 25 snapshots, restorable), optimistic concurrency with a conflict bar when another session saves first, presence chips, share links, "save as template", and a global `/search` across file names and document contents.
 
-Not (yet) included, by design: DOCX/XLSX/PPTX import/export, a PDF editor, live cursors/CRDT collaboration, offline sync, AI assistance and a light theme.
+PDFs are stored as their real PDF bytes (base64 inside the document JSON). Pages are edited in the browser with **pdf-lib** and rendered with **pdf.js**, both served from `public/vendor/`; annotations are burned into the export on the server. DOCX/XLSX/PPTX import/export, live cursors/CRDT collaboration, offline sync, AI assistance and a light theme are not included. Add `pdfjs-dist` and `pdf-lib` static builds again with the copy step in `AGENTS.md` if you upgrade them.
 
 ## Features
 
 - Upload (multi-file, drag & drop, progress), view (images / video / audio inline), edit text files, rename, delete
-- Workspace editors for documents, spreadsheets, presentations, whiteboards, forms and code (see above)
+- Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms and code (see above)
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (immutable cache headers)
 - Roles: `admin` / `user`, per-user quota (GB)
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance

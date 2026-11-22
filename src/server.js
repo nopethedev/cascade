@@ -79,7 +79,8 @@ export function createMainApp() {
   app.set('trust proxy', true);
 
   app.use(express.urlencoded({ extended: true }));
-  app.use(express.json({ limit: '2mb' }));
+  // PDF workspaces store the base64 source in the document JSON; allow room for merges.
+  app.use(express.json({ limit: '25mb' }));
   app.use(
     session({
       secret: config.sessionSecret,
@@ -89,6 +90,7 @@ export function createMainApp() {
     }),
   );
   app.use('/public', express.static(path.join(ROOT, 'public')));
+  app.get('/favicon.ico', (req, res) => res.redirect(302, '/public/favicon.svg'));
 
   // Theme, settings and auth context (session cookie or API key).
   app.use(

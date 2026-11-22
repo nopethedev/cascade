@@ -1,5 +1,5 @@
 <%
-  const wide = kind && (kind.id === 'deck' || kind.id === 'board' || kind.id === 'sheet');
+  const wide = kind && ['deck', 'board', 'sheet', 'pdf'].includes(kind.id);
 %>
 <%- include('partials/head', { title: file.filename, shellClass: wide ? 'shell shell-wide' : 'shell shell-narrow' }) %>
 <%
@@ -28,6 +28,8 @@
       <% if (content.footer) { %><footer class="doc-read-hf"><%= content.footer %></footer><% } %>
     </article>
   </div>
+<% } else if (kind && kind.id === 'pdf') { %>
+  <iframe class="share-frame" src="/c/<%= file.slug %>/export" title="<%= file.filename %>" style="min-height:78vh" loading="lazy"></iframe>
 <% } else if (kind && kind.id === 'deck') { %>
   <iframe class="share-frame" src="/c/<%= file.slug %>/export" title="<%= file.filename %>" loading="lazy"></iframe>
 <% } else if (kind && kind.id === 'board') { %>

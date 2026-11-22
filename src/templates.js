@@ -6,6 +6,7 @@ export const KINDS = [
   { id: 'doc', label: 'Document', tag: 'Rich text', icon: 'DOC' },
   { id: 'sheet', label: 'Spreadsheet', tag: 'Cells & formulas', icon: 'XLS' },
   { id: 'deck', label: 'Presentation', tag: 'Slides', icon: 'PPT' },
+  { id: 'pdf', label: 'PDF', tag: 'Annotate & sign', icon: 'PDF' },
   { id: 'board', label: 'Whiteboard', tag: 'Infinite canvas', icon: 'WBD' },
   { id: 'form', label: 'Form', tag: 'Collect answers', icon: 'FRM' },
   { id: 'code', label: 'Code file', tag: 'Editor + files', icon: 'CODE' },
@@ -187,6 +188,24 @@ export const TEMPLATES = [
       { elements: [rect('e1', 0, 0, 1280, 720, '#1f2937'), text('e2', 100, 560, 1080, 80, 'A story in pictures', { size: 48, bold: true })] },
       { elements: [rect('e3', 0, 0, 1280, 720, '#111827'), text('e4', 100, 110, 900, 80, 'Chapter one', { size: 44, bold: true }), text('e5', 100, 220, 800, 120, 'Caption for this photo.', { size: 28, color: '#a1a1aa' })] },
     ]),
+  },
+
+  // ---------------- PDFs ----------------
+  {
+    id: 'pdf-blank', name: 'Blank PDF', kind: 'pdf', category: 'blank',
+    description: 'An empty A4 page ready for notes and signatures.',
+  },
+  {
+    id: 'pdf-letter-lines', name: 'Ruled notes', kind: 'pdf', category: 'personal',
+    description: 'US Letter page with ruled lines and a date.',
+  },
+  {
+    id: 'pdf-cover', name: 'Cover page', kind: 'pdf', category: 'business',
+    description: 'A4 cover with an accent band, title and prepared-by block.',
+  },
+  {
+    id: 'pdf-checklist', name: 'Checklist', kind: 'pdf', category: 'business',
+    description: 'A4 checklist with five boxed items.',
   },
 
   // ---------------- whiteboards ----------------
