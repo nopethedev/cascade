@@ -378,6 +378,24 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.equal((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [raceDoc.id]))[0].n, 1, 'one edit must not duplicate the initial v1 snapshot');
     await write.callTool({ name: 'delete_document', arguments: { id: raceDoc.id, confirm: true } });
 
+    const restoreRaceDoc = JSON.parse(textOf(await write.callTool({
+      name: 'create_document', arguments: { kind: 'doc', name: 'SDK restore race doc', content: { html: 'RESTORE RACE BASE' } },
+    }))).document;
+    await write.callTool({
+      name: 'update_document', arguments: { id: restoreRaceDoc.id, content: { html: 'RESTORE RACE NEW' }, version: restoreRaceDoc.version },
+    });
+    const restoreRaceResults = await Promise.all([
+      write.callTool({ name: 'restore_version', arguments: { id: restoreRaceDoc.id, version: 1 } }),
+      write.callTool({ name: 'restore_version', arguments: { id: restoreRaceDoc.id, version: 1 } }),
+    ]);
+    assert.equal(restoreRaceResults.filter((result) => !result.isError).length, 1, 'exactly one concurrent restore may commit');
+    assert.match(textOf(restoreRaceResults.find((result) => result.isError)), /version conflict/i);
+    const restoreRaceFinal = JSON.parse(textOf(await write.callTool({ name: 'get_document', arguments: { id: restoreRaceDoc.id } }))).document;
+    assert.equal(restoreRaceFinal.version, 3);
+    assert.match(restoreRaceFinal.content.html, /RESTORE RACE BASE/);
+    assert.equal((await queryRows(dbPath, 'select count(*) as n from doc_versions where fileId = ?', [restoreRaceDoc.id]))[0].n, 2);
+    await write.callTool({ name: 'delete_document', arguments: { id: restoreRaceDoc.id, confirm: true } });
+
     const duplicate = JSON.parse(textOf(await write.callTool({
       name: 'duplicate_document', arguments: { id: createdDoc.id, name: 'SDK copied doc' },
     }))).document;

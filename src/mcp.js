@@ -600,13 +600,25 @@ async function callTool(name, args, ctx) {
         order: [['id', 'DESC']],
       });
       if (!snap) return errorResult('version not found');
+      // A restore is a write like any other: do not let a concurrent update or
+      // another restore be silently overwritten while this one loads history.
+      const expectedVersion = file.version;
+      const [affected] = await FileRecord.update(
+        {
+          content: snap.content,
+          size: Buffer.byteLength(snap.content),
+          version: sequelize.literal('version + 1'),
+          updatedAt: new Date(),
+        },
+        { where: { id: file.id, version: expectedVersion } },
+      );
+      if (!affected) {
+        const latest = await FileRecord.findByPk(file.id, { attributes: ['version'] });
+        if (!latest) return errorResult('document not found');
+        return errorResult(`version conflict: current version is ${latest.version}`);
+      }
       await snapshot(file, ctx.user.id);
-      await file.update({
-        content: snap.content,
-        size: Buffer.byteLength(snap.content),
-        version: file.version + 1,
-        updatedAt: new Date(),
-      });
+      await file.reload();
       recordEvent(ctx.req, 'edit', { fileId: file.id });
       return textResult({ id: file.id, restoredVersion: version, version: file.version });
     }
