@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { getDb } from './db.js';
+import { NodeRecord, getSettings } from './db.js';
 import * as nc from './nodeClient.js';
 
 export const LOCAL_ID = 'local';
@@ -10,18 +10,23 @@ export function localPath(fileId) {
   return path.join(config.storageDir, fileId);
 }
 
-export function allTargets() {
-  const db = getDb();
-  const enabled = (db.nodes || []).filter((n) => n.enabled !== false);
-  return [{ id: LOCAL_ID, name: 'This server (local)', url: 'local', enabled: true }, ...enabled];
+export async function allTargets() {
+  const nodes = await NodeRecord.findAll({ where: { enabled: true }, order: [['createdAt', 'ASC']] });
+  const remote = nodes.map((n) => ({
+    id: n.id,
+    name: n.name,
+    url: n.url,
+    accessKey: n.accessKey,
+    enabled: true,
+  }));
+  return [{ id: LOCAL_ID, name: 'This server (local)', url: 'local', enabled: true }, ...remote];
 }
 
-export function resolveTargets() {
-  const db = getDb();
-  const rep = db.settings.replication;
-  const enabled = allTargets();
+export async function resolveTargets() {
+  const settings = await getSettings();
+  const rep = settings.replication;
+  const enabled = await allTargets();
   const byId = new Map(enabled.map((n) => [n.id, n]));
-  const healthy = (list) => list.filter((n) => byId.has(n.id));
 
   switch (rep.mode) {
     case 'all':
@@ -71,8 +76,7 @@ export async function readFromNode(node, fileId) {
 
 // Read from first replica that works (primary first)
 export async function readFileWithFallback(file) {
-  const db = getDb();
-  const byId = new Map(allTargets().map((n) => [n.id, n]));
+  const byId = new Map((await allTargets()).map((n) => [n.id, n]));
   const order = [...(file.replicas || [])];
   // move primary first
   if (file.primaryNode) {
@@ -112,7 +116,9 @@ export function localDiskUsage() {
         bytes += st.size;
         count += 1;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return { bytes, count };
 }

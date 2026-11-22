@@ -2,7 +2,10 @@
 <footer class="foot">
   <div class="foot-in">
     <span><%= theme.siteName %> — self-hosted files</span>
-    <span class="foot-mono"><%= typeof mode !== 'undefined' ? mode : 'main' %> mode · Cascade</span>
+    <span class="foot-mono">
+      <a href="/docs">Docs &amp; API</a> ·
+      <%= typeof mode !== 'undefined' ? mode : 'main' %> mode · Cascade
+    </span>
   </div>
 </footer>
 <script src="/public/app.js"></script>

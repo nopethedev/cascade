@@ -1,0 +1,110 @@
+<%- include('../partials/head', { title: 'Admin · API keys' }) %>
+<%- include('../partials/admin-tabs', { tab: 'api-keys' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">API keys</h1>
+    <p class="lede">Keys let scripts upload, list and manage files without a browser session. Each key acts as the account it belongs to.</p>
+  </div>
+  <div class="actions"><a class="btn btn-ghost" href="/docs#api">Read the API docs</a></div>
+</div>
+
+<% if (createdKey) { %>
+  <section class="panel" style="border-color:var(--accent-line);margin-bottom:16px">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Your new API key</div>
+        <div class="panel-sub">Copy it now — it is stored hashed and cannot be shown again.</div>
+      </div>
+      <span class="badge badge-accent">shown once</span>
+    </div>
+    <div class="panel-body">
+      <div class="copyrow">
+        <input id="fresh-key" value="<%= createdKey %>" readonly aria-label="New API key" />
+        <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(document.getElementById('fresh-key').value, 'API key copied')">Copy</button>
+      </div>
+      <p class="hint" style="margin-top:10px">Send it as <span class="code">x-api-key: &lt;key&gt;</span> or <span class="code">Authorization: Bearer &lt;key&gt;</span>.</p>
+    </div>
+  </section>
+<% } %>
+
+<section class="panel">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Create a key</div>
+      <div class="panel-sub">Pick which account the key should act as.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/admin/api-keys" class="form-grid">
+      <div class="field">
+        <label class="label" for="keyname">Key name</label>
+        <input id="keyname" name="name" placeholder="backup script" maxlength="80" required />
+      </div>
+      <div class="field">
+        <label class="label" for="keyowner">Owner</label>
+        <select id="keyowner" name="ownerId">
+          <% for (const u of users) { %>
+            <option value="<%= u.id %>" <%= u.id === user.id ? 'selected' : '' %>><%= u.username %> · <%= u.role %></option>
+          <% } %>
+        </select>
+        <span class="hint">Requests made with the key use this account's role and quota.</span>
+      </div>
+      <div class="span-2"><button class="btn" type="submit">Create key</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="panel has-table" style="margin-top:16px">
+  <div class="panel-head">
+    <div class="panel-title">Keys</div>
+    <span class="badge"><%= keys.filter((k) => !k.revoked).length %> active</span>
+  </div>
+  <% if (!keys.length) { %>
+    <div class="panel-body">
+      <div class="empty">
+        <div class="empty-ico">⌘</div>
+        <strong>No API keys yet</strong>
+        <span>Create one above to script uploads and file management.</span>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Name</th><th>Key</th><th>Owner</th><th>Created</th><th>Last used</th><th class="right">Status</th><th></th></tr></thead>
+        <tbody>
+          <% for (const k of keys) { %>
+            <tr>
+              <td><strong><%= k.name %></strong></td>
+              <td class="mono tiny muted"><%= k.prefix %>…</td>
+              <td class="muted"><%= k.owner %></td>
+              <td class="muted nowrap"><%= prettyDate(k.createdAt) %></td>
+              <td class="muted nowrap"><%= k.lastUsedAt ? prettyDateTime(k.lastUsedAt) : 'never' %></td>
+              <td class="right">
+                <% if (k.revoked) { %><span class="badge badge-bad">revoked</span><% } else { %><span class="badge badge-ok">active</span><% } %>
+              </td>
+              <td class="right">
+                <% if (!k.revoked) { %>
+                  <form method="post" action="/admin/api-keys/<%= k.id %>/revoke" onsubmit="return confirm('Revoke this key? Scripts using it will start receiving 401.')">
+                    <button class="btn btn-danger btn-sm" type="submit">Revoke</button>
+                  </form>
+                <% } else { %><span class="faint">—</span><% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head"><div class="panel-title">Using a key</div></div>
+  <div class="panel-body stack">
+    <pre class="snippet">curl -H "x-api-key: csk_…" http://localhost:3000/api/me</pre>
+    <pre class="snippet">curl -H "x-api-key: csk_…" -F "files=@./report.pdf" http://localhost:3000/api/upload</pre>
+    <p class="hint">Full endpoint list: <a href="/docs#api">documentation → API</a>.</p>
+  </div>
+</section>
+<%- include('../partials/foot') %>

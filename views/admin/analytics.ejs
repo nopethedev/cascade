@@ -1,0 +1,144 @@
+<%- include('../partials/head', { title: 'Admin · Analytics' }) %>
+<%- include('../partials/admin-tabs', { tab: 'analytics' }) %>
+<% const r = summary.range; %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Analytics</h1>
+    <p class="lede">Views, downloads and uploads over the last <%= r.days %> days — recorded on this server, no third parties.</p>
+  </div>
+  <div class="actions">
+    <% for (const d of [7, 14, 30, 90]) { %>
+      <a class="btn btn-sm <%= r.days === d ? '' : 'btn-ghost' %>" href="/admin/analytics?days=<%= d %>"><%= d %>d</a>
+    <% } %>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat"><b><%= r.views %></b><span>Views</span></div>
+  <div class="stat"><b><%= r.downloads %></b><span>Downloads</span></div>
+  <div class="stat"><b><%= r.uploads %></b><span>Uploads</span></div>
+  <div class="stat stat-accent"><b><%= r.uniqueVisitors %></b><span>Unique visitors</span></div>
+</div>
+
+<div class="split" style="margin-top:16px">
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Traffic</div>
+        <div class="panel-sub">Views + downloads per day · <%= r.events %> events in range</div>
+      </div>
+      <div class="chart-legend">
+        <span class="row" style="gap:6px"><i class="swatch"></i> events</span>
+      </div>
+    </div>
+    <div class="panel-body">
+      <% if (!r.events) { %>
+        <div class="empty">
+          <div class="empty-ico">∑</div>
+          <strong>No traffic yet</strong>
+          <span>Open a file or share a link and it will show up here.</span>
+        </div>
+      <% } else { %>
+        <div class="chart">
+          <% for (const d of summary.days) { %>
+            <div class="chart-col" title="<%= d.label %> · <%= d.views %> views · <%= d.downloads %> downloads">
+              <div class="chart-bars">
+                <div class="chart-bar" style="height:<%= d.total ? Math.max(d.pct, 3) : 1 %>%"></div>
+              </div>
+              <span class="chart-label"><%= d.label.split(' ')[1] %></span>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Totals</div></div>
+    <div class="panel-body stack">
+      <dl class="kv">
+        <dt>All views</dt><dd><%= summary.totals.views %></dd>
+        <dt>All downloads</dt><dd><%= summary.totals.downloads %></dd>
+        <dt>All uploads</dt><dd><%= summary.totals.uploads %></dd>
+        <dt>API requests</dt><dd><%= summary.totals.apiRequests %></dd>
+        <dt>Bytes served</dt><dd><%= prettyBytes(r.bytesServed) %></dd>
+        <dt>In range</dt><dd><%= r.days %> days</dd>
+      </dl>
+      <p class="hint">Events are written to the SQLite database. API requests are counted when a request authenticates with an API key.</p>
+    </div>
+  </section>
+</div>
+
+<div class="split" style="margin-top:16px">
+  <section class="panel has-table">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Top files</div>
+        <div class="panel-sub">Most viewed and downloaded in the last <%= r.days %> days</div>
+      </div>
+    </div>
+    <% if (!summary.topFiles.length) { %>
+      <div class="panel-body"><div class="empty"><strong>Nothing ranked yet</strong><span>File traffic will appear here.</span></div></div>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>File</th><th class="right">Views</th><th class="right">Downloads</th></tr></thead>
+          <tbody>
+            <% for (const f of summary.topFiles) { %>
+              <tr>
+                <td><a href="/f/<%= f.id %>"><strong><%= f.filename %></strong></a></td>
+                <td class="right muted"><%= f.views %></td>
+                <td class="right muted"><%= f.downloads %></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Channels</div></div>
+    <div class="panel-body stack">
+      <dl class="kv">
+        <dt>All events</dt><dd><%= r.events %></dd>
+        <dt>API requests</dt><dd><%= r.api %></dd>
+        <dt>Web &amp; public</dt><dd><%= Math.max(0, r.events - r.api) %></dd>
+      </dl>
+      <p class="hint">Public share pages (<span class="code">/c/:slug</span>) and CDN hits (<span class="code">/raw/:slug</span>) are counted without requiring a login.</p>
+      <div><a class="btn btn-ghost btn-sm" href="/admin/api-keys">Manage API keys</a></div>
+    </div>
+  </section>
+</div>
+
+<section class="panel has-table" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Recent events</div>
+      <div class="panel-sub">Latest <%= summary.recent.length %> recorded requests</div>
+    </div>
+  </div>
+  <% if (!summary.recent.length) { %>
+    <div class="panel-body"><div class="empty"><strong>No events</strong><span>Traffic will be listed here as it happens.</span></div></div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Event</th><th>File</th><th>Channel</th><th>IP</th><th class="right">When</th></tr></thead>
+        <tbody>
+          <% for (const e of summary.recent) { %>
+            <tr>
+              <td><span class="badge <%= e.type === 'upload' ? 'badge-accent' : e.type === 'download' ? 'badge-ok' : '' %>"><%= e.type %></span></td>
+              <td class="muted"><%= e.filename || '—' %></td>
+              <td class="muted"><%= e.channel %></td>
+              <td class="muted mono tiny"><%= e.ip || '—' %></td>
+              <td class="right muted nowrap"><%= prettyDateTime(e.createdAt) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/foot') %>

@@ -1,0 +1,210 @@
+<%- include('partials/head', { title: 'Documentation' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Documentation</div>
+    <h1 class="page-title">Cascade API &amp; self-hosting</h1>
+    <p class="lede">Everything needed to script <%= theme.siteName %> or run it next to your own stack. Running in <span class="code"><%= mode %></span> mode.</p>
+  </div>
+  <div class="actions"><a class="btn btn-ghost" href="/docs#api">Jump to API</a></div>
+</div>
+
+<nav class="doc-nav" style="margin-bottom:18px">
+  <a href="#quick-start">Quick start</a>
+  <a href="#auth">Authentication</a>
+  <a href="#api">API</a>
+  <a href="#sharing">Sharing &amp; CDN</a>
+  <a href="#nodes">Nodes &amp; replication</a>
+  <a href="#env">Configuration</a>
+  <a href="#storage">Storage &amp; backups</a>
+</nav>
+
+<div class="doc">
+
+<section class="panel" id="quick-start">
+  <div class="panel-head"><div class="panel-title">Quick start</div></div>
+  <div class="panel-body doc">
+    <p>The first visit opens a setup wizard that creates the admin account and the initial theme. After that, sign in and upload from the dashboard.</p>
+    <pre class="snippet"><span class="cmt"># local development</span>
+npm install
+cp .env.example .env
+npm start            <span class="cmt"># http://localhost:3000</span>
+
+<span class="cmt"># docker (single service, switches role with SERVER_MODE)</span>
+docker compose up -d                                  <span class="cmt"># main server on :3000</span>
+SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"># storage node</span></pre>
+    <p>Metadata lives in SQLite through Sequelize; file contents stay on disk in <span class="code">data/uploads</span> or on storage nodes.</p>
+  </div>
+</section>
+
+<section class="panel" id="auth">
+  <div class="panel-head"><div class="panel-title">Authentication</div></div>
+  <div class="panel-body doc">
+    <p>Two ways in:</p>
+    <ul>
+      <li><strong>Session cookie</strong> — the browser login form. Use this for the web UI.</li>
+      <li><strong>API key</strong> — for scripts and integrations. Create one in <a href="/admin/api-keys">Admin → API keys</a>; the full key is shown once.</li>
+    </ul>
+    <p>Send the key in either header:</p>
+    <pre class="snippet">x-api-key: csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+<span class="cmt"># or</span>
+Authorization: Bearer csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</pre>
+    <p>Only a SHA-256 hash of each key is stored. Revoking a key takes effect immediately (the next request gets <span class="code">401</span>). A key acts as its owner: same role, same quota, same files.</p>
+  </div>
+</section>
+
+<section class="panel" id="api">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">API reference</div>
+      <div class="panel-sub">All endpoints accept a session cookie or an API key unless marked public.</div>
+    </div>
+  </div>
+  <div class="panel-body doc">
+    <table class="table" style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden">
+      <thead><tr><th>Endpoint</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/api/health</span></td>
+          <td class="muted">Public. Server mode, setup state and node status.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/api/me</span></td>
+          <td class="muted">Current account, storage usage and which auth was used.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/api/files</span></td>
+          <td class="muted">List files. <span class="code">?limit=100</span>, admins can add <span class="code">?all=1</span>.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/api/files/:id</span></td>
+          <td class="muted">Single file with raw and public URLs.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-post">POST</span> <span class="mono">/api/upload</span></td>
+          <td class="muted">Multipart upload, field name <span class="code">files</span>, up to 20 files per request.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/api/files/:id/text</span></td>
+          <td class="muted">Read a text file (2 MB max) for editing.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-put">PUT</span> <span class="mono">/api/files/:id/text</span></td>
+          <td class="muted">Rewrite a text file to every replica. Body: <span class="code">{ "text": "…" }</span>.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-post">POST</span> <span class="mono">/api/files/:id/share</span></td>
+          <td class="muted">Toggle public sharing. Body: <span class="code">{ "isPublic": true }</span>.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-post">POST</span> <span class="mono">/api/files/:id/rename</span></td>
+          <td class="muted">Rename, and re-detect the MIME type. Body: <span class="code">{ "filename": "new.txt" }</span>.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-delete">DELETE</span> <span class="mono">/api/files/:id</span></td>
+          <td class="muted">Delete the file from every replica and the database.</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/f/:id/raw</span></td>
+          <td class="muted">Stream a private file (owner or admin).</td>
+        </tr>
+        <tr>
+          <td class="nowrap"><span class="method method-get">GET</span> <span class="mono">/raw/:slug</span></td>
+          <td class="muted">Public CDN URL for a shared file, immutable cache headers.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Upload and share a file</h3>
+    <pre class="snippet">KEY=csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+<span class="cmt"># upload</span>
+curl -H "x-api-key: $KEY" -F "files=@./report.pdf" http://localhost:3000/api/upload
+
+<span class="cmt"># list files</span>
+curl -H "x-api-key: $KEY" http://localhost:3000/api/files
+
+<span class="cmt"># make it public, then fetch the CDN URL</span>
+curl -H "x-api-key: $KEY" -H "content-type: application/json" \
+  -d '{"isPublic":true}' http://localhost:3000/api/files/FILE_ID/share
+curl http://localhost:3000/raw/SLUG</pre>
+    <p>Uploads return one result per file with its <span class="code">id</span>, share <span class="code">slug</span> and the replicas that received a copy. A quota failure is reported per file, so a batch can partially succeed.</p>
+  </div>
+</section>
+
+<section class="panel" id="sharing">
+  <div class="panel-head"><div class="panel-title">Sharing &amp; CDN</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li><span class="code">/c/:slug</span> — a share page with preview and download button.</li>
+      <li><span class="code">/raw/:slug</span> — the raw bytes with <span class="code">Cache-Control: public, max-age=31536000, immutable</span>. Embed it in an <span class="code">&lt;img&gt;</span>, a video tag or behind any CDN.</li>
+      <li>Turning sharing off invalidates both URLs immediately (they return 404).</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel" id="nodes">
+  <div class="panel-head"><div class="panel-title">Nodes &amp; replication</div></div>
+  <div class="panel-body doc">
+    <p>A node is the same image with <span class="code">SERVER_MODE=node</span>. The main server stores locally too and counts as the <span class="code">local</span> node.</p>
+    <pre class="snippet"><span class="cmt"># node protocol — the main server sends x-node-key on every call</span>
+GET    /node/health
+GET    /node/stat
+PUT    /node/store/:id     <span class="cmt"># raw bytes, x-filename + content-type headers</span>
+GET    /node/file/:id
+DELETE /node/file/:id</pre>
+    <p>Replication modes (Admin → Nodes):</p>
+    <table class="table" style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden">
+      <thead><tr><th>Mode</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td class="mono tiny">all</td><td class="muted">Every enabled node gets a copy; new nodes are topped up by the health loop.</td></tr>
+        <tr><td class="mono tiny">select</td><td class="muted">Only the nodes ticked in the form.</td></tr>
+        <tr><td class="mono tiny">single</td><td class="muted">Exactly one copy, preferring local.</td></tr>
+        <tr><td class="mono tiny">default</td><td class="muted">Always the chosen node.</td></tr>
+        <tr><td class="mono tiny">n</td><td class="muted">Exactly N copies; re-replicates onto a healthy node when one drops.</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">Health checks run every <span class="code">HEALTHCHECK_INTERVAL_MS</span> (30s by default). Reads fall back across replicas, primary first.</p>
+  </div>
+</section>
+
+<section class="panel" id="env">
+  <div class="panel-head"><div class="panel-title">Configuration</div></div>
+  <div class="panel-body doc">
+    <table class="table" style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden">
+      <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="mono tiny">PORT</td><td class="mono tiny">3000</td><td class="muted">HTTP port.</td></tr>
+        <tr><td class="mono tiny">HOST</td><td class="mono tiny">0.0.0.0</td><td class="muted">Bind address.</td></tr>
+        <tr><td class="mono tiny">SERVER_MODE</td><td class="mono tiny">main</td><td class="muted">main server or storage node.</td></tr>
+        <tr><td class="mono tiny">SESSION_SECRET</td><td class="mono tiny">dev value</td><td class="muted">Cookie signing secret — set this in production.</td></tr>
+        <tr><td class="mono tiny">DB_PATH</td><td class="mono tiny">./data/cascade.sqlite</td><td class="muted">SQLite file used by Sequelize.</td></tr>
+        <tr><td class="mono tiny">STORAGE_DIR</td><td class="mono tiny">./data/uploads</td><td class="muted">Local blob directory.</td></tr>
+        <tr><td class="mono tiny">NODE_ACCESS_KEY</td><td class="mono tiny">generated</td><td class="muted">Node mode key; auto-generated to <span class="code">data/node-key.txt</span> if unset.</td></tr>
+        <tr><td class="mono tiny">HEALTHCHECK_INTERVAL_MS</td><td class="mono tiny">30000</td><td class="muted">Node health + replication heal interval.</td></tr>
+        <tr><td class="mono tiny">SITE_NAME, THEME_*</td><td class="mono tiny">Cascade</td><td class="muted">Initial branding; editable later in Admin → Appearance.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="storage">
+  <div class="panel-head"><div class="panel-title">Storage &amp; backups</div></div>
+  <div class="panel-body doc">
+    <p>Everything persistent is under <span class="code">data/</span>:</p>
+    <ul>
+      <li><span class="code">cascade.sqlite</span> — users, files, nodes, settings, API keys and analytics events.</li>
+      <li><span class="code">uploads/</span> — local blobs, named by file id.</li>
+      <li><span class="code">node-key.txt</span> — node mode access key, when auto-generated.</li>
+    </ul>
+    <p>Back up both the database file and the uploads directory. On Docker, both live in the <span class="code">cascade-data</span> volume.</p>
+    <pre class="snippet"><span class="cmt"># copy the SQLite database out of a running container</span>
+docker compose exec cascade node -e "require('node:fs').copyFileSync('data/cascade.sqlite','data/backup.sqlite')"
+docker compose cp cascade:/app/data/cascade.sqlite ./cascade.sqlite</pre>
+    <p class="hint">An older <span class="code">data/db.json</span> store is imported automatically the first time Cascade starts with an empty database.</p>
+  </div>
+</section>
+
+</div>
+<%- include('partials/foot') %>

@@ -1,9 +1,9 @@
 import { config } from './config.js';
-import { loadDb } from './db.js';
+import { initDb } from './db.js';
 import { startMain } from './server.js';
 import { startNode } from './nodeServer.js';
 
-loadDb();
+await initDb();
 
 if (config.mode === 'node') {
   startNode();

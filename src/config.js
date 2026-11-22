@@ -6,7 +6,8 @@ export const config = {
   host: process.env.HOST || '0.0.0.0',
   mode: (process.env.SERVER_MODE || 'main').toLowerCase() === 'node' ? 'node' : 'main',
   sessionSecret: process.env.SESSION_SECRET || 'cascade-dev-secret-change-me',
-  dbPath: process.env.DB_PATH || './data/db.json',
+  // SQLite database (Sequelize). A pre-existing data/db.json is imported once.
+  dbPath: process.env.DB_PATH || './data/cascade.sqlite',
   storageDir: process.env.STORAGE_DIR || './data/uploads',
   nodeAccessKey: process.env.NODE_ACCESS_KEY || '',
   healthcheckInterval: parseInt(process.env.HEALTHCHECK_INTERVAL_MS || '30000', 10),

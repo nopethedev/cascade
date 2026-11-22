@@ -1,67 +1,273 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DataTypes, Sequelize } from 'sequelize';
 import { config } from './config.js';
 
-const DEFAULTS = {
-  users: [],
-  files: [],
-  nodes: [],
-  settings: {
-    setupDone: false,
-    siteName: 'Cascade',
-    accent: '#e11d48',
-    bg: '#08080a',
-    surface: '#101013',
-    text: '#f3f3f4',
-    allowPublicSignup: false,
-    replication: {
-      mode: 'n', // all | select | single | default | n
-      selectedNodeIds: [],
-      defaultNodeId: 'local',
-      replicaCount: 2,
-    },
+// ---------------------------------------------------------------------------
+// Sequelize + SQLite
+//
+// All metadata (users, files, nodes, settings, API keys, analytics) lives in a
+// single SQLite file at `config.dbPath`. File blobs still live on disk or on
+// storage nodes — only their metadata is stored in SQL.
+// ---------------------------------------------------------------------------
+
+export const sequelize = new Sequelize({
+  dialect: 'sqlite',
+  storage: config.dbPath,
+  logging: false,
+});
+
+export const User = sequelize.define(
+  'user',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    username: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    passwordHash: { type: DataTypes.STRING(128), allowNull: false },
+    role: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'user' },
+    quotaBytes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 5 * 1024 ** 3 },
   },
+  { tableName: 'users' },
+);
+
+export const FileRecord = sequelize.define(
+  'file',
+  {
+    id: { type: DataTypes.STRING(32), primaryKey: true },
+    slug: { type: DataTypes.STRING(32), unique: true },
+    filename: { type: DataTypes.STRING(255), allowNull: false },
+    mime: { type: DataTypes.STRING(128), defaultValue: 'application/octet-stream' },
+    size: { type: DataTypes.INTEGER, defaultValue: 0 },
+    ownerId: DataTypes.STRING(36),
+    ownerName: DataTypes.STRING(64),
+    isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
+    replicas: { type: DataTypes.JSON, defaultValue: [] },
+    primaryNode: DataTypes.STRING(32),
+  },
+  { tableName: 'files', indexes: [{ fields: ['ownerId'] }, { fields: ['slug'] }] },
+);
+
+export const NodeRecord = sequelize.define(
+  'node',
+  {
+    id: { type: DataTypes.STRING(32), primaryKey: true },
+    name: { type: DataTypes.STRING(80), allowNull: false },
+    url: { type: DataTypes.STRING(255), allowNull: false },
+    accessKey: { type: DataTypes.STRING(255), defaultValue: '' },
+    enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
+  },
+  { tableName: 'nodes' },
+);
+
+export const ApiKeyRecord = sequelize.define(
+  'apiKey',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    name: { type: DataTypes.STRING(80), allowNull: false },
+    prefix: { type: DataTypes.STRING(24), allowNull: false },
+    keyHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+    lastUsedAt: { type: DataTypes.DATE, allowNull: true },
+    revokedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'api_keys', indexes: [{ fields: ['createdBy'] }] },
+);
+
+export const AnalyticsEvent = sequelize.define(
+  'analyticsEvent',
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    // view | download | upload | share | api
+    type: { type: DataTypes.STRING(20), allowNull: false },
+    fileId: { type: DataTypes.STRING(32), allowNull: true },
+    userId: { type: DataTypes.STRING(36), allowNull: true },
+    // web | public | api
+    channel: { type: DataTypes.STRING(12), defaultValue: 'web' },
+    ip: { type: DataTypes.STRING(64), allowNull: true },
+    userAgent: { type: DataTypes.STRING(255), allowNull: true },
+    referer: { type: DataTypes.STRING(255), allowNull: true },
+    bytes: { type: DataTypes.INTEGER, allowNull: true },
+  },
+  {
+    tableName: 'analytics_events',
+    indexes: [{ fields: ['createdAt'] }, { fields: ['type'] }, { fields: ['fileId'] }],
+  },
+);
+
+export const Setting = sequelize.define(
+  'setting',
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, defaultValue: 1 },
+    setupDone: { type: DataTypes.BOOLEAN, defaultValue: false },
+    siteName: { type: DataTypes.STRING(60), defaultValue: 'Cascade' },
+    accent: { type: DataTypes.STRING(9), defaultValue: '#e11d48' },
+    bg: { type: DataTypes.STRING(9), defaultValue: '#08080a' },
+    surface: { type: DataTypes.STRING(9), defaultValue: '#101013' },
+    text: { type: DataTypes.STRING(9), defaultValue: '#f3f3f4' },
+    allowPublicSignup: { type: DataTypes.BOOLEAN, defaultValue: false },
+    replicationMode: { type: DataTypes.STRING(16), defaultValue: 'n' },
+    replicationSelectedNodeIds: { type: DataTypes.JSON, defaultValue: [] },
+    replicationDefaultNodeId: { type: DataTypes.STRING(32), defaultValue: 'local' },
+    replicationReplicaCount: { type: DataTypes.INTEGER, defaultValue: 2 },
+  },
+  { tableName: 'settings' },
+);
+
+const ENV_DEFAULTS = {
+  siteName: process.env.SITE_NAME || 'Cascade',
+  accent: process.env.THEME_ACCENT || '#e11d48',
+  bg: process.env.THEME_BG || '#08080a',
+  surface: process.env.THEME_SURFACE || '#101013',
+  text: process.env.THEME_TEXT || '#f3f3f4',
 };
 
-let db = null;
+let settingsCache = null;
+let adminSeen = false;
 
-function ensureDir(p) {
-  fs.mkdirSync(p, { recursive: true });
+function toSettings(row) {
+  const selected = row.replicationSelectedNodeIds;
+  return {
+    setupDone: !!row.setupDone,
+    siteName: row.siteName || 'Cascade',
+    accent: row.accent || '#e11d48',
+    bg: row.bg || '#08080a',
+    surface: row.surface || '#101013',
+    text: row.text || '#f3f3f4',
+    allowPublicSignup: !!row.allowPublicSignup,
+    replication: {
+      mode: row.replicationMode || 'n',
+      selectedNodeIds: Array.isArray(selected) ? selected : [],
+      defaultNodeId: row.replicationDefaultNodeId || 'local',
+      replicaCount: Number(row.replicationReplicaCount) || 1,
+    },
+  };
 }
 
-export function loadDb() {
-  ensureDir(path.dirname(config.dbPath));
-  ensureDir(config.storageDir);
-  if (!fs.existsSync(config.dbPath)) {
-    db = structuredClone(DEFAULTS);
-    // seed theme from env on first boot
-    db.settings.siteName = process.env.SITE_NAME || DEFAULTS.settings.siteName;
-    db.settings.accent = process.env.THEME_ACCENT || DEFAULTS.settings.accent;
-    saveDb();
-  } else {
-    const raw = fs.readFileSync(config.dbPath, 'utf8');
-    db = { ...structuredClone(DEFAULTS), ...JSON.parse(raw) };
-    db.settings = { ...structuredClone(DEFAULTS.settings), ...(db.settings || {}) };
-    db.settings.replication = {
-      ...structuredClone(DEFAULTS.settings.replication),
-      ...((db.settings && db.settings.replication) || {}),
-    };
+// Import a pre-Sequelize `data/db.json` store once, if it sits next to the DB.
+async function migrateLegacyJson() {
+  const legacyPath = path.join(path.dirname(config.dbPath), 'db.json');
+  if (!fs.existsSync(legacyPath)) return false;
+  let legacy;
+  try {
+    legacy = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+  } catch {
+    return false;
   }
-  return db;
+  const s = legacy.settings || {};
+  const rep = s.replication || {};
+  try {
+    await Setting.create({
+      id: 1,
+      setupDone: !!s.setupDone,
+      siteName: s.siteName || ENV_DEFAULTS.siteName,
+      accent: s.accent || ENV_DEFAULTS.accent,
+      bg: s.bg || ENV_DEFAULTS.bg,
+      surface: s.surface || ENV_DEFAULTS.surface,
+      text: s.text || ENV_DEFAULTS.text,
+      allowPublicSignup: !!s.allowPublicSignup,
+      replicationMode: rep.mode || 'n',
+      replicationSelectedNodeIds: rep.selectedNodeIds || [],
+      replicationDefaultNodeId: rep.defaultNodeId || 'local',
+      replicationReplicaCount: rep.replicaCount || 2,
+    });
+    for (const u of legacy.users || []) {
+      await User.create({
+        id: u.id,
+        username: u.username,
+        passwordHash: u.passwordHash,
+        role: u.role === 'admin' ? 'admin' : 'user',
+        quotaBytes: Number(u.quotaBytes) || 5 * 1024 ** 3,
+        createdAt: u.createdAt || new Date(),
+      });
+    }
+    for (const f of legacy.files || []) {
+      await FileRecord.create({
+        id: f.id,
+        slug: f.slug,
+        filename: f.filename,
+        mime: f.mime,
+        size: Number(f.size) || 0,
+        ownerId: f.ownerId,
+        ownerName: f.ownerName,
+        isPublic: !!f.isPublic,
+        replicas: f.replicas || [],
+        primaryNode: f.primaryNode,
+        createdAt: f.createdAt || new Date(),
+      });
+    }
+    for (const n of legacy.nodes || []) {
+      await NodeRecord.create({
+        id: n.id,
+        name: n.name,
+        url: n.url,
+        accessKey: n.accessKey || '',
+        enabled: n.enabled !== false,
+        createdAt: n.createdAt || new Date(),
+      });
+    }
+    console.log(`[cascade] imported ${(legacy.users || []).length} users and ${(legacy.files || []).length} files from data/db.json`);
+    return true;
+  } catch (err) {
+    console.warn('[cascade] legacy JSON import skipped:', err.message);
+    return false;
+  }
 }
 
-export function getDb() {
-  if (!db) return loadDb();
-  return db;
+export async function initDb() {
+  fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
+  fs.mkdirSync(config.storageDir, { recursive: true });
+  await sequelize.authenticate();
+  await sequelize.sync();
+  let row = await Setting.findByPk(1);
+  if (!row) {
+    await migrateLegacyJson();
+    row = await Setting.findByPk(1);
+  }
+  if (!row) row = await Setting.create({ id: 1, ...ENV_DEFAULTS });
+  settingsCache = toSettings(row);
+  adminSeen = (await User.count({ where: { role: 'admin' } })) > 0;
+  return settingsCache;
 }
 
-export function saveDb() {
-  ensureDir(path.dirname(config.dbPath));
-  fs.writeFileSync(config.dbPath, JSON.stringify(db, null, 2));
+export async function getSettings() {
+  if (settingsCache) return settingsCache;
+  const row = await Setting.findByPk(1);
+  settingsCache = row ? toSettings(row) : { ...ENV_DEFAULTS, setupDone: false, allowPublicSignup: false, replication: { mode: 'n', selectedNodeIds: [], defaultNodeId: 'local', replicaCount: 2 } };
+  return settingsCache;
 }
 
-export function needsSetup() {
-  const d = getDb();
-  if (!d.settings.setupDone) return true;
-  return !d.users.some((u) => u.role === 'admin');
+export async function saveSettings(patch = {}) {
+  const row = await Setting.findByPk(1);
+  if (!row) throw new Error('settings row missing');
+  const current = toSettings(row);
+  const next = { ...current, ...patch };
+  if (patch.replication) next.replication = { ...current.replication, ...patch.replication };
+  await row.update({
+    setupDone: !!next.setupDone,
+    siteName: next.siteName,
+    accent: next.accent,
+    bg: next.bg,
+    surface: next.surface,
+    text: next.text,
+    allowPublicSignup: !!next.allowPublicSignup,
+    replicationMode: next.replication.mode,
+    replicationSelectedNodeIds: next.replication.selectedNodeIds,
+    replicationDefaultNodeId: next.replication.defaultNodeId,
+    replicationReplicaCount: next.replication.replicaCount,
+  });
+  settingsCache = toSettings(row);
+  if (next.setupDone) adminSeen = true;
+  return settingsCache;
+}
+
+export async function needsSetup() {
+  const s = await getSettings();
+  if (!s.setupDone) return true;
+  if (adminSeen) return false;
+  const admins = await User.count({ where: { role: 'admin' } });
+  if (admins > 0) adminSeen = true;
+  return admins === 0;
+}
+
+export async function closeDb() {
+  await sequelize.close();
 }
