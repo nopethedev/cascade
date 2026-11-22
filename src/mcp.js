@@ -1,8 +1,8 @@
 import express from 'express';
 import { nanoid } from 'nanoid';
 import { Op } from 'sequelize';
-import { FileRecord, DocVersion, Folder, Template } from './db.js';
-import { KIND_BY_ID, buildContent } from './templates.js';
+import { FileRecord, DocVersion, Folder, Template, FormResponse, sequelize } from './db.js';
+import { KIND_BY_ID, TEMPLATES, buildContent } from './templates.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { recordEvent } from './analytics.js';
 
@@ -11,7 +11,17 @@ const MAX_CONTENT = 12 * 1024 * 1024;
 const MAX_LIMIT = 100;
 const PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = new Set([PROTOCOL_VERSION, '2025-03-26', '2025-11-25']);
-const READ_TOOLS = new Set(['whoami', 'list_documents', 'get_document', 'list_versions', 'get_version']);
+const READ_TOOLS = new Set([
+  'whoami',
+  'list_documents',
+  'get_document',
+  'list_versions',
+  'get_version',
+  'list_folders',
+  'list_templates',
+  'search_documents',
+  'list_form_responses',
+]);
 
 class ToolError extends Error {}
 class ProtocolError extends Error {
@@ -200,6 +210,111 @@ const tools = [
       required: ['id', 'content'],
     },
   },
+  {
+    name: 'list_folders',
+    description: 'List folders owned by the caller, including how many documents each contains.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'create_folder',
+    description: 'Create a folder for organizing the caller\'s workspace documents.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { name: { type: 'string', minLength: 1, maxLength: 80 } },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'update_document_metadata',
+    description: 'Rename, move to a folder, or publish/share an owned document without replacing its content.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1, maxLength: 120 },
+        folderId: { type: ['string', 'null'], maxLength: 36 },
+        isPublic: { type: 'boolean' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'restore_version',
+    description: 'Restore an owned document to a saved version, creating a new current version.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        version: { type: 'integer', minimum: 1 },
+      },
+      required: ['id', 'version'],
+    },
+  },
+  {
+    name: 'duplicate_document',
+    description: 'Copy an owned document into a new private document owned by the caller.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1, maxLength: 120 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'delete_document',
+    description: 'Permanently delete an owned document and its versions. Requires confirm: true.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        confirm: { type: 'boolean' },
+      },
+      required: ['id', 'confirm'],
+    },
+  },
+  {
+    name: 'search_documents',
+    description: 'Search the caller\'s owned document names and editor JSON, returning metadata and a plain-text snippet.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 100 },
+        kind: { type: 'string', enum: [...KIND_BY_ID.keys()] },
+        limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'list_templates',
+    description: 'List built-in and caller-owned custom templates. Use the returned id with create_document.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { kind: { type: 'string', enum: [...KIND_BY_ID.keys()] } },
+    },
+  },
+  {
+    name: 'list_form_responses',
+    description: 'Read submissions for an owned form document, including form field definitions. Response IP addresses are never returned.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 const toolByName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -355,6 +470,215 @@ async function callTool(name, args, ctx) {
       return textResult({ id: file.id, version: file.version, changed });
     }
 
+    if (name === 'list_folders') {
+      const folders = await Folder.findAll({
+        where: { ownerId: ctx.user.id },
+        order: [['createdAt', 'DESC']],
+      });
+      const counts = folders.length
+        ? await FileRecord.findAll({
+            where: {
+              ownerId: ctx.user.id,
+              kind: { [Op.ne]: 'file' },
+              folderId: { [Op.in]: folders.map((folder) => folder.id) },
+            },
+            attributes: ['folderId', [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+            group: ['folderId'],
+            raw: true,
+          })
+        : [];
+      const countByFolder = new Map(counts.map((row) => [row.folderId, Number(row.count)]));
+      return textResult({
+        folders: folders.map((folder) => ({
+          id: folder.id,
+          name: folder.name,
+          documentCount: countByFolder.get(folder.id) || 0,
+          createdAt: folder.createdAt,
+        })),
+      });
+    }
+
+    if (name === 'create_folder') {
+      const folderName = String(input.name || '').trim().slice(0, 80);
+      if (!folderName) return errorResult('name is required');
+      const folder = await Folder.create({
+        id: nanoid(12),
+        name: folderName,
+        ownerId: ctx.user.id,
+      });
+      return textResult({ folder: { id: folder.id, name: folder.name, createdAt: folder.createdAt } });
+    }
+
+    if (name === 'update_document_metadata') {
+      const file = await loadDoc(input.id, ctx.user);
+      const changes = {};
+      if (input.name !== undefined) {
+        const nextName = String(input.name || '').trim().slice(0, 120);
+        if (!nextName) return errorResult('name cannot be empty');
+        changes.filename = nextName;
+      }
+      if (input.isPublic !== undefined) {
+        if (typeof input.isPublic !== 'boolean') return errorResult('isPublic must be a boolean');
+        changes.isPublic = input.isPublic;
+      }
+      if (input.folderId !== undefined) {
+        if (input.folderId === null || input.folderId === '') {
+          changes.folderId = null;
+        } else {
+          // For an admin acting on another owner's document, the destination
+          // folder must still belong to that document's owner.
+          const folder = await Folder.findOne({
+            where: { id: String(input.folderId), ownerId: file.ownerId },
+          });
+          if (!folder) return errorResult('folder not found');
+          changes.folderId = folder.id;
+        }
+      }
+      if (!Object.keys(changes).length) return errorResult('no metadata changes');
+      changes.updatedAt = new Date();
+      await file.update(changes);
+      recordEvent(ctx.req, 'edit', { fileId: file.id });
+      return textResult({ document: docMeta(file), changed: true });
+    }
+
+    if (name === 'restore_version') {
+      const file = await loadDoc(input.id, ctx.user);
+      const version = Number(input.version);
+      if (!Number.isInteger(version) || version < 1) return errorResult('version must be a positive integer');
+      const snap = await DocVersion.findOne({
+        where: { fileId: file.id, version },
+        order: [['id', 'DESC']],
+      });
+      if (!snap) return errorResult('version not found');
+      await snapshot(file, ctx.user.id);
+      await file.update({
+        content: snap.content,
+        size: Buffer.byteLength(snap.content),
+        version: file.version + 1,
+        updatedAt: new Date(),
+      });
+      recordEvent(ctx.req, 'edit', { fileId: file.id });
+      return textResult({ id: file.id, restoredVersion: version, version: file.version });
+    }
+
+    if (name === 'duplicate_document') {
+      const file = await loadDoc(input.id, ctx.user);
+      const copyName = (String(input.name || '').trim().slice(0, 120) || `Copy of ${file.filename}`).slice(0, 120);
+      const content = file.content || '{}';
+      const copy = await FileRecord.create({
+        id: nanoid(12),
+        slug: nanoid(10),
+        filename: copyName,
+        mime: file.mime,
+        size: Buffer.byteLength(content),
+        ownerId: ctx.user.id,
+        ownerName: ctx.user.username,
+        isPublic: false,
+        replicas: [],
+        content,
+        kind: file.kind,
+        // An admin duplicating another owner's document must not attach the
+        // copy to a folder the caller cannot own.
+        folderId: file.ownerId === ctx.user.id ? file.folderId : null,
+        template: file.template,
+        version: 1,
+      });
+      await snapshot(copy, ctx.user.id);
+      recordEvent(ctx.req, 'create', { fileId: copy.id });
+      return textResult({ document: docMeta(copy), sourceId: file.id });
+    }
+
+    if (name === 'delete_document') {
+      if (input.confirm !== true) return errorResult('confirm must be true to delete a document');
+      const file = await loadDoc(input.id, ctx.user);
+      await sequelize.transaction(async (transaction) => {
+        await DocVersion.destroy({ where: { fileId: file.id }, transaction });
+        await FormResponse.destroy({ where: { fileId: file.id }, transaction });
+        await file.destroy({ transaction });
+      });
+      return textResult({ id: file.id, deleted: true });
+    }
+
+    if (name === 'search_documents') {
+      const query = String(input.query || '').trim().slice(0, 100);
+      if (!query) return errorResult('query is required');
+      if (input.kind && !KIND_BY_ID.has(input.kind)) return errorResult('unknown document kind');
+      const where = {
+        ownerId: ctx.user.id,
+        kind: input.kind || { [Op.ne]: 'file' },
+        [Op.or]: [
+          { filename: { [Op.like]: `%${query}%` } },
+          { content: { [Op.like]: `%${query}%` } },
+        ],
+      };
+      const files = await FileRecord.findAll({
+        where,
+        order: [['updatedAt', 'DESC']],
+        limit: clampLimit(input.limit),
+        attributes: ['id', 'filename', 'kind', 'version', 'isPublic', 'folderId', 'updatedAt', 'createdAt', 'content'],
+      });
+      return textResult({
+        query,
+        documents: files.map((file) => {
+          const plain = String(file.content || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\\[nrt]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const idx = plain.toLowerCase().indexOf(query.toLowerCase());
+          return {
+            ...docMeta(file),
+            snippet: idx >= 0 ? plain.slice(Math.max(0, idx - 60), idx + 120) : plain.slice(0, 160),
+          };
+        }),
+      });
+    }
+
+    if (name === 'list_templates') {
+      if (input.kind && !KIND_BY_ID.has(input.kind)) return errorResult('unknown document kind');
+      const builtins = TEMPLATES
+        .filter((template) => !input.kind || template.kind === input.kind)
+        .map(({ id, name, kind, category, description }) => ({ id, name, kind, category, description, custom: false }));
+      const custom = await Template.findAll({
+        where: { ownerId: ctx.user.id, ...(input.kind ? { kind: input.kind } : {}) },
+        order: [['createdAt', 'DESC']],
+        attributes: ['id', 'name', 'kind', 'category'],
+      });
+      return textResult({
+        templates: [
+          ...builtins,
+          ...custom.map((template) => ({
+            id: `custom:${template.id}`,
+            name: template.name,
+            kind: template.kind,
+            category: template.category,
+            custom: true,
+          })),
+        ],
+      });
+    }
+
+    if (name === 'list_form_responses') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'form') return errorResult('document is not a form');
+      const form = parseContent(file);
+      const responses = await FormResponse.findAll({
+        where: { fileId: file.id },
+        order: [['id', 'DESC']],
+        limit: clampLimit(input.limit),
+        // Never expose the stored submitter IP through MCP.
+        attributes: ['id', 'data', 'createdAt'],
+      });
+      return textResult({
+        id: file.id,
+        name: file.filename,
+        fields: (form.fields || []).map(({ id, type, label, required, options, help }) => ({
+          id, type, label, required: !!required, options: options || [], help: help || '',
+        })),
+        responses,
+      });
+    }
+
     return errorResult('tool not implemented');
   } catch (err) {
     if (err instanceof ToolError) return errorResult(err.message);
@@ -398,8 +722,8 @@ async function handleMessage(message, ctx) {
           tools: { listChanged: false },
           resources: { subscribe: false, listChanged: false },
         },
-        serverInfo: { name: 'cascade-workspace', version: '1.0.0' },
-        instructions: 'Use your Cascade API key. Every tool is scoped to the key owner; use list_documents before get_document or update_document.',
+        serverInfo: { name: 'cascade-workspace', version: '1.1.0' },
+        instructions: 'Use your Cascade API key. Start with whoami, list_folders, list_templates, and list_documents. Read a document before update_document, pass its version, use restore_version for history, and pass confirm:true only when deletion is intended. Every tool is owner-scoped; read-only keys cannot mutate.',
       });
     }
 

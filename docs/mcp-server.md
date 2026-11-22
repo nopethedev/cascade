@@ -60,10 +60,30 @@ For the id-oracle requirement, `resources/read` and `get_document` return no doc
 | `get_document` | read | Read an owned/admin-visible document and its JSON |
 | `list_versions` | read | List the last 25 snapshots |
 | `get_version` | read | Read a specific snapshot |
+| `list_folders` | read | Owner-scoped folders and document counts |
+| `list_templates` | read | Built-in and caller-owned custom templates |
+| `search_documents` | read | Search owned filenames and editor JSON with snippets |
+| `list_form_responses` | read | Form fields and responses; submitter IPs excluded |
 | `create_document` | write | Create a doc, sheet, deck, PDF, board, form, or code file |
 | `update_document` | write | Replace editor JSON with optimistic version checking |
+| `update_document_metadata` | write | Rename, move, or change sharing without replacing content |
+| `create_folder` | write | Create an owner-scoped folder |
+| `restore_version` | write | Restore a snapshot as a new current version |
+| `duplicate_document` | write | Copy a document into a private caller-owned copy |
+| `delete_document` | write | Permanently delete a document and its versions; requires `confirm: true` |
 
 Resources are available at `cascade://documents/:id` for clients that support MCP resources.
+
+### Suggested agent workflow
+
+1. Call `whoami`, `list_folders`, `list_templates`, and `list_documents`.
+2. Use `search_documents` or `list_documents` to locate work, then `get_document`.
+3. Edit with `update_document`, passing the version you read. Use `force: true` only for an intentional overwrite.
+4. Use `list_versions` / `get_version` / `restore_version` for history.
+5. Use `duplicate_document` before risky rewrites, `update_document_metadata` to organize/share, and `delete_document` only with `confirm: true`.
+6. Use `list_templates` + `create_document` to start from a built-in or custom template.
+
+All document operations use the same owner/admin check. Read-only keys see only read tools, and write tools are rejected before any database write. Admin-visible documents still cannot be enumerated through owner-scoped list/search tools.
 
 ## Quick check
 
@@ -109,3 +129,4 @@ Use `get_document` before `update_document`, and pass the returned `version` for
 - It is stateless, so clients should not depend on `Mcp-Session-Id`, GET event streams, or server-initiated messages. This is permitted by MCP 2025-11-25 Streamable HTTP (see above), not an accidental omission.
 - The 2026-07-28 no-handshake/discovery flow has not been validated with a real client. The 2025 initialization flow and direct JSON-RPC calls are covered by the real-HTTP regression test.
 - API keys are shown in plaintext only once at creation; they are stored as SHA-256 hashes and are never included in MCP tool output or logs.
+- `delete_document` is permanent and requires an explicit boolean `confirm: true`; it also removes version snapshots and form responses for that document.

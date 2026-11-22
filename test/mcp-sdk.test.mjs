@@ -173,6 +173,7 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
 
     const { client: write, transport: writeTransport } = await connectSdk(base, writeKey.raw);
     assert.equal(write.getServerVersion()?.name, 'cascade-workspace');
+    assert.equal(write.getServerVersion()?.version, '1.1.0');
     assert.equal(write.getServerCapabilities()?.tools?.listChanged, false);
     assert.equal(writeTransport.protocolVersion, '2025-11-25', 'SDK negotiation must report the selected version');
     assert.equal(writeTransport.sessionId, undefined, 'the stateless server must not issue a session id');
@@ -222,6 +223,9 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.ok(names.includes('create_document'));
     assert.ok(names.includes('get_document'));
     assert.ok(names.includes('list_documents'));
+    for (const name of ['list_folders', 'create_folder', 'update_document_metadata', 'restore_version', 'duplicate_document', 'delete_document', 'search_documents', 'list_templates', 'list_form_responses']) {
+      assert.ok(names.includes(name), `write client should see ${name}`);
+    }
 
     const who = await write.callTool({ name: 'whoami', arguments: {} });
     const whoPayload = JSON.parse(textOf(who));
@@ -248,9 +252,102 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     const resourceRead = await write.readResource({ uri: `cascade://documents/${createdDoc.id}` });
     assert.match(resourceRead.contents[0].text, /SDK PRIVATE MARKER/);
 
+    const createdFolder = JSON.parse(textOf(await write.callTool({
+      name: 'create_folder',
+      arguments: { name: 'SDK Folder' },
+    }))).folder;
+    assert.ok(createdFolder.id);
+    const folders = JSON.parse(textOf(await write.callTool({ name: 'list_folders', arguments: {} }))).folders;
+    assert.ok(folders.some((folder) => folder.id === createdFolder.id));
+
+    const organized = JSON.parse(textOf(await write.callTool({
+      name: 'update_document_metadata',
+      arguments: { id: createdDoc.id, name: 'SDK organized doc', folderId: createdFolder.id, isPublic: false },
+    }))).document;
+    assert.equal(organized.filename, 'SDK organized doc');
+    assert.equal(organized.folderId, createdFolder.id);
+    assert.equal(organized.isPublic, false);
+    const folderListing = JSON.parse(textOf(await write.callTool({
+      name: 'list_documents', arguments: { folderId: createdFolder.id },
+    }))).documents;
+    assert.ok(folderListing.some((doc) => doc.id === createdDoc.id));
+    assert.equal(folderListing.find((doc) => doc.id === createdDoc.id).filename, 'SDK organized doc');
+    const unfiled = JSON.parse(textOf(await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, folderId: null },
+    }))).document;
+    assert.equal(unfiled.folderId, null);
+    const refiled = JSON.parse(textOf(await write.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, folderId: createdFolder.id },
+    }))).document;
+    assert.equal(refiled.folderId, createdFolder.id);
+
+    const searched = JSON.parse(textOf(await write.callTool({
+      name: 'search_documents', arguments: { query: 'SDK PRIVATE MARKER' },
+    })));
+    assert.ok(searched.documents.some((doc) => doc.id === createdDoc.id));
+    assert.match(searched.documents.find((doc) => doc.id === createdDoc.id).snippet, /SDK PRIVATE MARKER/);
+
+    const templates = JSON.parse(textOf(await write.callTool({
+      name: 'list_templates', arguments: { kind: 'doc' },
+    }))).templates;
+    assert.ok(templates.some((template) => template.id === 'doc-blank' && template.custom === false));
+
+    const edited = await write.callTool({
+      name: 'update_document',
+      arguments: { id: createdDoc.id, content: { html: '<h1>SDK PRIVATE MARKER V2</h1>' }, version: createdDoc.version },
+    });
+    assert.equal(JSON.parse(textOf(edited)).changed, true);
+    assert.equal(JSON.parse(textOf(edited)).version, 2);
+    const versions = JSON.parse(textOf(await write.callTool({ name: 'list_versions', arguments: { id: createdDoc.id } })));
+    assert.equal(versions.current, 2);
+    assert.ok(versions.versions.some((version) => version.version === 1));
+    const oldVersion = JSON.parse(textOf(await write.callTool({
+      name: 'get_version', arguments: { id: createdDoc.id, version: 1 },
+    })));
+    assert.match(oldVersion.content.html, /SDK PRIVATE MARKER/);
+
+    const restored = JSON.parse(textOf(await write.callTool({
+      name: 'restore_version', arguments: { id: createdDoc.id, version: 1 },
+    })));
+    assert.equal(restored.version, 3);
+    const afterRestore = await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
+    assert.match(textOf(afterRestore), /SDK PRIVATE MARKER/);
+    assert.ok(!textOf(afterRestore).includes('MARKER V2'));
+
+    const duplicate = JSON.parse(textOf(await write.callTool({
+      name: 'duplicate_document', arguments: { id: createdDoc.id, name: 'SDK copied doc' },
+    }))).document;
+    assert.ok(duplicate.id !== createdDoc.id);
+    assert.equal(duplicate.filename, 'SDK copied doc');
+    assert.equal(duplicate.isPublic, false);
+    const deleteDenied = await write.callTool({
+      name: 'delete_document', arguments: { id: duplicate.id, confirm: false },
+    });
+    assert.equal(deleteDenied.isError, true, 'delete must require explicit confirmation');
+    const deleted = JSON.parse(textOf(await write.callTool({
+      name: 'delete_document', arguments: { id: duplicate.id, confirm: true },
+    })));
+    assert.equal(deleted.deleted, true);
+    const deletedRead = await write.callTool({ name: 'get_document', arguments: { id: duplicate.id } });
+    assert.equal(deletedRead.isError, true);
+
+    const formDoc = JSON.parse(textOf(await write.callTool({
+      name: 'create_document',
+      arguments: { kind: 'form', name: 'SDK form', content: { title: 'SDK form', fields: [] } },
+    }))).document;
+    const formResponses = JSON.parse(textOf(await write.callTool({
+      name: 'list_form_responses', arguments: { id: formDoc.id },
+    })));
+    assert.equal(formResponses.name, 'SDK form');
+    assert.deepEqual(formResponses.fields, []);
+    assert.deepEqual(formResponses.responses, []);
+
     const { client: read } = await connectSdk(base, readKey.raw);
     const readTools = await read.listTools();
     assert.ok(!readTools.tools.some((tool) => tool.name === 'create_document'), 'read-only tools/list excludes writes');
+    for (const name of ['list_folders', 'list_templates', 'search_documents', 'list_form_responses']) {
+      assert.ok(readTools.tools.some((tool) => tool.name === name), `read-only client should see ${name}`);
+    }
     const readBackByRead = await read.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
     assert.match(textOf(readBackByRead), /SDK PRIVATE MARKER/);
     const deniedUpdate = await read.callTool({
@@ -259,10 +356,27 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     });
     assert.equal(deniedUpdate.isError, true);
     assert.ok(!JSON.stringify(deniedUpdate).includes('SDK-PWN'));
+    const deniedDelete = await read.callTool({
+      name: 'delete_document', arguments: { id: createdDoc.id, confirm: true },
+    });
+    assert.equal(deniedDelete.isError, true, 'read-only keys cannot delete documents');
     const unchanged = await write.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
     assert.ok(!textOf(unchanged).includes('SDK-PWN'));
 
     const { client: other } = await connectSdk(base, otherKey.raw);
+    const otherSearch = JSON.parse(textOf(await other.callTool({
+      name: 'search_documents', arguments: { query: 'SDK PRIVATE MARKER' },
+    })));
+    assert.equal(otherSearch.documents.length, 0, 'search must not cross owner boundaries');
+    const foreignMetadata = await other.callTool({
+      name: 'update_document_metadata', arguments: { id: createdDoc.id, name: 'SDK-PWN' },
+    });
+    assert.equal(foreignMetadata.isError, true);
+    assert.ok(!JSON.stringify(foreignMetadata).includes('SDK PRIVATE MARKER'));
+    const foreignFormResponses = await other.callTool({
+      name: 'list_form_responses', arguments: { id: formDoc.id },
+    });
+    assert.equal(foreignFormResponses.isError, true);
     const missingId = 'sdk-document-that-does-not-exist';
     const logStart = logs.join('').length;
 
