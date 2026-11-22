@@ -583,7 +583,8 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
       jsonrpc: '2.0', id: 10.1, method: 'resources/read',
       params: { uri: `cascade://documents/${docId}` },
     });
-    assert.equal(otherResource.body.result.contents, undefined, 'foreign resource must not be returned');
+    assert.equal(otherResource.body.error.code, -32602, 'foreign resource must be a resource-not-found error');
+    assert.equal(otherResource.body.error.data.uri, `cascade://documents/${docId}`);
     assert.ok(!otherResource.text.includes(PRIVATE_MARKER));
 
     const resources = await mcpFetch({ 'x-api-key': mcpReadKey }, { jsonrpc: '2.0', id: 11, method: 'resources/list' });

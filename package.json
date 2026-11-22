@@ -37,6 +37,7 @@
     "image-size": "^2.1.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "jszip": "^3.10.2"
   }
 }

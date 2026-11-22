@@ -367,8 +367,12 @@ function jsonRpcResult(id, result) {
   return { jsonrpc: '2.0', id, result };
 }
 
-function jsonRpcError(id, code, message) {
-  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+function jsonRpcError(id, code, message, data) {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    error: { code, message, ...(data === undefined ? {} : { data }) },
+  };
 }
 
 async function handleMessage(message, ctx) {
@@ -444,6 +448,11 @@ async function handleMessage(message, ctx) {
     return jsonRpcError(message.id, -32601, 'method not found');
   } catch (err) {
     if (err instanceof ProtocolError) return jsonRpcError(message.id, err.code, err.message);
+    // resources/read is a protocol operation, not a tool result. The official
+    // SDK validates its result schema and rejects a tool-shaped error.
+    if (method === 'resources/read' && err instanceof ToolError) {
+      return jsonRpcError(message.id, -32602, 'resource not found', { uri: String(params.uri || '') });
+    }
     if (err instanceof ToolError) return jsonRpcResult(message.id, errorResult(err.message));
     console.error('[cascade-mcp] request failure:', err?.message || 'unknown error');
     return jsonRpcError(message.id, -32603, 'internal error');

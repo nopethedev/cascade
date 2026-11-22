@@ -1,6 +1,6 @@
 # MCP server
 
-Cascade exposes a **stateless Streamable HTTP MCP server** at `POST /mcp`. It is intended for MCP clients that can send JSON-RPC over HTTP and attach an API key header.
+Cascade exposes a **stateless Streamable HTTP MCP server** at `POST /mcp`. It is intended for MCP clients that can send JSON-RPC over HTTP and attach an API key header. It has been exercised end to end with the official `@modelcontextprotocol/sdk` `1.32.2` `StreamableHTTPClientTransport`; see `test/mcp-sdk.test.mjs`.
 
 ## Authentication
 

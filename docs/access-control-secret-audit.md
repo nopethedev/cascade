@@ -108,17 +108,30 @@ Tools:
 
 The route reuses the app auth middleware, so an API key is resolved to its owner and a session uses the logged-in user. The MCP handler then calls the same owner/admin predicate as the editor: cross-user ids return the same `document not found` tool error as unknown ids, without loading or returning content. Read-only API keys are filtered out of `tools/list` mutation entries and are denied in `tools/call` before any mutation. `resources/list` and `resources/read` use `cascade://documents/:id` and the same owner check. The key is never placed in a URL, tool argument, response, or log.
 
+### SDK interoperability defect and fix
+
+Verified against the official **`@modelcontextprotocol/sdk` 1.32.2** client with `StreamableHTTPClientTransport` on Node **v26.13.1** in `test/mcp-sdk.test.mjs`.
+
+**Reproduction before fix:** through the real SDK, `client.readResource({ uri: 'cascade://documents/<foreign-id>' })` received the tool-style `{ content: [...], isError: true }` result because the MCP handler caught every `ToolError` the same way. The SDK validates a `resources/read` result against its resource schema and threw a `ZodError: contents expected array, received undefined` instead of a protocol error.
+
+**Fix:** `resources/read` misses now return JSON-RPC error **-32602** (`resource not found`) with the requested URI in `data`, matching the resource specification; tool calls retain their `isError` result behavior. The SDK now receives a protocol error and the resource content is not disclosed.
+
+SDK calls that succeed: `initialize`, `notifications/initialized`, `tools/list`, `whoami`, `create_document`, `get_document`, `list_documents`, `resources/list`, and `resources/read`. The same test also exercises owner isolation, read-only mutation denial, revoked-key 401, anonymous 401 and cross-origin cookie 403 through/alongside the transport. No `Mcp-Session-Id` was issued and the SDK did not require one; its optional GET stream receives 405, which the SDK treats as unsupported. The official SDK library is a dev dependency, so `npm install` installs the regression test's client.
+
 ## Tests and commands run
 
 ```text
 npm test
-  4 passed, 1 skipped (external LibreOffice renderer opt-in)
+  5 passed, 1 skipped (external LibreOffice renderer opt-in)
 
 node --test test/security.test.mjs
   1 passed
 
+node --test test/mcp-sdk.test.mjs
+  1 passed (official @modelcontextprotocol/sdk 1.32.2 client)
+
 SOFFICE_BIN=/tmp/squashfs-root/AppRun ... npm test
-  5/5 passed (the new security test plus the four office compatibility tests);
+  6/6 passed (MCP SDK test, security test, and four office compatibility tests);
   office export code was not changed by this audit
 ```
 
@@ -129,11 +142,12 @@ The security test asserts:
 - upload traversal containment, active-content headers, MIME normalization, and cache no-store;
 - read-only/write/full-scope behavior, SHA-256 storage, no raw key in list/log, revocation return 401, and non-owner key isolation;
 - MCP anonymous 401, owner 200, non-owner tool isolation with no content, read-only tool filtering/denial, write create/update versioning, resource reads, malformed JSON handling, and revoked-key 401;
+- official SDK initialize/notifications/tools/resources/tool-call round trips, anonymous 401, cross-origin 403, and revoked-key 401;
 - SQL/filter probes.
 
 ## Residual / unverified risks
 
-1. **MCP transport coverage is intentionally narrow.** The server implements stateless Streamable HTTP with JSON responses (and accepts the 2025 initialization handshake). It does not implement an SSE stream, a GET event stream, protocol-level sessions, or a separate stdio command; the 2026-07-28 no-handshake/`server/discover` flow was not exercised by a real client. Those client-specific behaviors remain unverified.
+1. **MCP transport coverage is intentionally narrow.** The official 1.32.2 SDK client passes the target flow with a stateless JSON response and a 405 GET. The server does not implement an SSE event stream, GET event stream, protocol-level sessions/`Mcp-Session-Id`, or a stdio command; the 2026-07-28 no-handshake/`server/discover` flow was not exercised. Those client-specific behaviors remain unverified.
 2. **No external CDN or reverse proxy was tested.** Public cache lifetime was reduced to 5 minutes and origin revocation returns 404, but an upstream cache can still serve a previously cached public object until revalidation. This cannot be exercised without a CDN here.
 3. **Uploads are memory-buffered.** The endpoint has a 1 GiB per-file cap and a 20-file field limit, but 20 concurrent large uploads can still pressure memory and quota checks are not atomic under concurrency. This is a suspected DoS/performance risk, not reproduced with a production-sized payload.
 4. **No rate limiting** exists on login or API-key use; credential brute-force and key abuse rate limits were not tested.
