@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title><%= (typeof title !== 'undefined' ? title + ' · ' : '') + theme.siteName %></title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/public/theme.css" />
+<style>
+  :root {
+    --accent: <%= theme.accent %>;
+    --bg: <%= theme.bg %>;
+    --surface: <%= theme.surface %>;
+    --text: <%= theme.text %>;
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a href="/" class="brand"><span class="brand-mark"></span><%= theme.siteName %></a>
+  <nav class="nav">
+    <% if (user) { %>
+      <a href="/">Files</a>
+      <% if (user.role === 'admin') { %>
+        <a href="/admin">Overview</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/files">All files</a>
+        <a href="/admin/nodes">Nodes</a>
+        <a href="/admin/appearance">Appearance</a>
+      <% } %>
+      <span class="who"><%= user.username %> · <%= user.role %></span>
+      <form method="post" action="/logout" style="display:inline"><button class="btn btn-ghost" type="submit">Logout</button></form>
+    <% } else { %>
+      <a href="/login">Login</a>
+    <% } %>
+  </nav>
+</header>
+<main class="wrap">

@@ -1,0 +1,71 @@
+<%- include('../partials/head', { title: 'Nodes & replication' }) %>
+<h1>Nodes & replication</h1>
+<p class="muted">The main server stores locally too — it counts as the <span class="code">local</span> node. Add remote nodes with their URL + access key (the node prints its key on first boot, or set <span class="code">NODE_ACCESS_KEY</span>).</p>
+
+<div class="card">
+  <h2>Add node</h2>
+  <form method="post" action="/admin/nodes" class="row">
+    <input name="name" placeholder="Node name (e.g. node-eu)" required style="max-width:200px" />
+    <input name="url" placeholder="https://node.example.com" required style="max-width:280px" />
+    <input name="accessKey" placeholder="access key (x-node-key)" required style="max-width:280px" />
+    <button class="btn" type="submit">Add node</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Known nodes</h2>
+  <table>
+    <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>This server (local)</td><td><span class="code">local</span></td><td><span class="badge badge-on">always on</span></td><td></td></tr>
+      <% for (const n of nodes) { const st = nodeStatus[n.id] || {}; %>
+      <tr>
+        <td><%= n.name %></td>
+        <td class="muted"><%= n.url %></td>
+        <td>
+          <% if (n.enabled === false) { %><span class="badge">disabled</span>
+          <% } else if (st.online) { %><span class="badge badge-on">online</span>
+          <% } else { %><span class="badge badge-off">offline</span><% } %>
+        </td>
+        <td class="row">
+          <form method="post" action="/admin/nodes/<%= n.id %>/toggle"><button class="btn btn-ghost btn-sm" type="submit"><%= n.enabled === false ? 'Enable' : 'Disable' %></button></form>
+          <form method="post" action="/admin/nodes/<%= n.id %>/delete" onsubmit="return confirm('Remove node? Files on it stay there.')"><button class="btn btn-danger btn-sm" type="submit">Remove</button></form>
+        </td>
+      </tr>
+      <% } %>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Replication</h2>
+  <form method="post" action="/admin/replication">
+    <label>Mode</label>
+    <select name="mode">
+      <option value="all" <%= replication.mode==='all'?'selected':'' %>>Replicate to all nodes</option>
+      <option value="select" <%= replication.mode==='select'?'selected':'' %>>Replicate to selected nodes</option>
+      <option value="single" <%= replication.mode==='single'?'selected':'' %>>Store on 1 node only (prefer local)</option>
+      <option value="default" <%= replication.mode==='default'?'selected':'' %>>Always use 1 default node</option>
+      <option value="n" <%= replication.mode==='n'?'selected':'' %>>Always keep N copies (heal to another node if one goes down)</option>
+    </select>
+    <label>Selected nodes (for “select” mode — ctrl/cmd-click for multiple)</label>
+    <select name="selectedNodeIds" multiple size="4">
+      <option value="local" <%= (replication.selectedNodeIds||[]).includes('local')?'selected':'' %>>This server (local)</option>
+      <% for (const n of nodes) { %><option value="<%= n.id %>" <%= (replication.selectedNodeIds||[]).includes(n.id)?'selected':'' %>><%= n.name %></option><% } %>
+    </select>
+    <div class="row">
+      <div style="flex:1"><label>Default node (for “default” mode)</label>
+        <select name="defaultNodeId">
+          <option value="local" <%= replication.defaultNodeId==='local'?'selected':'' %>>This server (local)</option>
+          <% for (const n of nodes) { %><option value="<%= n.id %>" <%= replication.defaultNodeId===n.id?'selected':'' %>><%= n.name %></option><% } %>
+        </select>
+      </div>
+      <div style="flex:1"><label>Number of copies N (for “N copies” mode)</label>
+        <input name="replicaCount" type="number" min="1" max="20" value="<%= replication.replicaCount || 2 %>" />
+      </div>
+    </div>
+    <div style="margin-top:12px"><button class="btn" type="submit">Save replication</button></div>
+  </form>
+  <p class="muted" style="font-size:13px;margin-top:10px">Healing: in “all” and “N copies” modes the server health-checks nodes every 30s and copies files onto another healthy node when the desired count isn't met.</p>
+</div>
+<%- include('../partials/foot') %>

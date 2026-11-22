@@ -1,0 +1,56 @@
+name: Auto build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Syntax check (ES modules)
+        run: |
+          for f in src/*.js; do node --check "$f"; done
+
+      - name: Smoke boot + upload
+        run: |
+          PORT=3457 SESSION_SECRET=ci-test-secret node src/index.js &
+          SRV=$!
+          trap "kill $SRV" EXIT
+          for i in $(seq 1 30); do
+            curl -s -o /dev/null http://127.0.0.1:3457/setup && break
+            sleep 1
+          done
+          curl -s -o /dev/null -w "setup:%{http_code}\n" http://127.0.0.1:3457/setup
+          curl -s -c cj.txt -b cj.txt -X POST http://127.0.0.1:3457/setup \
+            -d "siteName=Cascade&username=admin&password=admin123456&accent=%23e11d48" \
+            -o /dev/null -w "wizard:%{http_code}\n"
+          echo "hello cascade" > /tmp/hi.txt
+          curl -s -c cj.txt -b cj.txt -X POST http://127.0.0.1:3457/api/upload \
+            -F "files=@/tmp/hi.txt" -w "\nupload:%{http_code}\n"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: cascade:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

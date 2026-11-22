@@ -1,0 +1,32 @@
+<%- include('../partials/head', { title: 'Admin overview' }) %>
+<h1>Server overview</h1>
+<p class="muted">Whole server + nodes at a glance. Replication mode: <span class="badge badge-accent"><%= replication.mode %></span> · desired copies: <%= stats.desired %></p>
+<div class="grid grid-4">
+  <div class="stat"><b><%= stats.users %></b><span>users</span></div>
+  <div class="stat"><b><%= stats.files %></b><span>files</span></div>
+  <div class="stat"><b><%= (stats.bytes/1073741824).toFixed(2) %> GB</b><span>stored (metadata)</span></div>
+  <div class="stat"><b><%= stats.nodes %></b><span>nodes (incl. local)</span></div>
+</div>
+<div class="card" style="margin-top:16px">
+  <h2>Nodes</h2>
+  <table>
+    <thead><tr><th>Node</th><th>Status</th><th>Usage</th></tr></thead>
+    <tbody>
+      <tr><td>This server (local) <span class="code">local</span></td>
+        <td><span class="badge badge-on">online</span></td>
+        <td><%= (local.bytes/1048576).toFixed(1) %> MB · <%= local.count %> objects</td></tr>
+      <% for (const r of remoteStats) { %>
+        <tr>
+          <td><%= r.node.name %><br /><span class="muted" style="font-size:12px"><%= r.node.url %></span></td>
+          <td>
+            <% if (r.status.online) { %><span class="badge badge-on">online <%= r.status.latencyMs ?? '' %>ms</span>
+            <% } else { %><span class="badge badge-off">offline</span><% } %>
+          </td>
+          <td><%= r.usage ? ((r.usage.bytes/1048576).toFixed(1) + ' MB · ' + r.usage.count + ' objects') : '—' %></td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+  <div class="row" style="margin-top:12px"><a class="btn" href="/admin/nodes">Manage nodes & replication</a><a class="btn btn-ghost" href="/admin/files">View all files</a></div>
+</div>
+<%- include('../partials/foot') %>

@@ -1,0 +1,15 @@
+<%- include('partials/head', { title: file.filename }) %>
+<div class="card" style="text-align:center">
+  <p class="muted">Shared via <%= theme.siteName %></p>
+  <h1><%= file.filename %></h1>
+  <p class="muted"><%= file.mime %> · <%= (file.size/1024).toFixed(1) %> KB</p>
+  <% if (file.mime && file.mime.startsWith('image/')) { %>
+    <img src="/raw/<%= file.slug %>" style="max-width:100%;border-radius:12px;margin:12px 0" />
+  <% } %>
+  <div class="row" style="justify-content:center">
+    <a class="btn" href="/raw/<%= file.slug %>">Download / open raw</a>
+    <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
+  </div>
+  <p class="muted" style="margin-top:12px;font-size:13px">Embed with the <span class="code">/raw/<%= file.slug %></span> URL — it serves the file with long cache headers like a CDN.</p>
+</div>
+<%- include('partials/foot') %>

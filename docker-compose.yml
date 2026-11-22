@@ -1,0 +1,34 @@
+services:
+  cascade-main:
+    build: .
+    image: cascade:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - SERVER_MODE=main
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-to-something-long}
+      - SITE_NAME=${SITE_NAME:-Cascade}
+      - THEME_ACCENT=${THEME_ACCENT:-#e11d48}
+    volumes:
+      - cascade-main-data:/app/data
+    restart: unless-stopped
+
+  # Example storage node. Run: NODE_ACCESS_KEY=secret docker compose up cascade-node
+  cascade-node:
+    build: .
+    image: cascade:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3000
+      - SERVER_MODE=node
+      - NODE_ACCESS_KEY=${NODE_ACCESS_KEY:-}
+    volumes:
+      - cascade-node-data:/app/data
+    restart: unless-stopped
+    profiles: ["node"]
+
+volumes:
+  cascade-main-data:
+  cascade-node-data:

@@ -1,0 +1,22 @@
+<%- include('partials/head', { title: 'Setup' }) %>
+<div class="card" style="max-width:560px;margin:30px auto">
+  <h1>Welcome to <%= theme.siteName %> �Cascade</h1>
+  <p class="muted">First-run wizard — create the admin account and name your server.</p>
+  <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
+  <form method="post" action="/setup">
+    <label>Site name</label>
+    <input name="siteName" value="Cascade" maxlength="60" />
+    <label>Admin username</label>
+    <input name="username" autocomplete="username" required />
+    <label>Admin password (min 6 chars)</label>
+    <input name="password" type="password" autocomplete="new-password" required />
+    <label>Accent color (customizable later in Admin → Appearance)</label>
+    <div class="row">
+      <input name="accent" type="color" value="#e11d48" style="width:64px;height:40px;padding:2px" />
+      <span class="muted">Default is Cascade red. Pick any color.</span>
+    </div>
+    <div style="margin-top:16px"><button class="btn" type="submit">Create admin & finish setup</button></div>
+  </form>
+  <p class="muted" style="margin-top:14px;font-size:13px">Tip: set <span class="code">SERVER_MODE=node</span> + <span class="code">NODE_ACCESS_KEY</span> to run a storage node instead.</p>
+</div>
+<%- include('partials/foot') %>

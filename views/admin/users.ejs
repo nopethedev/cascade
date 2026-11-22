@@ -1,0 +1,37 @@
+<%- include('../partials/head', { title: 'Users' }) %>
+<h1>Users</h1>
+<p class="muted">Create users, set roles and per-person quotas.</p>
+<div class="card">
+  <h2>Create user</h2>
+  <form method="post" action="/admin/users" class="row">
+    <input name="username" placeholder="username" required style="max-width:180px" />
+    <input name="password" type="password" placeholder="password (6+ chars)" required style="max-width:200px" />
+    <select name="role" style="max-width:130px"><option value="user">user</option><option value="admin">admin</option></select>
+    <input name="quotaGB" type="number" min="1" value="5" style="max-width:110px" title="quota GB" />
+    <button class="btn" type="submit">Create</button>
+  </form>
+</div>
+<div class="card">
+  <table>
+    <thead><tr><th>User</th><th>Role</th><th>Usage</th><th>Files</th><th></th></tr></thead>
+    <tbody>
+    <% for (const u of users) { %>
+      <tr>
+        <td><%= u.username %></td>
+        <td><span class="badge"><%= u.role %></span></td>
+        <td><%= (u.used/1048576).toFixed(1) %> MB / <%= (u.quotaBytes/1073741824).toFixed(1) %> GB</td>
+        <td><%= u.fileCount %></td>
+        <td class="row">
+          <form method="post" action="/admin/users/<%= u.id %>/quota" class="row">
+            <input name="quotaGB" type="number" min="1" value="<%= Math.round(u.quotaBytes/1073741824) %>" style="width:70px" />
+            <select name="role" style="width:90px"><option value="user" <%= u.role==='user'?'selected':'' %>>user</option><option value="admin" <%= u.role==='admin'?'selected':'' %>>admin</option></select>
+            <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+          </form>
+          <form method="post" action="/admin/users/<%= u.id %>/delete" onsubmit="return confirm('Delete user <%= u.username %>? (files stay)')"><button class="btn btn-danger btn-sm" type="submit">Delete</button></form>
+        </td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<%- include('../partials/foot') %>

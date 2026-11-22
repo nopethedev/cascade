@@ -1,0 +1,42 @@
+<%- include('partials/head', { title: 'Files' }) %>
+<div class="card">
+  <h1>Your files</h1>
+  <p class="muted"><%= (used/1048576).toFixed(1) %> MB of <%= (quota/1073741824).toFixed(1) %> GB used · <%= files.length %> file(s)</p>
+  <form onsubmit="event.preventDefault(); cascadeUpload(this, document.getElementById('up-status'))">
+    <div class="drop">
+      <input type="file" name="files" multiple style="margin-bottom:10px" />
+      <br /><button class="btn" type="submit">Upload</button>
+      <div id="up-status" class="muted" style="margin-top:8px"></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <form method="get" action="/" class="row">
+    <input name="q" placeholder="Search files…" value="<%= query %>" style="max-width:300px" />
+    <button class="btn btn-ghost" type="submit">Search</button>
+  </form>
+  <table style="margin-top:10px">
+    <thead><tr><th>Name</th><th>Size</th><th>Replicas</th><th>Share</th><th></th></tr></thead>
+    <tbody>
+    <% const q = (query||'').toLowerCase(); const list = files.filter(f => !q || f.filename.toLowerCase().includes(q)); %>
+    <% if (!list.length) { %><tr><td colspan="5" class="muted">No files yet — upload something above.</td></tr><% } %>
+    <% for (const f of list) { %>
+      <tr>
+        <td><a href="/f/<%= f.id %>"><%= f.filename %></a><br /><span class="muted" style="font-size:12px"><%= f.mime %></span></td>
+        <td><%= (f.size/1024).toFixed(1) %> KB</td>
+        <td><span class="badge"><%= (f.replicas||[]).length %>×</span></td>
+        <td>
+          <% if (f.isPublic) { %><span class="badge badge-accent">public</span>
+          <% } else { %><span class="badge">private</span><% } %>
+        </td>
+        <td class="row">
+          <a class="btn btn-ghost btn-sm" href="/f/<%= f.id %>">Open</a>
+          <button class="btn btn-ghost btn-sm" onclick="cascadeDelete('<%= f.id %>','<%= f.filename.replace(/'/g,'') %>')">Delete</button>
+        </td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<%- include('partials/foot') %>

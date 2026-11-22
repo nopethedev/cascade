@@ -1,0 +1,7 @@
+<%- include('partials/head', { title: 'Error' }) %>
+<div class="card" style="text-align:center">
+  <h1><%= status || 500 %></h1>
+  <p class="muted"><%= message %></p>
+  <a class="btn" href="/">Go home</a>
+</div>
+<%- include('partials/foot') %>

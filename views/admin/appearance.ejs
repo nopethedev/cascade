@@ -1,0 +1,20 @@
+<%- include('../partials/head', { title: 'Appearance' }) %>
+<h1>Appearance</h1>
+<p class="muted">Simple black + red-accent theme. Change the accent (or the whole palette) — stored in settings, no rebuild needed.</p>
+<div class="card" style="max-width:560px">
+  <form method="post" action="/admin/appearance">
+    <label>Site name</label>
+    <input name="siteName" value="<%= s.siteName %>" maxlength="60" />
+    <div class="row">
+      <div style="flex:1"><label>Accent</label><input name="accent" type="color" value="<%= s.accent %>" /></div>
+      <div style="flex:1"><label>Background</label><input name="bg" type="color" value="<%= s.bg %>" /></div>
+      <div style="flex:1"><label>Surface</label><input name="surface" type="color" value="<%= s.surface %>" /></div>
+      <div style="flex:1"><label>Text</label><input name="text" type="color" value="<%= s.text %>" /></div>
+    </div>
+    <div style="margin-top:14px" class="row">
+      <button class="btn" type="submit">Save theme</button>
+      <button class="btn btn-ghost" type="button" onclick="document.querySelectorAll('input[type=color]').forEach((el,i)=>el.value=['#e11d48','#0a0a0b','#131316','#f4f4f5'][i])">Reset to Cascade red</button>
+    </div>
+  </form>
+</div>
+<%- include('../partials/foot') %>

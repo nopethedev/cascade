@@ -1,0 +1,21 @@
+<%- include('../partials/head', { title: 'All files' }) %>
+<h1>All files</h1>
+<p class="muted">Every user's files. Admins can open, share and delete any file.</p>
+<div class="card">
+<table>
+  <thead><tr><th>File</th><th>Owner</th><th>Size</th><th>Replicas</th><th>Share</th><th></th></tr></thead>
+  <tbody>
+  <% for (const f of files) { %>
+    <tr>
+      <td><a href="/f/<%= f.id %>"><%= f.filename %></a><br /><span class="muted" style="font-size:12px"><%= f.id %></span></td>
+      <td><%= f.ownerName || f.ownerId %></td>
+      <td><%= (f.size/1024).toFixed(1) %> KB</td>
+      <td><span class="badge"><%= (f.replicas||[]).join(', ') %></span></td>
+      <td><% if (f.isPublic) { %><a href="/c/<%= f.slug %>">/c/<%= f.slug %></a><% } else { %><span class="badge">private</span><% } %></td>
+      <td><button class="btn btn-danger btn-sm" onclick="cascadeDelete('<%= f.id %>','<%= f.filename.replace(/'/g,'') %>')">Delete</button></td>
+    </tr>
+  <% } %>
+  </tbody>
+</table>
+</div>
+<%- include('../partials/foot') %>

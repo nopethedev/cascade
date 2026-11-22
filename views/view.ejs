@@ -1,0 +1,44 @@
+<%- include('partials/head', { title: file.filename }) %>
+<div class="card">
+  <a href="/">← Back</a>
+  <h1 style="margin-top:8px"><%= file.filename %></h1>
+  <p class="muted"><%= file.mime %> · <%= (file.size/1024).toFixed(1) %> KB · replicas: <%= (file.replicas||[]).join(', ') %></p>
+  <div class="row">
+    <a class="btn" href="/f/<%= file.id %>/raw">Download / open raw</a>
+    <button class="btn btn-ghost" onclick="cascadeRename('<%= file.id %>','<%= file.filename.replace(/'/g,'') %>')">Rename</button>
+    <% if (file.isPublic) { %>
+      <button class="btn btn-ghost" onclick="cascadeToggleShare('<%= file.id %>', false)">Make private</button>
+      <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/c/<%= file.slug %>')">Copy share link</button>
+      <button class="btn btn-ghost" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
+    <% } else { %>
+      <button class="btn" onclick="cascadeToggleShare('<%= file.id %>', true)">Share publicly</button>
+    <% } %>
+  </div>
+  <% if (file.isPublic) { %>
+    <p class="muted" style="margin-top:10px">Public: <a href="/c/<%= file.slug %>">/c/<%= file.slug %></a> · CDN raw: <a href="/raw/<%= file.slug %>">/raw/<%= file.slug %></a></p>
+  <% } %>
+</div>
+
+<% if (file.mime && file.mime.startsWith('image/')) { %>
+<div class="card"><img src="/f/<%= file.id %>/raw" style="max-width:100%;border-radius:10px" /></div>
+<% } else if (file.mime && (file.mime.startsWith('video/') || file.mime.startsWith('audio/'))) { %>
+<div class="card">
+  <% if (file.mime.startsWith('video/')) { %><video src="/f/<%= file.id %>/raw" controls style="max-width:100%"></video>
+  <% } else { %><audio src="/f/<%= file.id %>/raw" controls style="width:100%"></audio><% } %>
+</div>
+<% } %>
+
+<% if (editable) { %>
+<div class="card">
+  <h2>Edit as text</h2>
+  <div id="editor-box">
+    <textarea id="editor" rows="18" style="font-family:monospace"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" onclick="cascadeSaveEditor('<%= file.id %>')">Save</button>
+      <span id="editor-status" class="muted"></span>
+    </div>
+  </div>
+  <script>window.addEventListener('DOMContentLoaded', () => cascadeLoadEditor('<%= file.id %>'));</script>
+</div>
+<% } %>
+<%- include('partials/foot') %>
