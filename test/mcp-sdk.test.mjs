@@ -246,6 +246,15 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.equal(whoPayload.user.username, 'sdk-admin');
     assert.equal(whoPayload.scope, 'write');
     assert.ok(!JSON.stringify(who).includes(writeKey.raw), 'whoami must not return key material');
+    const bearerResponse = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${writeKey.raw}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 498, method: 'tools/call', params: { name: 'whoami', arguments: {} } }),
+    });
+    const bearerBody = await bearerResponse.text();
+    assert.equal(bearerResponse.status, 200, 'Bearer authentication must be accepted');
+    assert.match(bearerBody, /sdk-admin/);
+    assert.ok(!bearerBody.includes(writeKey.raw), 'Bearer responses must not echo the token');
 
     const created = await write.callTool({
       name: 'create_document',
@@ -807,7 +816,7 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     await write.close();
     await read.close();
     await other.close();
-    assert.ok(!logs.join('').includes(writeKey.raw), 'write key must not appear in logs');
+    assert.ok(!logs.join('').includes(writeKey.raw), 'write key must not appear in logs, including the Bearer request');
     assert.ok(!logs.join('').includes(readKey.raw), 'read key must not appear in logs');
     assert.ok(!logs.join('').includes(otherKey.raw), 'other key must not appear in logs');
     assert.ok(!logs.join('').includes('198.51.100.7'), 'submitter IP must not appear in logs');
