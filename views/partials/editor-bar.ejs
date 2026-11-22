@@ -10,6 +10,10 @@
   <div class="ed-right">
     <span id="presence" class="presence"></span>
     <span id="save-status" class="badge">Saved</span>
+    <button id="btn-save" class="btn btn-ghost btn-sm" type="button">Save</button>
+    <% if (typeof showPanel !== 'undefined' && showPanel) { %>
+      <button id="btn-editor-panel" class="btn btn-ghost btn-sm" type="button" aria-expanded="true" aria-controls="editor-side">Panel</button>
+    <% } %>
     <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
     <button id="btn-versions" class="btn btn-ghost btn-sm" type="button">History</button>
     <button id="btn-save-template" class="btn btn-quiet btn-sm" type="button">Save as template</button>

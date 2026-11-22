@@ -49,6 +49,8 @@ let currentRotation = 0;
 let tool = 'select';
 let selectedId = null;
 let pendingSignature = null;
+let pendingImage = null;
+let placingImage = false;
 let renderToken = 0;
 let thumbsToken = 0;
 let undoStack = [];
@@ -94,6 +96,7 @@ const currentAnnotations = () => content.annotations.filter((a) => Number(a.page
 
 function setTool(next) {
   tool = next;
+  if (next !== 'image') pendingImage = null;
   document.querySelectorAll('#pdf-tools [data-tool]').forEach((b) => b.classList.toggle('is-active', b.dataset.tool === next));
   stage.dataset.tool = next;
   overlayEl.classList.toggle('is-placing', next !== 'select');
@@ -106,7 +109,21 @@ function setTool(next) {
   else if (next === 'text') hint('Click a page to place text. You will be asked what it should say.');
   else if (next === 'note') hint('Click a page to add a comment bubble.');
   else if (next === 'signature') hint(pendingSignature ? 'Click a page to place the selected signature.' : 'Choose a signature on the left, or create one first.');
+  else if (next === 'image') hint(pendingImage ? 'Click a page to place the selected image. Use a smaller page zoom if you need precise placement.' : 'Choose an image from the library first.');
   else if (next === 'highlight') hint('Select text and press Highlight, or drag a box over the page.');
+}
+
+function chooseImage() {
+  if (!window.CascadeImages) {
+    toast('The image library is unavailable', true);
+    return;
+  }
+  window.CascadeImages.open({
+    onPick(picked) {
+      pendingImage = { src: picked.src, alt: picked.alt || '', credit: picked.credit || '' };
+      setTool('image');
+    },
+  });
 }
 
 function pdfPointToScreen(x, y) {
@@ -256,6 +273,12 @@ function drawAnnotations() {
         img.draggable = false;
         el.append(img);
       }
+    } else if (a.type === 'image') {
+      const img = document.createElement('img');
+      img.src = a.src || '';
+      img.alt = a.alt || 'image';
+      img.draggable = false;
+      el.append(img);
     }
     el.addEventListener('pointerdown', (e) => {
       if (tool !== 'select') return;
@@ -289,8 +312,8 @@ function renderAnnotationList() {
     swatch.style.background = a.color || '#f5c518';
     const text = document.createElement('span');
     text.className = 'annot-text';
-    const label = a.type === 'signature' ? 'Signature' : a.type === 'note' ? (a.text || 'Note') : a.type === 'text' ? (a.text || 'Text') : 'Highlight';
-    text.innerHTML = `<strong>p${a.page} · ${a.type}</strong><span>${escapeHtml(String(label).slice(0, 60))}</span>`;
+    const label = a.type === 'signature' ? 'Signature' : a.type === 'image' ? (a.alt || 'Image') : a.type === 'note' ? (a.text || 'Note') : a.type === 'text' ? (a.text || 'Text') : 'Highlight';
+    text.innerHTML = `<strong>p${escapeHtml(String(a.page))} · ${escapeHtml(String(a.type))}</strong><span>${escapeHtml(String(label).slice(0, 60))}</span>`;
     row.append(swatch, text);
     row.addEventListener('click', () => {
       pageIndex = Number(a.page) - 1;
@@ -471,6 +494,26 @@ stage.addEventListener('click', (e) => {
     const height = Math.round(width * (sig.h / sig.w || 0.35));
     addAnnotation({ type: 'signature', x: px, y: py - height, w: width, h: height, signatureId: sig.id });
     setTool('select');
+  } else if (tool === 'image') {
+    if (!pendingImage || placingImage) return;
+    const picked = pendingImage;
+    placingImage = true;
+    const probe = new Image();
+    probe.onload = () => {
+      const maxWidth = 280;
+      const ratio = probe.naturalWidth / Math.max(1, probe.naturalHeight);
+      const width = Math.min(maxWidth, Math.max(60, probe.naturalWidth / 2));
+      const height = Math.max(40, width / Math.max(0.1, ratio));
+      addAnnotation({ type: 'image', x: px, y: py - height, w: width, h: height, src: picked.src, alt: picked.alt, credit: picked.credit });
+      placingImage = false;
+      setTool('select');
+    };
+    probe.onerror = () => {
+      addAnnotation({ type: 'image', x: px, y: py - 150, w: 240, h: 150, src: picked.src, alt: picked.alt, credit: picked.credit });
+      placingImage = false;
+      setTool('select');
+    };
+    probe.src = picked.src;
   }
 });
 
@@ -553,6 +596,10 @@ function highlightSelection() {
 document.querySelectorAll('#pdf-tools [data-tool]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const next = btn.dataset.tool;
+    if (next === 'image') {
+      chooseImage();
+      return;
+    }
     if (next === 'highlight') {
       if (!highlightSelection()) setTool('highlight');
       return;
@@ -894,6 +941,9 @@ $('sig-save').addEventListener('click', () => {
 });
 
 $('pdf-signature-new').addEventListener('click', openSignatureDialog);
+$('pdf-side-image')?.addEventListener('click', chooseImage);
+$('pdf-side-versions')?.addEventListener('click', () => $('btn-versions')?.click());
+$('pdf-side-share')?.addEventListener('click', () => $('btn-share')?.click());
 $('pdf-signature-dlg').querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => $('pdf-signature-dlg').close()));
 
 function renderSignatures() {

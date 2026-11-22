@@ -195,6 +195,18 @@
         }
       });
 
+      const sidePanel = $('editor-side');
+      const panelLayout = $('doc-layout');
+      const panelButton = $('btn-editor-panel');
+      function setPanel(open) {
+        if (!sidePanel) return;
+        if (panelLayout) panelLayout.classList.toggle('is-panel-hidden', !open);
+        else sidePanel.hidden = !open;
+        panelButton?.setAttribute('aria-expanded', String(open));
+      }
+      panelButton?.addEventListener('click', () => setPanel(panelLayout?.classList.contains('is-panel-hidden') ?? sidePanel.hidden));
+      $('editor-side-close')?.addEventListener('click', () => setPanel(false));
+
       $('btn-versions')?.addEventListener('click', openVersions);
       $('versions-close')?.addEventListener('click', () => {
         if (drawer) drawer.hidden = true;

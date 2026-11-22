@@ -486,13 +486,14 @@ export function createWorkspaceRouter() {
     return lines;
   }
 
-  // Burn highlights, text overlays, notes and signatures into a real PDF.
-  async function renderPdfBuffer(content) {
+  // Burn highlights, text overlays, notes, signatures and placed images into a real PDF.
+  async function renderPdfBuffer(content, ownerId) {
     const bytes = Buffer.from(String(content.pdf || ''), 'base64');
     const doc = await ServerPDF.load(bytes);
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const pages = doc.getPages();
     const signatures = new Map();
+    const images = new Map();
 
     for (const a of content.annotations || []) {
       const page = pages[(Number(a.page) || 1) - 1];
@@ -533,6 +534,21 @@ export function createWorkspaceRouter() {
           signatures.set(sig.id, img);
         }
         page.drawImage(signatures.get(sig.id), { x: a.x, y: a.y, width: a.w, height: a.h });
+      } else if (a.type === 'image') {
+        const src = String(a.src || '');
+        if (!src) continue;
+        if (!images.has(src)) images.set(src, await resolveDocImage(src, ownerId));
+        const resolved = images.get(src);
+        if (!resolved || !resolved.buffer?.length) continue;
+        const mime = String(resolved.mime || '').toLowerCase();
+        if (mime !== 'image/png' && mime !== 'image/jpeg') continue;
+        const embedded = mime === 'image/jpeg' ? await doc.embedJpg(resolved.buffer) : await doc.embedPng(resolved.buffer);
+        page.drawImage(embedded, {
+          x: finite(a.x),
+          y: finite(a.y),
+          width: Math.max(1, finite(a.w, 100)),
+          height: Math.max(1, finite(a.h, 100)),
+        });
       }
     }
     return Buffer.from(await doc.save());
@@ -565,7 +581,7 @@ export function createWorkspaceRouter() {
       };
     }
     if (file.kind === 'board') return { body: boardToSvg(file, content), type: 'image/svg+xml; charset=utf-8', filename: `${base}.svg` };
-    if (file.kind === 'pdf') return { body: await renderPdfBuffer(content), type: 'application/pdf', filename: `${base}.pdf` };
+    if (file.kind === 'pdf') return { body: await renderPdfBuffer(content, file.ownerId), type: 'application/pdf', filename: `${base}.pdf` };
     if (file.kind === 'code') {
       const active = (content.files || [])[content.active || 0] || (content.files || [])[0];
       const safe = (active?.name || 'file.txt').replace(/[^\w.-]+/g, '-');

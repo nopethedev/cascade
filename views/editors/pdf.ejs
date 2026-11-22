@@ -8,6 +8,7 @@
     <button type="button" class="tool" data-tool="text" title="Place a text box on the page">Text</button>
     <button type="button" class="tool" data-tool="note" title="Place a comment">Note</button>
     <button type="button" class="tool" data-tool="signature" title="Place a signature">Sign</button>
+    <button type="button" class="tool" data-tool="image" id="pdf-insert-image" title="Place an image from your library">Image</button>
   </div>
   <div class="tool-group">
     <button type="button" class="tool" id="pdf-undo" title="Undo (Ctrl+Z)">↶</button>
@@ -75,6 +76,13 @@
     <div class="pdf-side-head">Annotations</div>
     <div id="pdf-annotations" class="annot-list"></div>
     <button type="button" class="btn btn-danger btn-sm" id="pdf-annotation-delete" disabled>Delete selected</button>
+    <div class="pdf-side-head">Integrations</div>
+    <div class="pdf-integration-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="pdf-side-image">Image library</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="pdf-side-versions">Version history</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="pdf-side-share">Share &amp; permissions</button>
+      <a class="btn btn-ghost btn-sm" href="/download/<%= file.id %>">Export PDF</a>
+    </div>
   </aside>
 </div>
 
@@ -100,5 +108,6 @@
 </script>
 <script src="/public/vendor/pdf-lib.min.js"></script>
 <script src="/public/editors/common.js"></script>
+<script src="/public/image-library.js"></script>
 <script type="module" src="/public/editors/pdf.js"></script>
 <%- include('../partials/foot') %>

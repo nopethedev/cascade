@@ -13,6 +13,10 @@ const ADMIN_PASSWORD = 'security-admin-password';
 const USER_PASSWORD = 'security-user-password';
 const PRIVATE_MARKER = 'PRIVATE SECURITY MARKER';
 const PUBLIC_MARKER = 'PUBLIC SECURITY MARKER';
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lz1l4QAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -200,13 +204,25 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await putContent(owner, publicDocId, { html: `<h1>${PUBLIC_MARKER}</h1>` })).status, 200);
     assert.equal((await putContent(owner, boardId, { elements: [{ type: 'rect', x: 1, y: 1, w: 40, h: 40, color: '"/><script>alert(1)</script>' }] })).status, 200);
     assert.equal((await putContent(owner, publicDeckId, { w: 1280, h: 720, slides: [{ bg: 'red;</style><script>alert(1)</script>', elements: [{ type: 'text', x: 1, y: 1, w: 100, h: 40, text: 'safe text', color: 'blue;</style><script>alert(2)</script>' }] }] })).status, 200);
-
     const image = await upload(owner, 'owner.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
     assert.equal(image.res.status, 200);
     const imageId = image.payload.files[0].id;
+    const pdfImage = await upload(owner, 'pixel.png', PNG_1X1, 'image/png');
+    assert.equal(pdfImage.res.status, 200);
+    const pdfImageId = pdfImage.payload.files[0].id;
+    const pdfInfo = await json(await owner.request(`/api/workspace/docs/${pdfId}`));
+    assert.match(pdfInfo.content.pdf, /^JVBERi/);
+    const pdfWithImage = await putContent(owner, pdfId, {
+      ...pdfInfo.content,
+      annotations: [{ id: 'security-pdf-image', page: 1, type: 'image', x: 30, y: 80, w: 80, h: 80, src: `/f/${pdfImageId}/raw`, alt: 'pixel' }],
+    }, pdfInfo.version);
+    assert.equal(pdfWithImage.status, 200);
     const otherImage = await upload(other, 'other.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
     assert.equal(otherImage.res.status, 200);
     const otherImageId = otherImage.payload.files[0].id;
+    const otherPdfImage = await upload(other, 'other-pixel.png', PNG_1X1, 'image/png');
+    assert.equal(otherPdfImage.res.status, 200);
+    const otherPdfImageId = otherPdfImage.payload.files[0].id;
 
     const htmlUpload = await upload(owner, 'active.html', '<!doctype html><script>alert(1)</script><h1>ACTIVE SECRET</h1>', 'text/html');
     assert.equal(htmlUpload.res.status, 200);
@@ -300,6 +316,21 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await owner.request(`/export/${sheetId}`)).status, 200);
     assert.equal((await owner.request(`/export/${deckId}`)).status, 200);
     assert.equal((await owner.request(`/export/${pdfId}`)).status, 200);
+    const pdfExport = await owner.request(`/download/${pdfId}`);
+    assert.equal(pdfExport.status, 200);
+    assert.equal(pdfExport.headers.get('content-type'), 'application/pdf');
+    const pdfBytes = Buffer.from(await pdfExport.arrayBuffer());
+    assert.match(pdfBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'PDF image annotation must survive export');
+    const latestPdf = await json(await owner.request(`/api/workspace/docs/${pdfId}`));
+    const foreignPdf = await putContent(owner, pdfId, {
+      ...latestPdf.content,
+      annotations: [{ ...latestPdf.content.annotations[0], src: `/f/${otherPdfImageId}/raw` }],
+    }, latestPdf.version);
+    assert.equal(foreignPdf.status, 200);
+    const foreignExport = await owner.request(`/download/${pdfId}`);
+    assert.equal(foreignExport.status, 200);
+    const foreignBytes = Buffer.from(await foreignExport.arrayBuffer());
+    assert.doesNotMatch(foreignBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'PDF export must not embed another user\'s image');
 
     // Public sharing is intentional; private and random slugs remain non-disclosing.
     assert.equal((await createClient(base).request(`/c/${publicSlug}`)).status, 200);

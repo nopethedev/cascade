@@ -655,6 +655,48 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .tool-spacer { flex: 1; }
 
 /* ---------- document ---------- */
+.doc-layout { display: grid; grid-template-columns: minmax(0, 1fr) 286px; gap: 16px; align-items: start; }
+.doc-layout.is-panel-hidden { grid-template-columns: minmax(0, 1fr); }
+.doc-layout.is-panel-hidden .editor-side { display: none; }
+.doc-layout .doc-shell { min-width: 0; }
+.doc-toolbar { position: sticky; top: 108px; z-index: 18; }
+.editor-side {
+  position: sticky; top: 118px; display: grid; gap: 10px; padding: 12px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+  max-height: calc(100vh - 140px); overflow: auto; font-size: 12.5px;
+}
+.editor-side-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.editor-side-head strong { font-size: 13px; }
+.side-section { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--line); }
+.side-section:first-of-type { padding-top: 0; border-top: 0; }
+.side-label { color: var(--faint); font: 600 9.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.side-actions .btn { justify-content: flex-start; min-width: 0; padding-inline: 8px; font-size: 11px; }
+.side-note { color: var(--faint); font-size: 11px; line-height: 1.5; margin: 2px 0 0; }
+.doc-outline { display: grid; gap: 3px; max-height: 190px; overflow: auto; }
+.doc-outline button {
+  border: 0; background: transparent; color: var(--muted); text-align: left;
+  padding: 4px 5px; border-radius: 4px; cursor: pointer; font: 400 11.5px/1.35 var(--sans);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.doc-outline button:hover { background: var(--raise); color: var(--text); }
+.doc-outline button[data-level="2"] { padding-left: 12px; }
+.doc-outline button[data-level="3"] { padding-left: 20px; font-size: 11px; }
+.doc-outline .empty { color: var(--faint); font-size: 11px; padding: 4px; }
+.image-tools { display: grid; gap: 6px; padding: 7px; border: 1px solid var(--accent-line); border-radius: 7px; background: var(--accent-soft); }
+.image-tools[hidden] { display: none; }
+.image-tools .side-actions { grid-template-columns: repeat(4, 1fr); }
+.image-tools .tool-input { width: 100%; height: 28px; font-size: 11px; }
+.image-tools-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.image-tools-actions .btn { font-size: 10.5px; padding: 3px 7px; }
+.doc-page img { cursor: pointer; }
+.doc-page img.is-selected { outline: 2px solid var(--accent); outline-offset: 3px; }
+.doc-page figure[data-align="left"] { text-align: left; }
+.doc-page figure[data-align="center"] { text-align: center; }
+.doc-page figure[data-align="right"] { text-align: right; }
+.doc-page figure[data-align="right"] img { margin-left: auto; }
+.doc-page figure[data-align="left"] img { margin-right: auto; }
+.doc-page figure[data-align="full"] img { width: 100%; }
 .doc-shell { display: flex; justify-content: center; padding: 6px 0 30px; }
 .doc-page-wrap { width: 100%; max-width: 860px; display: grid; gap: 6px; }
 .doc-hf {
@@ -889,6 +931,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 
 .pdf-shell {
   display: grid; grid-template-columns: 176px minmax(0, 1fr) 244px;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 168px); min-height: 540px;
   border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
   background: var(--surface);
@@ -918,7 +961,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 }
 .pdf-ops { display: grid; gap: 5px; }
 .pdf-ops .btn { justify-content: flex-start; }
-.pdf-main { display: flex; flex-direction: column; min-width: 0; background: var(--sunken); }
+.pdf-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: var(--sunken); }
 .pdf-viewport {
   flex: 1; min-height: 0; overflow: auto; padding: 24px;
   display: flex; align-items: flex-start; justify-content: center;
@@ -1011,12 +1054,17 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
     height: auto; min-height: 0;
   }
   .pdf-main { order: 1; min-height: 60vh; }
-  .pdf-side { order: 2; border-right: 0; border-top: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; align-items: flex-start; max-height: 230px; }
-  .pdf-side .pdf-thumbs { display: flex; gap: 6px; overflow-x: auto; max-width: 100%; }
+  .pdf-side {
+    order: 2; border-right: 0; border-top: 1px solid var(--line);
+    flex-direction: column; flex-wrap: nowrap; align-items: stretch; max-height: none;
+  }
+  .pdf-side .pdf-thumbs { display: flex; gap: 6px; overflow-x: auto; width: 100%; }
+  .pdf-thumb { flex: none; }
   .pdf-thumb canvas { width: 74px; }
   .pdf-thumb-num { display: none; }
-  .pdf-ops { grid-template-columns: repeat(2, minmax(0, 1fr)); flex: 1; }
-  .pdf-inspector { order: 3; border-left: 0; border-top: 1px solid var(--line); max-height: 200px; }
+  .pdf-ops { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .pdf-ops .btn { min-width: 0; justify-content: center; }
+  .pdf-inspector { order: 3; border-left: 0; border-top: 1px solid var(--line); max-height: none; }
   .pdf-toolbar { position: static; }
 }
 .pdf-thumb.is-selected:not(.is-active) { border-color: var(--line-2); background: var(--raise); }
@@ -1074,3 +1122,18 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 }
 .doc-page figure { margin: 14px 0; }
 .doc-page figcaption { margin-top: 6px; color: var(--faint); font-size: 11.5px; line-height: 1.4; }
+.editor-side .btn.is-active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.pdf-annot-image img { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
+.pdf-annot-image { border: 1px dashed transparent; }
+.pdf-annot-image.is-selected { border-color: var(--accent); }
+.pdf-integration-actions { display: grid; gap: 5px; }
+.pdf-integration-actions .btn { justify-content: flex-start; font-size: 11px; }
+@media (max-width: 1120px) {
+  .doc-layout { grid-template-columns: 1fr; }
+  .editor-side { position: static; order: 2; max-height: none; }
+  .doc-toolbar { position: static; }
+}
+@media (max-width: 620px) {
+  .side-actions { grid-template-columns: 1fr; }
+  .image-tools .side-actions { grid-template-columns: repeat(2, 1fr); }
+}

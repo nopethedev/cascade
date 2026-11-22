@@ -1,50 +1,126 @@
 <%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
-<%- include('../partials/editor-bar', { file, kind }) %>
+<%- include('../partials/editor-bar', { file, kind, showPanel: true }) %>
 
-<div class="ed-toolbar" id="doc-toolbar">
+<div class="ed-toolbar doc-toolbar" id="doc-toolbar" role="toolbar" aria-label="Document formatting">
   <div class="tool-group">
     <button class="tool" type="button" data-cmd="undo" title="Undo (Ctrl+Z)">↶</button>
     <button class="tool" type="button" data-cmd="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
   </div>
-  <select id="block-style" class="tool-select" aria-label="Paragraph style">
-    <option value="p">Body</option>
-    <option value="h1">Heading 1</option>
-    <option value="h2">Heading 2</option>
-    <option value="h3">Heading 3</option>
-    <option value="blockquote">Quote</option>
-    <option value="pre">Code block</option>
-  </select>
+  <div class="tool-group">
+    <select id="block-style" class="tool-select" aria-label="Paragraph style">
+      <option value="p">Body</option>
+      <option value="h1">Heading 1</option>
+      <option value="h2">Heading 2</option>
+      <option value="h3">Heading 3</option>
+      <option value="blockquote">Quote</option>
+      <option value="pre">Code block</option>
+    </select>
+    <select id="font-family" class="tool-select" aria-label="Font family" title="Font family">
+      <option value="">Font</option>
+      <option value="Georgia, serif">Georgia</option>
+      <option value="Arial, sans-serif">Arial</option>
+      <option value="'Times New Roman', serif">Times</option>
+      <option value="'Courier New', monospace">Courier</option>
+    </select>
+    <select id="font-size" class="tool-select" aria-label="Font size" title="Font size">
+      <option value="">Size</option>
+      <option value="12px">12</option>
+      <option value="14px">14</option>
+      <option value="16px">16</option>
+      <option value="18px">18</option>
+      <option value="24px">24</option>
+      <option value="32px">32</option>
+    </select>
+  </div>
   <div class="tool-group">
     <button class="tool" type="button" data-cmd="bold" title="Bold"><b>B</b></button>
     <button class="tool" type="button" data-cmd="italic" title="Italic"><i>I</i></button>
     <button class="tool" type="button" data-cmd="underline" title="Underline"><u>U</u></button>
     <button class="tool" type="button" data-cmd="strikeThrough" title="Strikethrough"><s>S</s></button>
+    <button class="tool" type="button" data-cmd="superscript" title="Superscript">x²</button>
+    <button class="tool" type="button" data-cmd="subscript" title="Subscript">x₂</button>
+  </div>
+  <div class="tool-group">
+    <label class="tool-color" title="Text colour">A<input id="text-color" type="color" value="#27272a" aria-label="Text colour" /></label>
+    <label class="tool-color" title="Highlight colour">▮<input id="highlight-color" type="color" value="#fef08a" aria-label="Highlight colour" /></label>
+    <button class="tool" type="button" id="clear-format" title="Clear inline formatting">Clear</button>
   </div>
   <div class="tool-group">
     <button class="tool" type="button" data-cmd="insertUnorderedList" title="Bulleted list">• List</button>
     <button class="tool" type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
-  </div>
-  <div class="tool-group">
     <button class="tool" type="button" data-cmd="justifyLeft" title="Align left">⇤</button>
     <button class="tool" type="button" data-cmd="justifyCenter" title="Align center">↔</button>
     <button class="tool" type="button" data-cmd="justifyRight" title="Align right">⇥</button>
   </div>
   <div class="tool-group">
     <button class="tool" type="button" id="insert-link" title="Insert link">Link</button>
-    <button class="tool" type="button" id="insert-table" title="Insert 3×3 table">Table</button>
+    <button class="tool" type="button" id="insert-table" title="Insert table">Table</button>
     <button class="tool" type="button" id="insert-image" title="Insert image">Image</button>
+    <button class="tool" type="button" id="insert-rule" title="Insert divider">Divider</button>
     <button class="tool" type="button" id="toggle-header" title="Show header and footer">Page</button>
   </div>
   <span class="tool-spacer"></span>
   <span class="hint" id="word-count"></span>
 </div>
 
-<div class="doc-shell">
-  <div class="doc-page-wrap">
-    <input id="doc-header" class="doc-hf" placeholder="Header — appears on the shared/exported page" />
-    <div id="doc-page" class="doc-page" contenteditable="true" spellcheck="true"></div>
-    <input id="doc-footer" class="doc-hf" placeholder="Footer — e.g. confidential" />
+<div class="doc-layout" id="doc-layout">
+  <div class="doc-shell">
+    <div class="doc-page-wrap">
+      <input id="doc-header" class="doc-hf" placeholder="Header — appears on the shared/exported page" />
+      <div id="doc-page" class="doc-page" contenteditable="true" spellcheck="true"></div>
+      <input id="doc-footer" class="doc-hf" placeholder="Footer — e.g. confidential" />
+    </div>
   </div>
+  <aside class="editor-side" id="editor-side" aria-label="Workspace tools and integrations">
+    <div class="editor-side-head">
+      <strong>Workspace</strong>
+      <button class="btn btn-quiet btn-sm" id="editor-side-close" type="button" title="Hide panel">×</button>
+    </div>
+    <section class="side-section">
+      <div class="side-label">Outline</div>
+      <div class="doc-outline" id="doc-outline"><span class="empty">Add a heading to build an outline.</span></div>
+    </section>
+    <section class="side-section">
+      <div class="side-label">Insert</div>
+      <div class="side-actions">
+        <button class="btn btn-ghost btn-sm" id="side-insert-image" type="button">Image</button>
+        <button class="btn btn-ghost btn-sm" id="side-insert-table" type="button">Table</button>
+        <button class="btn btn-ghost btn-sm" id="side-insert-link" type="button">Link</button>
+        <button class="btn btn-ghost btn-sm" id="side-insert-rule" type="button">Divider</button>
+      </div>
+      <div class="image-tools" id="image-tools" hidden>
+        <div class="side-label">Selected image</div>
+        <div class="side-actions">
+          <button class="btn btn-quiet btn-sm" type="button" data-image-width="25%">25%</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-width="50%">50%</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-width="75%">75%</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-width="100%">Full</button>
+        </div>
+        <div class="side-actions">
+          <button class="btn btn-quiet btn-sm" type="button" data-image-align="left">Left</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-align="center">Center</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-align="right">Right</button>
+          <button class="btn btn-quiet btn-sm" type="button" data-image-align="full">Wide</button>
+        </div>
+        <input id="image-alt" class="input tool-input" type="text" maxlength="160" placeholder="Alt text for accessibility" />
+        <input id="image-caption" class="input tool-input" type="text" maxlength="180" placeholder="Caption (optional)" />
+        <div class="image-tools-actions">
+          <button class="btn btn-danger btn-sm" id="image-remove" type="button">Remove image</button>
+        </div>
+      </div>
+    </section>
+    <section class="side-section">
+      <div class="side-label">Integrations</div>
+      <div class="side-actions">
+        <button class="btn btn-ghost btn-sm" id="side-image-library" type="button">Image library</button>
+        <button class="btn btn-ghost btn-sm" id="side-versions" type="button">Versions</button>
+        <button class="btn btn-ghost btn-sm" id="side-share" type="button">Share</button>
+        <button class="btn btn-ghost btn-sm" id="side-template" type="button">Template</button>
+        <a class="btn btn-ghost btn-sm" id="side-export" href="/download/<%= file.id %>">Export</a>
+      </div>
+      <p class="side-note">Image library connects to your uploads and Wikimedia Commons. Version history, sharing and templates use the workspace service.</p>
+    </section>
+  </aside>
 </div>
 
 <script>
