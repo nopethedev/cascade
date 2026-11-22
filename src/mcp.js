@@ -451,7 +451,9 @@ async function handleMessage(message, ctx) {
     // resources/read is a protocol operation, not a tool result. The official
     // SDK validates its result schema and rejects a tool-shaped error.
     if (method === 'resources/read' && err instanceof ToolError) {
-      return jsonRpcError(message.id, -32602, 'resource not found', { uri: String(params.uri || '') });
+      // Do not echo the URI or any record-derived detail here. A foreign id and
+      // a missing id must produce the same bytes for the caller.
+      return jsonRpcError(message.id, -32602, 'resource not found');
     }
     if (err instanceof ToolError) return jsonRpcResult(message.id, errorResult(err.message));
     console.error('[cascade-mcp] request failure:', err?.message || 'unknown error');
@@ -466,8 +468,53 @@ function requireMcpAuth(req, res, next) {
   next();
 }
 
+// MCP 2025-11-25, Transports > Streamable HTTP > Protocol Version Header:
+// a client MUST send MCP-Protocol-Version after initialization; a server MUST
+// reject an invalid/unsupported value with 400. If it is absent, the revision
+// says to assume 2025-03-26, which this handler also supports.
+function requireMcpProtocolVersion(req, res, next) {
+  const requested = req.get('mcp-protocol-version');
+  if (requested && !SUPPORTED_VERSIONS.has(requested)) {
+    return res.status(400).json(jsonRpcError(null, -32600, 'unsupported MCP-Protocol-Version'));
+  }
+  next();
+}
+
+// MCP 2025-11-25, Transports > Streamable HTTP > Security Warning:
+// validate Origin on all connections. No header is normal for server-side MCP
+// clients; a present but foreign Origin is rejected even for API-key requests.
+function requireMcpOrigin(req, res, next) {
+  const origin = req.get('origin');
+  if (!origin) return next();
+  let same = false;
+  try {
+    const parsed = new URL(origin);
+    const expectedHost = req.get('x-forwarded-host') || req.get('host');
+    const expectedProto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+    same = parsed.host === expectedHost && parsed.protocol === `${expectedProto}:`;
+  } catch {
+    same = false;
+  }
+  if (!same) return res.status(403).json(jsonRpcError(null, -32000, 'cross-origin request rejected'));
+  next();
+}
+
+/*
+ MCP 2025-11-25, Transports > Streamable HTTP design rationale:
+ - Session Management, item 1: a server MAY assign Mcp-Session-Id. This server
+   intentionally does not; every request carries its own API-key/session auth.
+ - Listening for Messages from the Server, item 3: a server MUST either return
+   an SSE stream for GET or return 405. We return 405, so no GET stream exists.
+ - Session Management, item 5: DELETE may return 405 when explicit termination
+   is not supported. We do that because there is no session to terminate.
+ - Sending Messages to the Server, item 5: JSON responses are an allowed
+   alternative to SSE for a POST request, and the official SDK accepts them.
+*/
 export function createMcpRouter() {
   const router = express.Router();
+
+  router.use(requireMcpOrigin);
+  router.use(requireMcpProtocolVersion);
 
   router.get('/', requireMcpAuth, (req, res) => {
     res.setHeader('Allow', 'POST');

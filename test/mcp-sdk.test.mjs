@@ -72,6 +72,15 @@ function textOf(result) {
   return item.text;
 }
 
+async function captureError(fn) {
+  try {
+    await fn();
+    return null;
+  } catch (err) {
+    return { code: err.code, message: err.message, data: err.data };
+  }
+}
+
 async function connectSdk(base, key) {
   const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
     requestInit: key ? { headers: { 'x-api-key': key } } : {},
@@ -165,6 +174,47 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     const { client: write, transport: writeTransport } = await connectSdk(base, writeKey.raw);
     assert.equal(write.getServerVersion()?.name, 'cascade-workspace');
     assert.equal(write.getServerCapabilities()?.tools?.listChanged, false);
+    assert.equal(writeTransport.protocolVersion, '2025-11-25', 'SDK negotiation must report the selected version');
+    assert.equal(writeTransport.sessionId, undefined, 'the stateless server must not issue a session id');
+
+    const initializeResponse = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'x-api-key': writeKey.raw, 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 499, method: 'initialize', params: { protocolVersion: '2025-11-25' } }),
+    });
+    assert.equal(initializeResponse.status, 200);
+    assert.equal(initializeResponse.headers.get('mcp-session-id'), null, 'initialize must not return a session id');
+    assert.equal((await initializeResponse.json()).result.protocolVersion, '2025-11-25');
+
+    const versionedFollowUp = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': writeKey.raw,
+        'mcp-protocol-version': '2025-11-25',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 500, method: 'tools/list' }),
+    });
+    assert.equal(versionedFollowUp.status, 200, 'a valid MCP-Protocol-Version follow-up must be accepted');
+    assert.ok(Array.isArray((await versionedFollowUp.json()).result.tools));
+
+    const badVersion = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': writeKey.raw,
+        'mcp-protocol-version': '1999-01-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 501, method: 'tools/list' }),
+    });
+    assert.equal(badVersion.status, 400, 'an unsupported MCP-Protocol-Version must be rejected');
+    assert.equal((await badVersion.json()).error.code, -32600);
+
+    const deleteResponse = await fetch(`${base}/mcp`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': writeKey.raw },
+    });
+    assert.equal(deleteResponse.status, 405, 'stateless DELETE must be method-not-allowed, not a session teardown');
 
     const tools = await write.listTools();
     const names = tools.tools.map((tool) => tool.name);
@@ -213,17 +263,54 @@ test('official MCP SDK Streamable HTTP client completes a scoped session', { tim
     assert.ok(!textOf(unchanged).includes('SDK-PWN'));
 
     const { client: other } = await connectSdk(base, otherKey.raw);
-    const foreignRead = await other.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
-    assert.equal(foreignRead.isError, true);
-    assert.ok(!JSON.stringify(foreignRead).includes('SDK PRIVATE MARKER'));
-    await assert.rejects(
-      () => other.readResource({ uri: `cascade://documents/${createdDoc.id}` }),
-      (err) => {
-        assert.equal(err.code, -32602, 'resource-not-found must be a JSON-RPC error');
-        assert.ok(!String(err.message).includes('SDK PRIVATE MARKER'));
-        return true;
+    const missingId = 'sdk-document-that-does-not-exist';
+    const logStart = logs.join('').length;
+
+    const foreignTool = await other.callTool({ name: 'get_document', arguments: { id: createdDoc.id } });
+    const missingTool = await other.callTool({ name: 'get_document', arguments: { id: missingId } });
+    assert.equal(foreignTool.isError, true);
+    assert.deepEqual(foreignTool, missingTool, 'foreign and missing ids must produce the same get_document result');
+    assert.ok(!JSON.stringify(foreignTool).includes(createdDoc.id), 'get_document error must not echo the id');
+    assert.ok(!JSON.stringify(missingTool).includes(missingId), 'get_document error must not echo the id');
+    assert.ok(!JSON.stringify(foreignTool).includes('SDK PRIVATE MARKER'));
+
+    const foreignResource = await captureError(() =>
+      other.readResource({ uri: `cascade://documents/${createdDoc.id}` }));
+    const missingResource = await captureError(() =>
+      other.readResource({ uri: `cascade://documents/${missingId}` }));
+    assert.deepEqual(foreignResource, missingResource, 'foreign and missing resource ids must produce identical errors');
+    assert.deepEqual(foreignResource, { code: -32602, message: 'MCP error -32602: resource not found', data: undefined });
+    const resourceErrors = JSON.stringify([foreignResource, missingResource]);
+    assert.ok(!resourceErrors.includes(createdDoc.id), 'resources/read error must not echo the foreign id');
+    assert.ok(!resourceErrors.includes(missingId), 'resources/read error must not echo the missing id');
+    assert.ok(!resourceErrors.includes('cascade://documents/'), 'resources/read error must not echo a URI');
+
+    const rawResource = async (id) => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'x-api-key': otherKey.raw, 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 700, method: 'resources/read', params: { uri: `cascade://documents/${id}` } }),
+      });
+      return (await res.json()).error;
+    };
+    assert.deepEqual(await rawResource(createdDoc.id), { code: -32602, message: 'resource not found' });
+    assert.deepEqual(await rawResource(missingId), { code: -32602, message: 'resource not found' });
+
+    const idOracleLogs = logs.join('').slice(logStart);
+    assert.ok(!idOracleLogs.includes(createdDoc.id), 'server log must not distinguish the foreign id');
+    assert.ok(!idOracleLogs.includes(missingId), 'server log must not distinguish the missing id');
+    assert.ok(!idOracleLogs.includes('SDK PRIVATE MARKER'), 'server log must not contain document content');
+
+    const apiKeyCrossOrigin = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': writeKey.raw,
+        origin: 'https://evil.example',
+        'content-type': 'application/json',
       },
-    );
+      body: JSON.stringify({ jsonrpc: '2.0', id: 502, method: 'initialize', params: {} }),
+    });
+    assert.equal(apiKeyCrossOrigin.status, 403, 'API-key MCP requests must also reject foreign origins');
 
     const anonymousTransport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`));
     const anonymousClient = new Client({ name: 'cascade-sdk-anon', version: '1.0.0' }, { capabilities: {} });

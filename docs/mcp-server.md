@@ -38,6 +38,19 @@ The endpoint supports:
 
 Every JSON-RPC message is a POST. Responses are ordinary `application/json`; no `Mcp-Session-Id` is issued and there is no server-initiated SSE stream. A GET returns `405`, and malformed JSON returns `400` with JSON-RPC error `-32700`.
 
+### Why this stateless shape is spec-permitted
+
+This behavior was checked against the **MCP 2025-11-25** specification, [Transports → Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports):
+
+- **Session Management, item 1:** a server **MAY** assign a session id. Cascade chooses not to, so there is nothing to put in `Mcp-Session-Id`.
+- **Listening for Messages from the Server, item 3:** a server **MUST** either return a `text/event-stream` for GET or return **405 Method Not Allowed**. Cascade returns 405 because it offers no GET stream.
+- **Session Management, item 5:** DELETE is a client **SHOULD**; a server **MAY** return 405 when it does not allow session termination. Cascade returns 405 because it has no session to terminate.
+- **Sending Messages to the Server, item 5:** a POST request may receive either `text/event-stream` or one `application/json` response. Cascade returns JSON, and the official SDK accepts it.
+
+`MCP-Protocol-Version` headers are validated against the three advertised revisions. A missing header is accepted (the specification says to assume `2025-03-26`); an invalid or unsupported header receives **400** with JSON-RPC `-32600`.
+
+For the id-oracle requirement, `resources/read` and `get_document` return no document id, URI, or record-derived detail in a not-found response. Foreign-owner ids and nonexistent ids therefore have identical caller-visible errors.
+
 ## Tools
 
 | Tool | Scope | Purpose |
@@ -93,6 +106,6 @@ Use `get_document` before `update_document`, and pass the returned `version` for
 ## Boundaries
 
 - The endpoint has no stdio transport; use the URL above from a remote-capable MCP client.
-- It is stateless, so clients should not depend on `Mcp-Session-Id`, GET event streams, or server-initiated messages.
+- It is stateless, so clients should not depend on `Mcp-Session-Id`, GET event streams, or server-initiated messages. This is permitted by MCP 2025-11-25 Streamable HTTP (see above), not an accidental omission.
 - The 2026-07-28 no-handshake/discovery flow has not been validated with a real client. The 2025 initialization flow and direct JSON-RPC calls are covered by the real-HTTP regression test.
 - API keys are shown in plaintext only once at creation; they are stored as SHA-256 hashes and are never included in MCP tool output or logs.

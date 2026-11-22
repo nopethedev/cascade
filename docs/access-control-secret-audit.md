@@ -36,7 +36,8 @@ All requests were sent to the live server; redirects were not followed.
 | Anonymous `POST /mcp` or `GET /mcp` | **401** |
 | Authenticated `GET /mcp` | **405** `Allow: POST` (stateless; no SSE GET) |
 | Owner session `initialize` / `tools/list` / `get_document` | **200**; own content returned |
-| Non-owner session or non-owner API key `get_document` | HTTP **200** JSON-RPC result with `isError:true`; no content or existence marker |
+| Non-owner session or non-owner API key `get_document` | HTTP **200** JSON-RPC result with `isError:true`; no content, id, or existence marker |
+| Non-owner or nonexistent `resources/read` | JSON-RPC **-32602** `resource not found`; identical code/message/data, no URI echoed |
 | Read-only key `tools/list` / `get_document` | **200**; read tools only, own content returned |
 | Read-only key `update_document` | JSON-RPC `isError:true`; document unchanged |
 | Write key `create_document` / `update_document` | **200**; version advanced from 1 to 2 |
@@ -114,9 +115,11 @@ Verified against the official **`@modelcontextprotocol/sdk` 1.32.2** client with
 
 **Reproduction before fix:** through the real SDK, `client.readResource({ uri: 'cascade://documents/<foreign-id>' })` received the tool-style `{ content: [...], isError: true }` result because the MCP handler caught every `ToolError` the same way. The SDK validates a `resources/read` result against its resource schema and threw a `ZodError: contents expected array, received undefined` instead of a protocol error.
 
-**Fix:** `resources/read` misses now return JSON-RPC error **-32602** (`resource not found`) with the requested URI in `data`, matching the resource specification; tool calls retain their `isError` result behavior. The SDK now receives a protocol error and the resource content is not disclosed.
+**Fix:** `resources/read` misses now return JSON-RPC error **-32602** (`resource not found`) with **no** `data`, URI, or id echo. A foreign-owner id and a nonexistent id therefore produce the same caller-visible error; tool calls retain their generic `isError` result behavior. The SDK now receives a protocol error and the resource content is not disclosed.
 
-SDK calls that succeed: `initialize`, `notifications/initialized`, `tools/list`, `whoami`, `create_document`, `get_document`, `list_documents`, `resources/list`, and `resources/read`. The same test also exercises owner isolation, read-only mutation denial, revoked-key 401, anonymous 401 and cross-origin cookie 403 through/alongside the transport. No `Mcp-Session-Id` was issued and the SDK did not require one; its optional GET stream receives 405, which the SDK treats as unsupported. The official SDK library is a dev dependency, so `npm install` installs the regression test's client.
+SDK calls that succeed: `initialize`, `notifications/initialized`, `tools/list`, `whoami`, `create_document`, `get_document`, `list_documents`, `resources/list`, and `resources/read`. The same test explicitly compares a foreign-owner id with a nonexistent id for both `get_document` and `resources/read`, asserts identical payloads and no echoed ids/URIs, and checks that server logs contain neither id. It also exercises owner isolation, read-only mutation denial, revoked-key 401, anonymous 401, cross-origin cookie/API-key 403, valid `MCP-Protocol-Version` acceptance, invalid-version 400, and the negotiated `2025-11-25` version.
+
+**Spec basis for stateless transport (MCP 2025-11-25, Transports → Streamable HTTP):** Session Management item 1 says a server **MAY** assign `Mcp-Session-Id`; Listening for Messages from the Server item 3 requires either an SSE GET stream or **405**; Session Management item 5 allows **405** for DELETE; Sending Messages to the Server item 5 permits a single `application/json` response. The omission of sessions and GET/DELETE behavior is therefore permitted, not a MUST violation. The `MCP-Protocol-Version` requirement is enforced; valid headers are accepted and unsupported versions get **400**.
 
 ## Tests and commands run
 
@@ -142,7 +145,7 @@ The security test asserts:
 - upload traversal containment, active-content headers, MIME normalization, and cache no-store;
 - read-only/write/full-scope behavior, SHA-256 storage, no raw key in list/log, revocation return 401, and non-owner key isolation;
 - MCP anonymous 401, owner 200, non-owner tool isolation with no content, read-only tool filtering/denial, write create/update versioning, resource reads, malformed JSON handling, and revoked-key 401;
-- official SDK initialize/notifications/tools/resources/tool-call round trips, anonymous 401, cross-origin 403, and revoked-key 401;
+- official SDK initialize/notifications/tools/resources/tool-call round trips, foreign-vs-missing id equality, no-id-in-logs, protocol-version acceptance/rejection, anonymous 401, cross-origin cookie/API-key 403, and revoked-key 401;
 - SQL/filter probes.
 
 ## Residual / unverified risks
