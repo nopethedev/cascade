@@ -1,143 +1,223 @@
-<%- include('partials/head', { title: 'Files' }) %>
+<%- include('partials/head', { title: currentFolder ? currentFolder.name : 'Files' }) %>
 <%
   const usedPct = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
   const q = (query || '').toLowerCase();
-  const list = files.filter((f) => !q || f.filename.toLowerCase().includes(q));
+  const fileList = files.filter((f) => !q || f.filename.toLowerCase().includes(q));
+  const folderList = (childFolders || []).filter((f) => !q || f.name.toLowerCase().includes(q));
   const extOf = (name) => (name.includes('.') ? name.split('.').pop().slice(0, 4) : 'file');
   const kindOf = (id) => kinds.find((k) => k.id === id) || null;
   const openHref = (f) => (f.kind && f.kind !== 'file' ? '/edit/' + f.id : '/f/' + f.id);
+  const totalItems = fileList.length + folderList.length;
 %>
 
-<div class="page-head">
+<div class="page-head fm-head">
   <div>
-    <div class="eyebrow">Workspace</div>
-    <h1 class="page-title">Your files</h1>
-    <p class="lede"><%= files.length %> item<%= files.length === 1 ? '' : 's' %> in view · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href="/">Files</a>
+      <% if (currentFolder) { %><span>/</span><strong><%= currentFolder.name %></strong><% } %>
+    </nav>
+    <h1 class="page-title"><%= currentFolder ? currentFolder.name : 'Your files' %></h1>
+    <p class="lede"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %><%= q ? ' matching “' + query + '”' : '' %> · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
   </div>
-  <div class="actions">
-    <a class="btn btn-ghost" href="/search">Search</a>
-    <% if (user.role === 'admin') { %><a class="btn btn-ghost" href="/admin">Server overview</a><% } %>
-  </div>
-</div>
-
-<div class="ws-layout">
-  <aside class="ws-side">
-    <a class="btn btn-block create-cta" href="/create"><span>+</span> Create</a>
-
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">Folders</div></div>
-      <div class="filter-list">
-        <a class="filter <%= !folderId ? 'is-active' : '' %>" href="/">All files <span><%= files.length %></span></a>
-        <% for (const f of folders) { %>
-          <a class="filter <%= folderId === f.id ? 'is-active' : '' %>" href="/?folder=<%= f.id %>"><%= f.name %></a>
-        <% } %>
-        <% if (!folders.length) { %><span class="hint" style="padding:6px 10px">No folders yet — create them while making a file.</span><% } %>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">New</div></div>
-      <div class="filter-list">
-        <% for (const k of kinds) { %>
-          <a class="filter" href="/create?kind=<%= k.id %>"><span><span class="kind-ico"><%= k.icon %></span><%= k.label %></span></a>
-        <% } %>
-      </div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-body stack" style="gap:12px">
-        <div>
-          <div class="meter-row"><span>Storage</span><span><%= usedPct %>%</span></div>
-          <div class="meter"><div class="meter-fill" style="width:<%= usedPct %>%"></div></div>
-        </div>
-        <dl class="kv">
-          <dt>Used</dt><dd><%= prettyBytes(used) %></dd>
-          <dt>Quota</dt><dd><%= (quota / 1073741824).toFixed(0) %> GB</dd>
-        </dl>
-      </div>
-    </div>
-  </aside>
-
-  <div class="stack ws-main">
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Upload files</div>
-          <div class="panel-sub">Written to the nodes your replication mode selects.</div>
-        </div>
-        <a class="btn btn-ghost btn-sm" href="/create">Create instead</a>
-      </div>
-      <div class="panel-body">
-        <form onsubmit="event.preventDefault(); cascadeUpload(this, document.getElementById('up-status'))">
-          <label class="drop" data-drop>
-            <input type="file" name="files" multiple />
-            <div class="drop-title">Drop files here</div>
-            <div class="drop-sub">or click to browse · up to 20 files at once</div>
-          </label>
-          <div class="row-between" style="margin-top:14px">
-            <div id="up-status" class="hint"></div>
-            <button class="btn" type="submit">Upload</button>
-          </div>
-        </form>
-      </div>
-    </section>
-
-    <section class="panel has-table" style="margin-top:16px">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Files</div>
-          <div class="panel-sub"><%= list.length %> shown<%= q ? ' for “' + query + '”' : '' %></div>
-        </div>
-        <form method="get" action="/" class="row" style="gap:8px">
-          <% if (folderId) { %><input type="hidden" name="folder" value="<%= folderId %>" /><% } %>
-          <input type="search" name="q" value="<%= query %>" placeholder="Search files…" style="width:200px;height:34px" aria-label="Search files" />
-          <button class="btn btn-ghost btn-sm" type="submit">Search</button>
-        </form>
-      </div>
-
-      <% if (!list.length) { %>
-        <div class="panel-body">
-          <div class="empty">
-            <div class="empty-ico">∅</div>
-            <strong><%= q ? 'No matching files' : 'Nothing here yet' %></strong>
-            <span><%= q ? 'Try a different search term.' : 'Upload a file or create a document to get started.' %></span>
-            <% if (!q) { %><div style="margin-top:14px"><a class="btn" href="/create">+ Create</a></div><% } %>
-          </div>
-        </div>
-      <% } else { %>
-        <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Sharing</th><th class="right">Actions</th></tr></thead>
-            <tbody>
-              <% for (const f of list) { const k = kindOf(f.kind); %>
-                <tr>
-                  <td>
-                    <a class="file" href="<%= openHref(f) %>">
-                      <span class="file-ico"><%= k ? k.icon : extOf(f.filename) %></span>
-                      <span style="min-width:0">
-                        <span class="file-name"><%= f.filename %></span>
-                        <span class="file-meta"><%= f.mime %></span>
-                      </span>
-                    </a>
-                  </td>
-                  <td><span class="badge"><%= k ? k.label : 'Upload' %></span></td>
-                  <td class="muted nowrap"><%= prettyBytes(f.size) %></td>
-                  <td>
-                    <% if (f.isPublic) { %><span class="badge badge-accent">public</span><% } else { %><span class="badge">private</span><% } %>
-                  </td>
-                  <td>
-                    <div class="row" style="justify-content:flex-end;gap:4px">
-                      <a class="btn btn-quiet btn-sm" href="<%= openHref(f) %>"><%= k ? 'Edit' : 'Open' %></a>
-                      <button class="btn btn-quiet btn-sm" type="button" onclick="cascadeDelete('<%= f.id %>','<%= f.filename.replace(/'/g, '') %>')">Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
-      <% } %>
-    </section>
+  <div class="actions fm-head-actions">
+    <button class="btn btn-ghost" type="button" id="fm-new-folder">New folder</button>
+    <label class="btn btn-ghost" for="fm-file-input">Upload</label>
+    <a class="btn" href="/create">+ Create</a>
   </div>
 </div>
+
+<form id="fm-upload" class="visually-hidden" onsubmit="event.preventDefault();">
+  <input id="fm-file-input" type="file" name="files" multiple />
+  <span id="fm-upload-status"></span>
+</form>
+
+<section class="fm panel" id="file-manager" data-folder="<%= folderId %>">
+  <div class="fm-toolbar">
+    <div class="fm-tools-left">
+      <label class="fm-check" title="Select all">
+        <input type="checkbox" id="fm-select-all" aria-label="Select all items" />
+      </label>
+      <div class="fm-selection" id="fm-selection" hidden>
+        <strong><span id="fm-selected-count">0</span> selected</strong>
+        <button class="btn btn-quiet btn-sm" type="button" data-bulk="move">Move</button>
+        <button class="btn btn-quiet btn-sm" type="button" data-bulk="copy">Copy</button>
+        <button class="btn btn-quiet btn-sm" type="button" data-bulk="delete">Delete</button>
+      </div>
+      <span class="fm-count" id="fm-count"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %></span>
+    </div>
+    <div class="fm-tools-right">
+      <span class="fm-storage" title="Storage used">
+        <span class="fm-storage-bar"><i style="width:<%= usedPct %>%"></i></span>
+        <span><%= prettyBytes(used) %></span>
+      </span>
+      <form method="get" action="/" class="fm-search" role="search">
+        <% if (currentFolder) { %><input type="hidden" name="folder" value="<%= currentFolder.id %>" /><% } %>
+        <input type="search" name="q" value="<%= query %>" placeholder="Search this folder…" aria-label="Search files" />
+        <% if (query) { %><a class="fm-search-clear" href="/<%= currentFolder ? '?folder=' + currentFolder.id : '' %>" aria-label="Clear search">×</a><% } %>
+      </form>
+      <details class="fm-menu">
+        <summary class="btn btn-quiet btn-sm" aria-label="More actions">•••</summary>
+        <div class="fm-menu-list">
+          <button type="button" id="fm-folder-menu">New folder</button>
+          <button type="button" id="fm-upload-menu">Upload files</button>
+          <a href="/create">Create a file</a>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <div class="fm-table-wrap">
+    <table class="fm-table" id="fm-table">
+      <thead>
+        <tr>
+          <th class="fm-check-cell"></th>
+          <th class="fm-name-col">Name</th>
+          <th class="fm-type-col">Type</th>
+          <th class="fm-size-col">Size</th>
+          <th class="fm-sharing-col">Sharing</th>
+          <th class="fm-updated-col">Modified</th>
+          <th class="fm-actions-col"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody id="fm-body">
+        <% if (currentFolder) { %>
+          <tr class="fm-row fm-up-row" data-drop-folder="">
+            <td class="fm-check-cell"></td>
+            <td colspan="6">
+              <a class="fm-up-link" href="/">↑ All files</a>
+            </td>
+          </tr>
+        <% } %>
+
+        <% for (const f of folderList) { %>
+          <tr class="fm-row fm-folder-row" data-folder-id="<%= f.id %>" data-name="<%= f.name.toLowerCase() %>" draggable="false">
+            <td class="fm-check-cell">
+              <label class="fm-check folder-check" title="Select folder">
+                <input type="checkbox" class="fm-select" data-kind="folder" data-id="<%= f.id %>" data-name="<%= f.name %>" aria-label="Select folder <%= f.name %>" />
+              </label>
+            </td>
+            <td>
+              <a class="fm-name" href="/?folder=<%= f.id %>">
+                <span class="fm-folder-ico" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" fill="currentColor" opacity=".9"/></svg>
+                </span>
+                <span class="fm-name-text"><strong><%= f.name %></strong><small>Folder</small></span>
+              </a>
+            </td>
+            <td class="fm-muted">Folder</td>
+            <td class="fm-muted">—</td>
+            <td><span class="badge">Private</span></td>
+            <td class="fm-muted fm-date"><%= prettyDate(f.updatedAt) %></td>
+            <td class="fm-actions-cell">
+              <details class="fm-row-menu">
+                <summary aria-label="Actions for <%= f.name %>">•••</summary>
+                <div>
+                  <a href="/?folder=<%= f.id %>">Open</a>
+                  <button type="button" data-folder-action="rename" data-id="<%= f.id %>" data-name="<%= f.name %>">Rename</button>
+                  <button type="button" class="danger" data-folder-action="delete" data-id="<%= f.id %>" data-name="<%= f.name %>">Delete folder</button>
+                </div>
+              </details>
+            </td>
+          </tr>
+        <% } %>
+
+        <% for (const f of fileList) { const k = kindOf(f.kind); const isDoc = f.kind && f.kind !== 'file'; %>
+          <tr class="fm-row fm-file-row" draggable="true" data-file-id="<%= f.id %>" data-name="<%= f.filename.toLowerCase() %>">
+            <td class="fm-check-cell">
+              <label class="fm-check" title="Select file">
+                <input type="checkbox" class="fm-select" data-kind="file" data-id="<%= f.id %>" data-name="<%= f.filename %>" aria-label="Select <%= f.filename %>" />
+              </label>
+            </td>
+            <td>
+              <a class="fm-name" href="<%= openHref(f) %>">
+                <span class="fm-file-ico fm-ico-<%= f.kind || 'file' %>"><%= k ? k.icon : extOf(f.filename) %></span>
+                <span class="fm-name-text">
+                  <strong><%= f.filename %></strong>
+                  <small><%= k ? k.label : (f.mime || 'File') %></small>
+                </span>
+              </a>
+            </td>
+            <td class="fm-muted"><%= k ? k.label : extOf(f.filename).toUpperCase() %></td>
+            <td class="fm-muted"><%= prettyBytes(f.size) %></td>
+            <td>
+              <% if (f.isPublic) { %><span class="badge badge-accent">Public</span><% } else { %><span class="badge">Private</span><% } %>
+            </td>
+            <td class="fm-muted fm-date"><%= prettyDate(f.updatedAt) %></td>
+            <td class="fm-actions-cell">
+              <details class="fm-row-menu">
+                <summary aria-label="Actions for <%= f.filename %>">•••</summary>
+                <div>
+                  <a href="<%= openHref(f) %>"><%= isDoc ? 'Edit' : 'Open' %></a>
+                  <% if (isDoc) { %><a href="/download/<%= f.id %>">Download</a><% } else { %><a href="/f/<%= f.id %>/raw">Download</a><% } %>
+                  <button type="button" data-file-action="move" data-id="<%= f.id %>" data-name="<%= f.filename %>">Move to…</button>
+                  <button type="button" data-file-action="copy" data-id="<%= f.id %>" data-name="<%= f.filename %>">Make a copy</button>
+                  <button type="button" data-file-action="rename" data-id="<%= f.id %>" data-name="<%= f.filename %>" data-kind="<%= f.kind || 'file' %>">Rename</button>
+                  <% if (f.isPublic) { %>
+                    <button type="button" data-file-action="unshare" data-id="<%= f.id %>">Make private</button>
+                  <% } else { %>
+                    <button type="button" data-file-action="share" data-id="<%= f.id %>">Share publicly</button>
+                  <% } %>
+                  <button type="button" class="danger" data-file-action="delete" data-id="<%= f.id %>" data-name="<%= f.filename %>" data-kind="<%= f.kind || 'file' %>">Delete</button>
+                </div>
+              </details>
+            </td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+
+    <% if (!totalItems) { %>
+      <div class="fm-empty">
+        <div class="fm-empty-icon" aria-hidden="true">⌁</div>
+        <strong><%= q ? 'No matching items' : 'This folder is empty' %></strong>
+        <span><%= q ? 'Try a different search term.' : 'Create something, upload files, or drag files here from your computer.' %></span>
+        <% if (!q) { %><div class="fm-empty-actions"><a class="btn" href="/create">+ Create</a><button class="btn btn-ghost" type="button" id="fm-empty-folder">New folder</button></div><% } %>
+      </div>
+    <% } %>
+  </div>
+  <div class="fm-drop-hint" id="fm-drop-hint" hidden>Drop into this folder</div>
+</section>
+
+<dialog class="dlg" id="fm-folder-dialog">
+  <form method="dialog" class="dlg-in" id="fm-folder-form">
+    <div>
+      <h3 class="dlg-title" id="fm-folder-title">New folder</h3>
+      <p class="dlg-msg">Folders keep related files together. Files stay exactly where they are when you rename a folder.</p>
+    </div>
+    <div class="field">
+      <label class="label" for="fm-folder-name">Folder name</label>
+      <input id="fm-folder-name" maxlength="80" required autocomplete="off" placeholder="e.g. Client work" />
+    </div>
+    <div class="dlg-actions">
+      <button class="btn btn-quiet" value="cancel" type="button" data-close>Cancel</button>
+      <button class="btn" type="submit" id="fm-folder-save">Create folder</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="fm-place-dialog">
+  <form method="dialog" class="dlg-in" id="fm-place-form">
+    <div>
+      <h3 class="dlg-title" id="fm-place-title">Move items</h3>
+      <p class="dlg-msg" id="fm-place-msg">Choose a destination. You can also drag files onto a folder in the list.</p>
+    </div>
+    <div class="field">
+      <label class="label" for="fm-destination">Destination</label>
+      <select id="fm-destination">
+        <option value="">All files (root)</option>
+        <% for (const f of folders) { %><option value="<%= f.id %>"><%= f.name %></option><% } %>
+      </select>
+    </div>
+    <label class="check" id="fm-copy-inline" hidden>
+      <input type="checkbox" id="fm-copy-keep" />
+      <span>Keep the original in its current folder</span>
+    </label>
+    <div class="dlg-actions">
+      <button class="btn btn-quiet" value="cancel" type="button" data-close>Cancel</button>
+      <button class="btn" type="submit" id="fm-place-save">Move</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/public/file-manager.js"></script>
 <%- include('partials/foot') %>

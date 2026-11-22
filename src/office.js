@@ -15,6 +15,7 @@ import {
 } from 'docx';
 import PptxGenJS from 'pptxgenjs';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { parse } from 'node-html-parser';
 import { imageSize } from 'image-size';
 import { computeSheet } from './formula.js';
@@ -506,47 +507,51 @@ export async function deckToPptx(file, content, resolveImage) {
       const y = (Number(e.y) || 0) * sy;
       const w = (Number(e.w) || 1) * sx;
       const h = (Number(e.h) || 1) * sy;
+      const rotate = Number(e.rotation) || 0;
       if (e.type === 'text') {
         const size = Math.max(6, Math.min(120, (Number(e.size) || 28) * 0.75));
+        const fontFamily = String(e.fontFamily || 'Arial').split(',')[0].replace(/['"]/g, '').trim() || 'Arial';
         slide.addText(String(e.text || ''), {
-          x,
-          y,
-          w,
-          h,
-          fontFace: 'Arial',
+          x, y, w, h,
+          fontFace: fontFamily,
           fontSize: size,
           bold: !!e.bold,
+          italic: !!e.italic,
+          underline: e.underline ? { style: 'sng' } : undefined,
           color: cleanColor(e.color, 'F4F4F5'),
           align: ['left', 'center', 'right'].includes(e.align) ? e.align : 'left',
-          valign: 'top',
+          valign: e.valign === 'middle' ? 'mid' : e.valign === 'bottom' ? 'bottom' : 'top',
           margin: 0,
           breakLine: false,
+          ...(rotate ? { rotate } : {}),
         });
-      } else if (e.type === 'rect') {
-        slide.addShape(pptx.ShapeType.rect, {
-          x,
-          y,
-          w,
-          h,
-          fill: { color: cleanColor(e.fill, 'E11D48') },
-          line: { color: cleanColor(e.fill, 'E11D48'), transparency: 100 },
+      } else if (e.type === 'rect' || e.type === 'ellipse' || e.type === 'line') {
+        const type = e.type === 'ellipse' ? pptx.ShapeType.ellipse : pptx.ShapeType.rect;
+        const lineWidth = Math.max(0, Number(e.borderWidth) || 0);
+        slide.addShape(type, {
+          x, y, w: Math.max(0.01, w), h: e.type === 'line' ? Math.max(0.02, h) : Math.max(0.01, h),
+          fill: { color: cleanColor(e.fill, 'E11D48'), ...(Number(e.opacity) < 100 ? { transparency: 100 - Math.max(0, Number(e.opacity)) } : {}) },
+          line: lineWidth > 0
+            ? { color: cleanColor(e.borderColor, 'FFFFFF'), width: Math.min(20, lineWidth * 0.75) }
+            : { color: cleanColor(e.fill, 'E11D48'), transparency: 100 },
+          ...(e.type === 'ellipse' ? {} : { rectRadius: Math.max(0, Math.min(0.5, (Number(e.radius) || 0) / slideW)) }),
+          ...(rotate ? { rotate } : {}),
         });
       } else if (e.type === 'image') {
         const img = await embeddableImage(e.src, resolveImage);
         const data = img && pptxImageData(img);
         if (data) {
-          slide.addImage({ data, x, y, w, h, sizing: { type: 'cover', w, h } });
+          slide.addImage({
+            data, x, y, w, h,
+            sizing: { type: e.fit === 'contain' ? 'contain' : e.fit === 'fill' ? 'crop' : 'cover', w, h },
+            ...(e.alt ? { altText: String(e.alt) } : {}),
+            ...(rotate ? { rotate } : {}),
+          });
         }
         if (e.credit) {
           slide.addText(String(e.credit), {
-            x,
-            y: Math.min(7.1, y + h + 0.04),
-            w,
-            h: 0.25,
-            fontFace: 'Arial',
-            fontSize: 7,
-            color: '999999',
-            margin: 0,
+            x, y: Math.min(7.1, y + h + 0.04), w, h: 0.25,
+            fontFace: 'Arial', fontSize: 7, color: '999999', margin: 0,
           });
         }
       }
@@ -557,5 +562,45 @@ export async function deckToPptx(file, content, resolveImage) {
     const slide = pptx.addSlide();
     slide.background = { color: '101014' };
   }
-  return Buffer.from(await pptx.write({ outputType: 'nodebuffer' }));
+  const buffer = Buffer.from(await pptx.write({ outputType: 'nodebuffer' }));
+  return addPptxTransitions(buffer, content.slides || []);
+}
+
+function pptxTransitionXml(raw) {
+  const t = raw && typeof raw === 'object' ? raw : { type: raw || 'none' };
+  const type = ['fade', 'push', 'wipe', 'zoom', 'dissolve'].includes(t.type) ? t.type : 'none';
+  if (type === 'none') return '';
+  const duration = Math.max(150, Math.min(2500, Number(t.duration) || 550));
+  const speed = duration < 400 ? 'fast' : duration > 900 ? 'slow' : 'med';
+  if (type === 'push') return `<p:transition spd="${speed}"><p:push dir="l"/></p:transition>`;
+  if (type === 'wipe') return `<p:transition spd="${speed}"><p:wipe dir="l"/></p:transition>`;
+  if (type === 'zoom') return `<p:transition spd="${speed}"><p:zoom/></p:transition>`;
+  // PowerPoint has no dissolve element in the core schema (it is a legacy
+  // filter); fade is the closest portable transition in PowerPoint/Keynote.
+  return `<p:transition spd="${speed}"><p:fade/></p:transition>`;
+}
+
+/** Add native slide transitions to an already-generated PPTX package. */
+async function addPptxTransitions(buffer, slides) {
+  const wanted = slides.map((s) => pptxTransitionXml(s.transition));
+  if (!wanted.some(Boolean)) return buffer;
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    for (let i = 0; i < wanted.length; i++) {
+      if (!wanted[i]) continue;
+      const path = `ppt/slides/slide${i + 1}.xml`;
+      const file = zip.file(path);
+      if (!file) continue;
+      let xml = await file.async('string');
+      if (xml.includes('<p:transition')) continue;
+      const closemap = /<p:clrMapOvr[\s\S]*?<\/p:clrMapOvr>/;
+      if (closemap.test(xml)) xml = xml.replace(closemap, (m) => `${m}${wanted[i]}`);
+      else xml = xml.replace('</p:sld>', `${wanted[i]}</p:sld>`);
+      zip.file(path, xml);
+    }
+    return Buffer.from(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } }));
+  } catch {
+    // A valid deck without remembered transitions is better than a corrupt file.
+    return buffer;
+  }
 }

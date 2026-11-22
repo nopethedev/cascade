@@ -51,8 +51,13 @@ export const FileRecord = sequelize.define(
     content: { type: DataTypes.TEXT, allowNull: true },
     version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     template: { type: DataTypes.STRING(48), allowNull: true },
+    // Published websites keep a stable public slug and optional custom host.
+    // Other editors use publishedAt only as a convenience marker.
+    publishedAt: { type: DataTypes.DATE, allowNull: true },
+    customDomain: { type: DataTypes.STRING(255), allowNull: true },
+    siteTitle: { type: DataTypes.STRING(180), allowNull: true },
   },
-  { tableName: 'files', indexes: [{ fields: ['ownerId'] }, { fields: ['slug'] }, { fields: ['kind'] }] },
+  { tableName: 'files', indexes: [{ fields: ['ownerId'] }, { fields: ['slug'] }, { fields: ['kind'] }, { fields: ['customDomain'] }] },
 );
 
 export const Folder = sequelize.define(
@@ -88,6 +93,71 @@ export const Template = sequelize.define(
     ownerId: { type: DataTypes.STRING(36), allowNull: true },
   },
   { tableName: 'templates', indexes: [{ fields: ['ownerId'] }, { fields: ['kind'] }] },
+);
+
+// Per-document ACL. The owner is implicit; this table only stores people the
+// owner invited. `userId` is null for an email invitation that has not been
+// claimed yet, in which case `email` is the matching key.
+export const Collaborator = sequelize.define(
+  'collaborator',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    userId: { type: DataTypes.STRING(36), allowNull: true },
+    username: { type: DataTypes.STRING(64), allowNull: true },
+    email: { type: DataTypes.STRING(180), allowNull: true },
+    role: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'viewer' },
+    invitedBy: { type: DataTypes.STRING(36), allowNull: true },
+  },
+  { tableName: 'collaborators', indexes: [{ fields: ['fileId'] }, { fields: ['userId'] }, { fields: ['email'] }] },
+);
+
+// Capability links are deliberately separate from Collaborator rows: a link
+// can be revoked without knowing the recipient, while an invited person keeps
+// their identity and role.
+export const ShareLink = sequelize.define(
+  'shareLink',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    token: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    role: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'viewer' },
+    createdBy: { type: DataTypes.STRING(36), allowNull: true },
+    expiresAt: { type: DataTypes.DATE, allowNull: true },
+    revokedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'share_links', indexes: [{ fields: ['fileId'] }, { fields: ['token'] }] },
+);
+
+// Threaded comments. `anchor` is editor-specific JSON (for example a deck
+// element id or a document text range), kept opaque by the server.
+export const CommentThread = sequelize.define(
+  'commentThread',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    parentId: { type: DataTypes.STRING(36), allowNull: true },
+    userId: { type: DataTypes.STRING(36), allowNull: true },
+    authorName: { type: DataTypes.STRING(64), allowNull: false },
+    body: { type: DataTypes.TEXT, allowNull: false },
+    anchor: { type: DataTypes.JSON, allowNull: true },
+    mentions: { type: DataTypes.JSON, allowNull: true },
+    resolved: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  },
+  { tableName: 'comment_threads', indexes: [{ fields: ['fileId'] }, { fields: ['parentId'] }, { fields: ['createdAt'] }] },
+);
+
+// Durable collaboration metadata. The editor content itself stays in files.content
+// and doc_versions; this row prevents live rooms from inventing a second truth.
+export const CollabRoom = sequelize.define(
+  'collabRoom',
+  {
+    fileId: { type: DataTypes.STRING(32), primaryKey: true },
+    revision: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    lastEditor: { type: DataTypes.STRING(64), allowNull: true },
+    updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  },
+  { tableName: 'collab_rooms' },
 );
 
 export const FormResponse = sequelize.define(
@@ -290,6 +360,9 @@ async function migrateSchema() {
     await add('content', '`content` TEXT');
     await add('version', '`version` INTEGER NOT NULL DEFAULT 0');
     await add('template', '`template` VARCHAR(48)');
+    await add('publishedAt', '`publishedAt` DATETIME');
+    await add('customDomain', '`customDomain` VARCHAR(255)');
+    await add('siteTitle', '`siteTitle` VARCHAR(180)');
   }
   if (tables.includes('api_keys')) {
     const columns = await sequelize.query('PRAGMA table_info(`api_keys`)', { type: QueryTypes.SELECT });

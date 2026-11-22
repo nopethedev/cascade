@@ -1,23 +1,57 @@
+<%
+  const myRole = (typeof accessRole !== 'undefined' && accessRole) || file.accessRole || 'owner';
+  const editable = typeof canEdit !== 'undefined' ? canEdit : myRole === 'owner' || myRole === 'editor';
+%>
+<script>
+  window.__ACCESS__ = <%- JSON.stringify({ role: myRole, canEdit: !!editable, shareMode: typeof shareMode !== 'undefined' && !!shareMode }).replace(/</g, '\\u003c') %>;
+  <% if (typeof collabToken !== 'undefined' && collabToken) { %>window.__COLLAB_SHARE_TOKEN__ = <%- JSON.stringify(collabToken).replace(/</g, '\\u003c') %>;<% } %>
+</script>
+<script type="module" src="/public/editors/collab-client.js"></script>
 <header class="ed-bar">
   <div class="ed-left">
-    <a class="ed-back" href="/" title="Back to files">←</a>
+    <a class="ed-back" href="<%= typeof shareMode !== 'undefined' && shareMode ? '/login' : '/' %>" title="Back to files">←</a>
     <span class="kind-ico"><%= kind.icon %></span>
     <div class="ed-name">
       <strong><%= file.filename %></strong>
-      <span class="file-meta"><%= kind.label %><%= file.isPublic ? ' · shared' : '' %></span>
+      <span class="file-meta">
+        <%= kind.label %><%= file.isPublic ? ' · public' : '' %>
+        <% if (myRole !== 'owner') { %> · <%= myRole %><% } %>
+      </span>
     </div>
   </div>
   <div class="ed-right">
+    <span id="live-status" class="live-status" title="Live collaboration" hidden><span class="dot"></span><span id="live-label">Live</span></span>
     <span id="presence" class="presence"></span>
     <span id="save-status" class="badge">Saved</span>
-    <button id="btn-save" class="btn btn-ghost btn-sm" type="button">Save</button>
+    <button id="btn-save" class="btn btn-ghost btn-sm" type="button" data-requires-edit>Save</button>
     <% if (typeof showPanel !== 'undefined' && showPanel) { %>
       <button id="btn-editor-panel" class="btn btn-ghost btn-sm" type="button" aria-expanded="true" aria-controls="editor-side">Panel</button>
     <% } %>
+    <button id="btn-comments" class="btn btn-ghost btn-sm" type="button">Comments<span id="comment-count" class="comment-count" hidden>0</span></button>
     <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
     <button id="btn-versions" class="btn btn-ghost btn-sm" type="button">History</button>
-    <button id="btn-save-template" class="btn btn-quiet btn-sm" type="button">Save as template</button>
+    <button id="btn-save-template" class="btn btn-quiet btn-sm" type="button" data-requires-edit>Save as template</button>
+    <% if (typeof kind !== 'undefined' && kind.id === 'site') { %>
+      <button id="btn-site-publish" class="btn btn-ghost btn-sm" type="button" data-requires-edit>Publish</button>
+    <% } %>
     <a class="btn btn-ghost btn-sm" href="/download/<%= file.id %>">Export</a>
+    <details class="ed-more">
+      <summary class="btn btn-quiet btn-sm" aria-label="More editor actions">•••</summary>
+      <div>
+        <% if (typeof showPanel !== 'undefined' && showPanel) { %>
+          <button id="btn-editor-panel-mobile" type="button">Page settings</button>
+        <% } %>
+        <button id="btn-save-mobile" type="button" data-requires-edit>Save now</button>
+        <button id="btn-comments-mobile" type="button">Comments</button>
+        <button id="btn-share-mobile" type="button">Share</button>
+        <button id="btn-versions-mobile" type="button">Version history</button>
+        <button id="btn-template-mobile" type="button" data-requires-edit>Save as template</button>
+        <% if (typeof kind !== 'undefined' && kind.id === 'site') { %>
+          <button id="btn-site-publish-mobile" type="button" data-requires-edit>Publish website</button>
+        <% } %>
+        <a href="/download/<%= file.id %>">Export</a>
+      </div>
+    </details>
   </div>
 </header>
 
@@ -36,3 +70,5 @@
   </div>
   <div id="versions-list" class="drawer-body">Loading…</div>
 </aside>
+
+<div id="remote-cursors" class="remote-cursors" aria-hidden="true"></div>

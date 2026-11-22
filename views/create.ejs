@@ -1,14 +1,6 @@
 <%- include('partials/head', { title: 'Create', shellClass: 'shell shell-wide' }) %>
 <%
-  const preview = (kind) => {
-    if (kind === 'sheet') return '<span class="pv-grid"></span>';
-    if (kind === 'deck') return '<span class="pv-slide"></span>';
-    if (kind === 'pdf') return '<span class="pv-pdf"><i class="pn"></i><i class="ln w80"></i><i class="ln"></i><i class="ln w60"></i><i class="tag">PDF</i></span>';
-    if (kind === 'board') return '<span class="pv-board"><i></i><i></i><i></i></span>';
-    if (kind === 'form') return '<span class="pv-fields"><i></i><i></i><i></i></span>';
-    if (kind === 'code') return '<span class="pv-code"><i></i><i></i><i></i><i></i></span>';
-    return '<span class="pv-doc"><i class="w70"></i><i></i><i class="w90"></i><i class="w50"></i></span>';
-  };
+  const previewUrl = (id) => '/template-preview/' + encodeURIComponent(id);
   const kindLabel = (id) => (kinds.find((k) => k.id === id) || {}).label || id;
 %>
 
@@ -16,7 +8,7 @@
   <div>
     <div class="eyebrow">Create</div>
     <h1 class="page-title">What will you make?</h1>
-    <p class="lede">Documents, spreadsheets, decks, PDFs, whiteboards, forms and code — all stored and edited on this server.</p>
+    <p class="lede">Documents, spreadsheets, decks, PDFs, whiteboards, forms, code and complete websites — all stored and edited on this server.</p>
   </div>
   <div class="actions">
     <a class="btn btn-ghost" href="/">Back to files</a>
@@ -66,22 +58,30 @@
       </div>
       <div class="tpl-grid" id="tpl-grid">
         <% for (const t of templates) { %>
-          <button type="button" class="tpl" data-template="<%= t.id %>" data-kind="<%= t.kind %>" data-category="<%= t.category %>" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
-            <span class="tpl-prev"><%- preview(t.kind) %><span class="tpl-kind"><%= kindLabel(t.kind) %></span></span>
+          <div class="tpl" role="button" tabindex="0" data-template="<%= t.id %>" data-kind="<%= t.kind %>" data-category="<%= t.category %>" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
+            <span class="tpl-prev">
+              <iframe src="<%= previewUrl(t.id) %>" title="<%= t.name %> preview" loading="lazy" tabindex="-1" sandbox="allow-same-origin"></iframe>
+              <span class="tpl-kind"><%= kindLabel(t.kind) %></span>
+              <span class="tpl-preview-open" role="button" tabindex="0" data-preview="<%= t.id %>" data-preview-name="<%= t.name %>" aria-label="Open a larger preview of <%= t.name %>">Preview</span>
+            </span>
             <span class="tpl-meta">
               <strong><%= t.name %></strong>
               <span><%= t.category %> · <%= t.description %></span>
             </span>
-          </button>
+          </div>
         <% } %>
         <% for (const t of customTemplates) { %>
-          <button type="button" class="tpl" data-template="custom:<%= t.id %>" data-kind="<%= t.kind %>" data-category="custom" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
-            <span class="tpl-prev"><%- preview(t.kind) %><span class="tpl-kind">Your template</span></span>
+          <div class="tpl" role="button" tabindex="0" data-template="custom:<%= t.id %>" data-kind="<%= t.kind %>" data-category="custom" data-name="<%= t.name %>" data-label="<%= kindLabel(t.kind) %>">
+            <span class="tpl-prev">
+              <iframe src="<%= previewUrl('custom:' + t.id) %>" title="<%= t.name %> preview" loading="lazy" tabindex="-1" sandbox="allow-same-origin"></iframe>
+              <span class="tpl-kind">Your template</span>
+              <span class="tpl-preview-open" role="button" tabindex="0" data-preview="custom:<%= t.id %>" data-preview-name="<%= t.name %>" aria-label="Open a larger preview of <%= t.name %>">Preview</span>
+            </span>
             <span class="tpl-meta">
               <strong><%= t.name %></strong>
               <span>custom · saved by you</span>
             </span>
-          </button>
+          </div>
         <% } %>
       </div>
       <div class="empty" id="tpl-empty" hidden>
@@ -159,6 +159,24 @@
       <button class="btn" type="submit" id="create-submit">Create &amp; open</button>
     </div>
   </form>
+</dialog>
+
+<dialog class="dlg dlg-preview" id="template-preview-dialog">
+  <div class="dlg-in">
+    <div class="row-between">
+      <div>
+        <h3 class="dlg-title" id="template-preview-title">Template preview</h3>
+        <p class="dlg-msg">This is the actual template content, not a placeholder.</p>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="btn btn-quiet btn-sm" type="button" id="template-preview-close">Close</button>
+        <button class="btn btn-sm" type="button" id="template-preview-use">Use template</button>
+      </div>
+    </div>
+    <div class="tpl-preview-frame-wrap">
+      <iframe id="template-preview-frame" title="Template preview" sandbox="allow-same-origin"></iframe>
+    </div>
+  </div>
 </dialog>
 
 <script src="/public/workspace-create.js"></script>

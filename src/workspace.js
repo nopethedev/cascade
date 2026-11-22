@@ -2,9 +2,33 @@ import express from 'express';
 import { nanoid } from 'nanoid';
 import { v4 as uuid } from 'uuid';
 import { Op } from 'sequelize';
-import { FileRecord, Folder, DocVersion, Template, FormResponse } from './db.js';
+import {
+  FileRecord,
+  Folder,
+  DocVersion,
+  Template,
+  FormResponse,
+  Collaborator,
+  ShareLink,
+  CommentThread,
+  CollabRoom,
+  User,
+  AnalyticsEvent,
+  sequelize,
+} from './db.js';
 import { requireLogin, requireAdmin } from './auth.js';
-import { KINDS, CATEGORIES, TEMPLATES, buildContent, templatesFor, KIND_BY_ID } from './templates.js';
+import {
+  accessFor,
+  loadAccessibleFile,
+  accessByShareToken,
+  normalizeRole,
+  roleAtLeast,
+  validInvitee,
+  collaboratorJson,
+} from './access.js';
+import { KINDS, CATEGORIES, TEMPLATES, buildContent, templatesFor, getTemplate, KIND_BY_ID } from './templates.js';
+import { templatePreviewDocument } from './templatePreview.js';
+import { issueCollabToken, closeUserSockets, closeShareSockets } from './collab.js';
 import { recordEvent } from './analytics.js';
 import { computeSheet } from './formula.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
@@ -30,13 +54,10 @@ function viewersOf(fileId) {
   return [...room.values()].map((v) => v.username);
 }
 
-function canAccess(file, user) {
-  return !!user && (user.role === 'admin' || file.ownerId === user.id);
-}
-
-async function loadDoc(id, user) {
-  const file = await FileRecord.findByPk(id);
-  if (!file || file.kind === 'file' || !canAccess(file, user)) return null;
+async function loadDoc(id, user, minimum = 'viewer') {
+  const { file, role } = await loadAccessibleFile(id, user, minimum);
+  if (!file || file.kind === 'file' || !role || !roleAtLeast(role, minimum)) return null;
+  file.accessRole = role;
   return file;
 }
 
@@ -241,13 +262,56 @@ export function createWorkspaceRouter() {
     });
   }));
 
+  // ---------- Real template previews (rendered from actual template content) ----------
+  r.get('/template-preview/:id', requireLogin, wrap(async (req, res) => {
+    const raw = String(req.params.id || '');
+    let kind = null;
+    let content = null;
+    let title = 'Template preview';
+    if (raw.startsWith('custom:')) {
+      const tpl = await Template.findByPk(raw.slice(7));
+      if (!tpl || tpl.ownerId !== req.user.id) return res.status(404).send('not found');
+      kind = tpl.kind;
+      title = tpl.name;
+      content = JSON.parse(tpl.content || '{}');
+    } else {
+      const tpl = getTemplate(raw);
+      if (!tpl) return res.status(404).send('not found');
+      kind = tpl.kind;
+      title = tpl.name;
+      content = kind === 'pdf' ? await buildPdfTemplate(raw) : tpl.build();
+    }
+    if (kind === 'pdf') {
+      const bytes = Buffer.from(String(content?.pdf || ''), 'base64');
+      if (bytes.slice(0, 5).toString() !== '%PDF-') return res.status(404).send('not found');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; object-src 'none'; frame-src 'none'");
+      return res.send(bytes);
+    }
+    const html = templatePreviewDocument({ kind, content, title, theme: req.settings });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'self'");
+    res.send(html);
+  }));
+
   // ---------- Editor shell ----------
   r.get('/edit/:id', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user);
     if (!file) return res.status(404).render('error', { message: 'Document not found.', status: 404 });
     if (!KIND_BY_ID.has(file.kind)) return res.status(400).render('error', { message: 'Unknown document type.', status: 400 });
     const content = parseContent(file);
-    res.render(`editors/${file.kind}`, { file, content, kinds: KINDS, kind: KIND_BY_ID.get(file.kind) });
+    res.render(`editors/${file.kind}`, {
+      file,
+      content,
+      kinds: KINDS,
+      kind: KIND_BY_ID.get(file.kind),
+      accessRole: file.accessRole,
+      canEdit: roleAtLeast(file.accessRole, 'editor'),
+    });
   }));
 
   // ---------- Create a document ----------
@@ -336,7 +400,7 @@ export function createWorkspaceRouter() {
   }));
 
   r.put('/api/workspace/docs/:id', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user);
+    const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file) return res.status(404).json({ error: 'not found' });
     const body = req.body || {};
     const serialized = JSON.stringify(body.content ?? {});
@@ -398,7 +462,7 @@ export function createWorkspaceRouter() {
   }));
 
   r.post('/api/workspace/docs/:id/restore', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user);
+    const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file) return res.status(404).json({ error: 'not found' });
     const snap = await DocVersion.findOne({
       where: { fileId: file.id, version: Number(req.body?.version) },
@@ -412,7 +476,7 @@ export function createWorkspaceRouter() {
 
   // ---------- Save current document as a personal template ----------
   r.post('/api/workspace/docs/:id/template', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user);
+    const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file) return res.status(404).json({ error: 'not found' });
     const name = String(req.body?.name || file.filename).trim().slice(0, 80) || file.filename;
     const tpl = await Template.create({
@@ -424,6 +488,291 @@ export function createWorkspaceRouter() {
       ownerId: req.user.id,
     });
     res.json({ ok: true, template: { id: `custom:${tpl.id}`, name: tpl.name, kind: tpl.kind } });
+  }));
+
+  r.get('/api/workspace/docs/:id/collab-token', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const token = issueCollabToken({ fileId: file.id, user: req.user, role: file.accessRole });
+    res.json({ ok: true, token, role: file.accessRole, canEdit: roleAtLeast(file.accessRole, 'editor'), canComment: roleAtLeast(file.accessRole, 'commenter') });
+  }));
+
+  // ---------- Sharing, roles and comments ----------
+  async function ownedFile(req) {
+    const file = await FileRecord.findByPk(req.params.id);
+    if (!file) return null;
+    const role = await accessFor(file, req.user);
+    return role === 'owner' ? file : null;
+  }
+
+  r.get('/api/files/:id/access', requireLogin, wrap(async (req, res) => {
+    const file = await FileRecord.findByPk(req.params.id);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const role = await accessFor(file, req.user);
+    if (!role) return res.status(403).json({ error: 'forbidden' });
+    const owner = await User.findByPk(file.ownerId);
+    const people = await Collaborator.findAll({ where: { fileId: file.id }, order: [['createdAt', 'ASC']] });
+    const links = role === 'owner'
+      ? await ShareLink.findAll({ where: { fileId: file.id, revokedAt: null }, order: [['createdAt', 'DESC']] })
+      : [];
+    res.json({
+      ok: true,
+      role,
+      canEdit: roleAtLeast(role, 'editor'),
+      canComment: roleAtLeast(role, 'commenter'),
+      isPublic: !!file.isPublic,
+      slug: file.slug,
+      filename: file.filename,
+      owner: owner ? { username: owner.username } : { username: file.ownerName },
+      collaborators: people.map(collaboratorJson),
+      links: links.map((l) => ({ id: l.id, token: l.token, role: normalizeRole(l.role), expiresAt: l.expiresAt, createdAt: l.createdAt })),
+    });
+  }));
+
+  r.post('/api/files/:id/collaborators', requireLogin, wrap(async (req, res) => {
+    const file = await ownedFile(req);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const who = validInvitee(req.body?.invitee);
+    if (!who) return res.status(400).json({ error: 'Enter a username or email address' });
+    const role = normalizeRole(req.body?.role);
+    let user = null;
+    if (who.username) {
+      user = await User.findOne({ where: sequelize.where(sequelize.fn('lower', sequelize.col('username')), who.username) });
+    }
+    if (!user && !who.email) return res.status(404).json({ error: 'No account with that username' });
+    if (user && user.id === file.ownerId) return res.status(400).json({ error: 'The owner already has full access' });
+    const existing = user
+      ? await Collaborator.findOne({ where: { fileId: file.id, userId: user.id } })
+      : await Collaborator.findOne({ where: { fileId: file.id, email: who.email } });
+    if (existing) {
+      await existing.update({ role, username: user?.username?.toLowerCase() || existing.username, email: who.email || existing.email });
+      return res.json({ ok: true, collaborator: collaboratorJson(existing), existing: true });
+    }
+    const row = await Collaborator.create({
+      id: uuid(),
+      fileId: file.id,
+      userId: user?.id || null,
+      username: user?.username?.toLowerCase() || who.username,
+      email: who.email,
+      role,
+      invitedBy: req.user.id,
+    });
+    // Local accounts do not have an email column. For an email address that is
+    // not a username, create a capability link the owner can send directly.
+    let inviteUrl = null;
+    if (!user && who.email) {
+      const link = await ShareLink.create({
+        id: uuid(),
+        fileId: file.id,
+        token: nanoid(28),
+        role,
+        createdBy: req.user.id,
+        expiresAt: new Date(Date.now() + 30 * 86400000),
+      });
+      inviteUrl = `/s/${link.token}`;
+    }
+    res.status(201).json({ ok: true, collaborator: collaboratorJson(row), inviteUrl });
+  }));
+
+  r.patch('/api/files/:id/collaborators/:collabId', requireLogin, wrap(async (req, res) => {
+    const file = await ownedFile(req);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const row = await Collaborator.findOne({ where: { id: req.params.collabId, fileId: file.id } });
+    if (!row) return res.status(404).json({ error: 'not found' });
+    await row.update({ role: normalizeRole(req.body?.role) });
+    // A demotion must take effect in the live room immediately.
+    if (row.userId) closeUserSockets(file.id, row.userId);
+    res.json({ ok: true, collaborator: collaboratorJson(row) });
+  }));
+
+  r.delete('/api/files/:id/collaborators/:collabId', requireLogin, wrap(async (req, res) => {
+    const file = await ownedFile(req);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const row = await Collaborator.findOne({ where: { id: req.params.collabId, fileId: file.id } });
+    await Collaborator.destroy({ where: { id: req.params.collabId, fileId: file.id } });
+    if (row?.userId) closeUserSockets(file.id, row.userId);
+    res.json({ ok: true });
+  }));
+
+  r.post('/api/files/:id/share-links', requireLogin, wrap(async (req, res) => {
+    const file = await ownedFile(req);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const hours = Math.min(24 * 365, Math.max(1, Number(req.body?.expiresInHours) || 24 * 7));
+    const link = await ShareLink.create({
+      id: uuid(),
+      fileId: file.id,
+      token: nanoid(28),
+      role: normalizeRole(req.body?.role),
+      createdBy: req.user.id,
+      expiresAt: new Date(Date.now() + hours * 3600 * 1000),
+    });
+    res.status(201).json({ ok: true, link: { id: link.id, token: link.token, role: link.role, expiresAt: link.expiresAt } });
+  }));
+
+  r.delete('/api/files/:id/share-links/:linkId', requireLogin, wrap(async (req, res) => {
+    const file = await ownedFile(req);
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const link = await ShareLink.findOne({ where: { id: req.params.linkId, fileId: file.id } });
+    await ShareLink.update({ revokedAt: new Date() }, { where: { id: req.params.linkId, fileId: file.id } });
+    if (link) closeShareSockets(file.id, link.token);
+    res.json({ ok: true });
+  }));
+
+  // A capability link renders the same editor shell read-only (or editable for
+  // editor links) without exposing the file to people who do not hold the token.
+  r.get('/s/:token', wrap(async (req, res) => {
+    const hit = await accessByShareToken(req.params.token);
+    if (!hit || hit.file.kind === 'file' || !KIND_BY_ID.has(hit.file.kind)) {
+      return res.status(404).render('error', { message: 'This share link is invalid or has expired.', status: 404 });
+    }
+    const file = hit.file;
+    file.accessRole = hit.role;
+    res.render(`editors/${file.kind}`, {
+      file,
+      content: parseContent(file),
+      kinds: KINDS,
+      kind: KIND_BY_ID.get(file.kind),
+      accessRole: 'viewer',
+      canEdit: false,
+      shareToken: req.params.token,
+      shareMode: true,
+      collabToken: issueCollabToken({
+        fileId: file.id,
+        role: 'viewer',
+        name: 'Guest',
+        shareToken: req.params.token,
+      }),
+    });
+  }));
+
+  r.get('/s/:token/asset/:id', wrap(async (req, res) => {
+    const hit = await accessByShareToken(req.params.token);
+    if (!hit) return res.status(404).send('not found');
+    const img = await FileRecord.findByPk(req.params.id);
+    if (!img || img.kind !== 'file' || img.ownerId !== hit.file.ownerId || !String(img.mime || '').startsWith('image/')) {
+      return res.status(404).send('not found');
+    }
+    const { buffer } = await readFileWithFallback(img);
+    res.setHeader('Content-Type', img.mime);
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(buffer);
+  }));
+
+  r.get('/api/workspace/docs/:id/comments', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const rows = await CommentThread.findAll({ where: { fileId: file.id }, order: [['createdAt', 'ASC']] });
+    res.json({ ok: true, role: file.accessRole, comments: rows });
+  }));
+
+  r.post('/api/workspace/docs/:id/comments', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'commenter');
+    if (!file) return res.status(404).json({ error: 'not found' });
+    const body = String(req.body?.body || '').trim().slice(0, 4000);
+    if (!body) return res.status(400).json({ error: 'comment required' });
+    let parent = null;
+    if (req.body?.parentId) {
+      parent = await CommentThread.findOne({ where: { id: String(req.body.parentId), fileId: file.id } });
+      if (!parent) return res.status(404).json({ error: 'thread not found' });
+    }
+    const mentions = [...body.matchAll(/(?:^|\s)@([a-z0-9_.-]{2,64})/gi)].map((m) => m[1].toLowerCase()).slice(0, 20);
+    const row = await CommentThread.create({
+      id: uuid(),
+      fileId: file.id,
+      parentId: parent?.id || null,
+      userId: req.user.id,
+      authorName: req.user.username,
+      body,
+      anchor: req.body?.anchor && typeof req.body.anchor === 'object' ? req.body.anchor : null,
+      mentions,
+    });
+    res.status(201).json({ ok: true, comment: row });
+  }));
+
+  r.patch('/api/comments/:id', requireLogin, wrap(async (req, res) => {
+    const row = await CommentThread.findByPk(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    const file = await FileRecord.findByPk(row.fileId);
+    const role = await accessFor(file, req.user);
+    if (!role || (row.userId !== req.user.id && role !== 'owner')) return res.status(403).json({ error: 'forbidden' });
+    const patch = {};
+    if (req.body?.resolved !== undefined) patch.resolved = !!req.body.resolved;
+    if (typeof req.body?.body === 'string') {
+      const body = req.body.body.trim().slice(0, 4000);
+      if (!body) return res.status(400).json({ error: 'comment required' });
+      patch.body = body;
+    }
+    await row.update(patch);
+    res.json({ ok: true, comment: row });
+  }));
+
+  r.delete('/api/comments/:id', requireLogin, wrap(async (req, res) => {
+    const row = await CommentThread.findByPk(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    const file = await FileRecord.findByPk(row.fileId);
+    const role = await accessFor(file, req.user);
+    if (!role || (row.userId !== req.user.id && role !== 'owner')) return res.status(403).json({ error: 'forbidden' });
+    await CommentThread.destroy({ where: { id: row.id } });
+    await CommentThread.destroy({ where: { parentId: row.id } });
+    res.json({ ok: true });
+  }));
+
+  // ---------- Website publishing ----------
+  r.post('/api/workspace/docs/:id/publish', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'editor');
+    if (!file) return res.status(404).json({ error: 'not found' });
+    if (file.kind !== 'site') return res.status(400).json({ error: 'only websites can be published' });
+    const body = req.body || {};
+    if (body.content && typeof body.content === 'object') {
+      const serialized = JSON.stringify(body.content);
+      if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'document too large' });
+      if (serialized !== (file.content || '')) {
+        await snapshot(file, req.user.id);
+        await file.update({ content: serialized, size: Buffer.byteLength(serialized), version: file.version + 1, updatedAt: new Date() });
+      }
+    }
+    const customRaw = String(body.customDomain || '').trim().toLowerCase();
+    if (customRaw) {
+      if (!/^(?!-)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$/.test(customRaw)) {
+        return res.status(400).json({ error: 'Enter a domain such as www.example.com' });
+      }
+      const taken = await FileRecord.findOne({ where: { customDomain: customRaw, kind: 'site' } });
+      if (taken && taken.id !== file.id) return res.status(409).json({ error: 'That domain is already connected to another site' });
+    }
+    const content = parseContent(file);
+    await file.update({
+      isPublic: true,
+      publishedAt: new Date(),
+      siteTitle: String(content?.seo?.title || content?.brand || file.filename).slice(0, 180),
+      customDomain: customRaw || null,
+    });
+    recordEvent(req, 'share', { fileId: file.id });
+    res.json({
+      ok: true,
+      publishedAt: file.publishedAt,
+      url: `/sites/${file.slug}`,
+      slug: file.slug,
+      customDomain: file.customDomain || null,
+      version: file.version,
+    });
+  }));
+
+  r.post('/api/workspace/docs/:id/unpublish', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'editor');
+    if (!file) return res.status(404).json({ error: 'not found' });
+    await file.update({ isPublic: false, publishedAt: null });
+    res.json({ ok: true });
+  }));
+
+  r.get('/api/workspace/docs/:id/site-stats', requireLogin, wrap(async (req, res) => {
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    if (!file || file.kind !== 'site') return res.status(404).json({ error: 'not found' });
+    const [views, submissions] = await Promise.all([
+      AnalyticsEvent.count({ where: { fileId: file.id, type: 'view' } }),
+      FormResponse.count({ where: { fileId: file.id } }),
+    ]);
+    res.json({ ok: true, views, submissions, publishedAt: file.publishedAt, slug: file.slug, customDomain: file.customDomain });
   }));
 
   // ---------- Create a new PDF from pages split out of an editor ----------
@@ -594,7 +943,7 @@ export function createWorkspaceRouter() {
   }
 
   r.get('/export/:id', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user);
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
     if (!file) return res.status(404).send('not found');
     const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);
@@ -607,7 +956,7 @@ export function createWorkspaceRouter() {
   }));
 
   r.get('/download/:id', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user);
+    const file = await loadDoc(req.params.id, req.user, 'viewer');
     if (!file) return res.status(404).send('not found');
     const out = await exportPayload(file);
     res.setHeader('Content-Type', out.type);

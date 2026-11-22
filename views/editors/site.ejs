@@ -1,0 +1,97 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide site-shell' }) %>
+<%- include('../partials/editor-bar', { file, kind, accessRole, canEdit }) %>
+
+<div class="ed-toolbar site-toolbar" id="site-toolbar" role="toolbar" aria-label="Website tools">
+  <div class="tool-group">
+    <button class="tool" type="button" id="site-undo" title="Undo">↶</button>
+    <button class="tool" type="button" id="site-redo" title="Redo">↷</button>
+  </div>
+  <div class="tool-group">
+    <select id="site-add-section" class="tool-select" aria-label="Add a section">
+      <option value="">+ Add section…</option>
+      <option value="hero">Hero</option>
+      <option value="features">Features</option>
+      <option value="about">About</option>
+      <option value="gallery">Gallery</option>
+      <option value="testimonials">Testimonials</option>
+      <option value="logos">Logo strip</option>
+      <option value="cta">Call to action</option>
+      <option value="contact">Contact / form</option>
+      <option value="custom">Custom embed</option>
+    </select>
+  </div>
+  <div class="tool-group site-device-group" role="group" aria-label="Preview size">
+    <button class="tool is-active" type="button" data-device="desktop" title="Desktop">Desktop</button>
+    <button class="tool" type="button" data-device="tablet" title="Tablet">Tablet</button>
+    <button class="tool" type="button" data-device="mobile" title="Mobile">Mobile</button>
+  </div>
+  <span class="tool-spacer"></span>
+  <span class="hint" id="site-section-label">Select a section to edit</span>
+  <a class="btn btn-ghost btn-sm" id="site-export-html" href="/sites/<%= file.id %>/export.html">Export HTML</a>
+  <a class="btn btn-ghost btn-sm" id="site-export-react" href="/sites/<%= file.id %>/export.jsx">Export React</a>
+  <a class="btn btn-ghost btn-sm" id="site-visit" href="#" target="_blank" rel="noopener" hidden>Visit ↗</a>
+</div>
+
+<div class="site-published-bar" id="site-published-bar" hidden>
+  <span class="dot dot-ok"></span>
+  <span>Published at <a id="site-public-link" href="#" target="_blank" rel="noopener"></a></span>
+  <span class="tool-spacer"></span>
+  <button class="btn btn-quiet btn-sm" type="button" id="site-copy-link">Copy link</button>
+  <button class="btn btn-ghost btn-sm" type="button" id="site-stats-btn" data-requires-edit>Stats</button>
+  <button class="btn btn-ghost btn-sm" type="button" id="site-unpublish" data-requires-edit>Unpublish</button>
+</div>
+
+<div class="site-builder" id="site-builder">
+  <aside class="site-layers panel" aria-label="Page sections">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Page</div>
+        <div class="panel-sub">Drag to reorder</div>
+      </div>
+    </div>
+    <div class="site-layer-list" id="site-sections"></div>
+    <div class="site-layer-foot">
+      <button class="btn btn-ghost btn-sm btn-block" type="button" id="site-add-section-btn">+ Add section</button>
+      <button class="btn btn-quiet btn-sm btn-block" type="button" id="site-save-component" data-requires-edit>Save selected as component</button>
+    </div>
+  </aside>
+
+  <div class="site-canvas-col">
+    <div class="site-canvas-bar">
+      <div class="row" style="gap:5px">
+        <span class="site-device-label" id="site-device-label">Desktop · 100%</span>
+      </div>
+      <div class="row" style="gap:5px">
+        <button class="btn btn-quiet btn-sm" type="button" id="site-zoom-out" aria-label="Zoom out">−</button>
+        <span class="hint" id="site-zoom-label">100%</span>
+        <button class="btn btn-quiet btn-sm" type="button" id="site-zoom-in" aria-label="Zoom in">+</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="site-zoom-fit">Fit</button>
+      </div>
+    </div>
+    <div class="site-canvas-wrap" id="site-canvas-wrap">
+      <div class="site-canvas" id="site-canvas"></div>
+    </div>
+    <div class="site-canvas-hint">Click a section to select it · drag sections in the canvas to reorder · changes save automatically</div>
+  </div>
+
+  <aside class="site-inspector panel" id="site-inspector" aria-label="Website inspector">
+    <div class="panel-head">
+      <div class="panel-title" id="site-inspector-title">Design</div>
+      <button class="btn btn-quiet btn-sm" type="button" id="site-inspector-close" aria-label="Close inspector">×</button>
+    </div>
+    <div class="panel-body stack" id="site-props"></div>
+  </aside>
+</div>
+
+<datalist id="site-font-list">
+  <option value="Inter"></option><option value="Georgia"></option><option value="Times New Roman"></option>
+  <option value="Courier New"></option><option value="Trebuchet MS"></option><option value="Arial"></option>
+</datalist>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content, canEdit, publishedAt: file.publishedAt, slug: file.slug, customDomain: file.customDomain }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script src="/public/image-library.js"></script>
+<script type="module" src="/public/editors/site.js"></script>
+<%- include('../partials/foot') %>

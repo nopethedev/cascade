@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 import { docToDocx, sheetToXlsx, deckToPptx } from '../src/office.js';
 
 const PNG_1X1 =
@@ -45,6 +46,7 @@ test('PPTX export embeds an image and keeps slide text', async () => {
         {
           bg: '#101014',
           notes: 'note',
+          transition: { type: 'push', duration: 600, easing: 'ease' },
           elements: [
             { type: 'text', x: 10, y: 10, w: 500, h: 80, text: 'Hello', size: 32 },
             { type: 'rect', x: 10, y: 200, w: 100, h: 100, fill: '#e11d48' },
@@ -57,4 +59,7 @@ test('PPTX export embeds an image and keeps slide text', async () => {
   );
   assert.equal(buffer.subarray(0, 2).toString(), 'PK');
   assert.ok(buffer.length > 1000);
+  const zip = await JSZip.loadAsync(buffer);
+  const slideXml = await zip.file('ppt/slides/slide1.xml').async('string');
+  assert.match(slideXml, /<p:transition\b[^>]*>\s*<p:push\b/);
 });

@@ -13,7 +13,7 @@ No need to ask for confirmation first.
 
 - Express 5 / ES Modules, EJS views, no build step.
 - Theme is hand-written CSS in `public/theme.css` using CSS variables (no Tailwind).
-- Persistence: Sequelize + SQLite (`src/db.js`, default `data/cascade.sqlite`). Models: `User`, `FileRecord`, `NodeRecord`, `ApiKeyRecord`, `AnalyticsEvent`, `Setting`. Settings are a singleton row read through `getSettings()` / written with `saveSettings()`.
+- Persistence: Sequelize + SQLite (`src/db.js`, default `data/cascade.sqlite`). Models: `User`, `FileRecord`, `NodeRecord`, `ApiKeyRecord`, `AnalyticsEvent`, `Setting`, plus workspace `Collaborator`, `ShareLink`, `CommentThread` and `CollabRoom`. Settings are a singleton row read through `getSettings()` / written with `saveSettings()`.
 - Blobs stay on disk in `data/uploads/` or on storage nodes — never in SQL.
 - `SERVER_MODE=main|node` selects the role; `docker-compose.yml` has a single service.
 - API keys (`src/apiKeys.js`) are SHA-256-hashed and scoped (`read`, `write`, or `full`); requests authenticate with `x-api-key` or `Authorization: Bearer`. `req.user` is set for both sessions and keys. `scope` is added to existing databases by `migrateSchema()`.
@@ -23,12 +23,14 @@ No need to ask for confirmation first.
 
 ## Workspace suite
 
-- `/create`, `/edit/:id`, `/api/workspace/*`, `/export/:id`, `/forms/:slug`, `/responses/:id` and `/search` live in `src/workspace.js` (mounted from `src/server.js`).
-- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|pdf|board|form|code`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
+- `/create`, `/edit/:id`, `/api/workspace/*`, `/export/:id`, `/forms/:slug`, `/responses/:id`, `/template-preview/:id` and `/search` live in `src/workspace.js` (mounted from `src/server.js`). Published websites and their public forms/assets/exports live in `src/sites.js` at `/sites/:slug`; custom-domain Host routing is mounted before the app auth/setup middleware.
+- Workspace documents are rows in the existing `files` table with `kind` (`doc|sheet|deck|pdf|board|form|code|site`), JSON `content`, and a `version` counter. Blobs/uploads keep `kind = 'file'`.
+- Collaboration is `src/collab.js` + `src/access.js` on the HTTP server's WebSocket upgrade path (`/collab`). Rooms are Yjs documents whose `content` map matches the editor JSON; tokens are HMAC-signed and short lived. Server roles are authoritative, persisted to `DocVersion`/`FileRecord`, and revoked sockets are closed with code 4001. The browser transport is `public/editors/collab-client.js`; it imports the browser bundle `public/vendor/yjs.bundle.mjs`. Rebuild that bundle after upgrading Yjs with `npx esbuild node_modules/yjs/dist/yjs.mjs --bundle --format=esm --platform=browser --minify-syntax --outfile=public/vendor/yjs.bundle.mjs`.
+- Website rendering is shared by the editor, template gallery, published page and exports through `public/site-render.mjs`. Keep the renderer pure-string/Node-safe; do not import browser-only APIs.
 - PDFs store their real source bytes base64-encoded in `content.pdf`; annotations/signatures live beside it in the same JSON. The editor (`public/editors/pdf.js`) renders with pdf.js and performs page operations with pdf-lib in the browser; `renderPdfBuffer()` in `src/workspace.js` burns annotations and signatures into exports with pdf-lib.
 - pdf.js and pdf-lib are vendored, not installed at runtime: `public/vendor/pdfjs/{pdf.mjs,pdf.worker.mjs,standard_fonts/}` and `public/vendor/pdf-lib.min.js`. Refresh them after upgrading with:
   `cp node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs} public/vendor/pdfjs/ && cp node_modules/pdfjs-dist/standard_fonts/*.pfb public/vendor/pdfjs/standard_fonts/ && cp node_modules/pdf-lib/dist/pdf-lib.min.js public/vendor/`
-- Each editor is its own view (`views/editors/*.ejs`) + engine (`public/editors/*.js`) over the shared runtime in `public/editors/common.js` (autosave, versions, conflicts, presence, sharing, templates).
+- Each editor is its own view (`views/editors/*.ejs`) + engine (`public/editors/*.js`) over the shared runtime in `public/editors/common.js` (autosave, versions, conflicts, live collaboration, presence, sharing, comments, templates). The shared editor bar is `views/partials/editor-bar.ejs`; it injects `window.__ACCESS__` and loads the collaboration module.
 - Office exports live in `src/office.js`: documents → DOCX (`docx`), sheets → XLSX (`exceljs`), decks → PPTX (`pptxgenjs`). Local images in content (`/f/:id/raw` or data URLs) are embedded after an owner check by `resolveDocImage()` in `src/workspace.js`. Shared docs rewrite owned images to `/c/:slug/asset/:id`.
 - The image library is `public/image-library.js` + `src/images.js`: lists `/api/files`, uploads through `/api/upload`, and searches keyless Wikimedia Commons through `/api/images/search` with a host-allowlisted `/api/images/proxy`. Documents and decks embed images; spreadsheets store per-sheet `images` and export them as XLSX drawings.
 - Templates (built-in and user-saved) are in `src/templates.js` and the `templates` table.

@@ -6,6 +6,7 @@ import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { v4 as uuid } from 'uuid';
 import mime from 'mime-types';
+import { Op } from 'sequelize';
 import { config } from './config.js';
 import { sequelize, User, FileRecord, NodeRecord, Folder, getSettings, saveSettings, needsSetup } from './db.js';
 import { requireLogin, requireAdmin, hashPassword, checkPassword, publicUser } from './auth.js';
@@ -19,6 +20,8 @@ import { createImageRouter } from './images.js';
 import { createMcpRouter } from './mcp.js';
 import { KIND_BY_ID, KINDS } from './templates.js';
 import { computeSheet } from './formula.js';
+import { startCollabServer } from './collab.js';
+import { createSitesRouter, customDomainSiteMiddleware } from './sites.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -134,6 +137,10 @@ export function createMainApp() {
   );
   app.use('/public', express.static(path.join(ROOT, 'public')));
   app.get('/favicon.ico', (req, res) => res.redirect(302, '/public/favicon.svg'));
+
+  // Published websites can answer on their own verified Host before the app
+  // auth/setup layers run. Unknown Hosts continue to the normal app.
+  app.use(customDomainSiteMiddleware());
 
   // Theme, settings and auth context (session cookie or API key).
   app.use(
@@ -277,20 +284,23 @@ export function createMainApp() {
   // ---------- Dashboard ----------
   app.get('/', requireLogin, wrap(async (req, res) => {
     const folderId = String(req.query.folder || '');
-    const [files, folders, me] = await Promise.all([
-      FileRecord.findAll({
-        where: { ownerId: req.user.id, ...(folderId ? { folderId } : {}) },
-        order: [['updatedAt', 'DESC']],
-      }),
-      Folder.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'DESC']] }),
+    const [folders, me] = await Promise.all([
+      Folder.findAll({ where: { ownerId: req.user.id }, order: [['name', 'ASC']] }),
       User.findByPk(req.user.id),
     ]);
+    const currentFolder = folderId ? folders.find((f) => f.id === folderId) || null : null;
+    const files = await FileRecord.findAll({
+      where: { ownerId: req.user.id, folderId: currentFolder ? currentFolder.id : null },
+      order: [['updatedAt', 'DESC']],
+    });
     const allMine = await FileRecord.findAll({ where: { ownerId: req.user.id }, attributes: ['size'] });
     const used = allMine.reduce((s, f) => s + (Number(f.size) || 0), 0);
     res.render('dashboard', {
       files,
       folders,
-      folderId,
+      childFolders: currentFolder ? [] : folders,
+      currentFolder,
+      folderId: currentFolder?.id || '',
       kinds: KINDS,
       used,
       quota: Number(me?.quotaBytes) || 0,
@@ -438,6 +448,112 @@ export function createMainApp() {
     res.json({ ok: true, file: safeFile(file) });
   }));
 
+  // Move a file into a folder (or back to the root). Folders are owner-scoped,
+  // so a stale folder id from another account cannot be used as a destination.
+  app.post('/api/files/:id/move', requireLogin, wrap(async (req, res) => {
+    const file = await FileRecord.findByPk(req.params.id);
+    if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
+    const raw = req.body?.folderId;
+    let folder = null;
+    if (raw) {
+      folder = await Folder.findOne({ where: { id: String(raw), ownerId: req.user.id } });
+      if (!folder) return res.status(400).json({ error: 'folder not found' });
+    }
+    await file.update({ folderId: folder?.id || null });
+    res.json({ ok: true, folderId: folder?.id || null, folder: folder ? { id: folder.id, name: folder.name } : null });
+  }));
+
+  // Copy an editor document in place, or copy an uploaded blob onto the same
+  // healthy replicas. The duplicate is always private and owned by the caller.
+  app.post('/api/files/:id/copy', requireLogin, wrap(async (req, res) => {
+    const file = await FileRecord.findByPk(req.params.id);
+    if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
+    const me = await User.findByPk(req.user.id);
+    const mine = await FileRecord.findAll({ where: { ownerId: req.user.id }, attributes: ['size'] });
+    const used = mine.reduce((s, f) => s + (Number(f.size) || 0), 0);
+    if (used + (Number(file.size) || 0) > (Number(me?.quotaBytes) || 0)) {
+      return res.status(413).json({ error: 'not enough storage quota for a copy' });
+    }
+    let folderId = null;
+    if (req.body?.folderId) {
+      const folder = await Folder.findOne({ where: { id: String(req.body.folderId), ownerId: req.user.id } });
+      if (!folder) return res.status(400).json({ error: 'folder not found' });
+      folderId = folder.id;
+    } else if (req.body?.keepFolder === true) {
+      folderId = file.folderId || null;
+    }
+    const id = nanoid(12);
+    const slug = nanoid(10);
+    const base = String(file.filename || 'File').replace(/(\.[^./\\]+)$/, '');
+    const ext = String(file.filename || '').match(/(\.[^./\\]+)$/)?.[1] || '';
+    const filename = `${base} copy${ext}`.slice(0, 240);
+    let replicas = [];
+    let primaryNode = null;
+    if (file.kind === 'file') {
+      try {
+        const { buffer } = await readFileWithFallback(file);
+        for (const target of await resolveTargets()) {
+          try {
+            await storeToNode(target, id, buffer, { filename, mime: file.mime });
+            replicas.push(target.id);
+          } catch {
+            /* try the next node */
+          }
+        }
+        if (!replicas.length) return res.status(502).json({ error: 'could not copy the stored file' });
+        primaryNode = replicas[0];
+      } catch {
+        return res.status(502).json({ error: 'could not read the stored file' });
+      }
+    }
+    const copy = await FileRecord.create({
+      id,
+      slug,
+      filename,
+      mime: file.mime,
+      size: Number(file.size) || 0,
+      ownerId: req.user.id,
+      ownerName: req.user.username,
+      isPublic: false,
+      starred: false,
+      replicas,
+      primaryNode,
+      kind: file.kind || 'file',
+      content: file.content || null,
+      version: file.kind === 'file' ? 0 : Math.max(1, Number(file.version) || 1),
+      template: file.template || null,
+      folderId,
+    });
+    recordEvent(req, 'create', { fileId: copy.id });
+    res.status(201).json({ ok: true, id: copy.id, file: safeFile(copy), url: file.kind === 'file' ? `/f/${copy.id}` : `/edit/${copy.id}` });
+  }));
+
+  app.post('/api/folders/:id/rename', requireLogin, wrap(async (req, res) => {
+    const folder = await Folder.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
+    if (!folder) return res.status(404).json({ error: 'not found' });
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    await folder.update({ name });
+    res.json({ ok: true, folder: { id: folder.id, name: folder.name } });
+  }));
+
+  // Deleting a folder never deletes its files: they return to the root where
+  // the owner can still find them.
+  app.delete('/api/folders/:id', requireLogin, wrap(async (req, res) => {
+    const folder = await Folder.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
+    if (!folder) return res.status(404).json({ error: 'not found' });
+    await FileRecord.update({ folderId: null }, { where: { ownerId: req.user.id, folderId: folder.id } });
+    await folder.destroy();
+    res.json({ ok: true, folderId: folder.id });
+  }));
+
+  app.post('/api/folders', requireLogin, wrap(async (req, res) => {
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const folder = await Folder.create({ id: uuid(), name, ownerId: req.user.id });
+    res.status(201).json({ ok: true, folder: { id: folder.id, name: folder.name } });
+  }));
+
   app.delete('/api/files/:id', requireLogin, wrap(async (req, res) => {
     const file = await FileRecord.findByPk(req.params.id);
     if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
@@ -487,6 +603,7 @@ export function createMainApp() {
     const file = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
     if (!file) return res.status(404).render('error', { message: 'This link is invalid or private.', status: 404 });
     recordEvent(req, 'view', { fileId: file.id });
+    if (file.kind === 'site') return res.redirect(302, `/sites/${file.slug}`);
     if (file.kind && file.kind !== 'file') {
       let content = {};
       try {
@@ -735,6 +852,9 @@ export function createMainApp() {
   // Workspace: /create, /edit/:id, /api/workspace/*, /export/:id, /forms/:slug, /search
   app.use(createWorkspaceRouter());
 
+  // Published websites: /sites/:slug, forms, SEO files and standalone exports.
+  app.use(createSitesRouter());
+
   // 404
   app.use((req, res) => res.status(404).render('error', { message: 'Page not found.', status: 404 }));
 
@@ -768,8 +888,10 @@ function isEditable(file) {
 
 export function startMain() {
   const app = createMainApp();
-  app.listen(config.port, config.host, () => {
+  const server = app.listen(config.port, config.host, () => {
     console.log(`[cascade] main server on http://${config.host}:${config.port}`);
     console.log(`[cascade] sqlite database at ${path.resolve(config.dbPath)}`);
   });
+  startCollabServer(server);
+  return server;
 }

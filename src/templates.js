@@ -10,6 +10,7 @@ export const KINDS = [
   { id: 'board', label: 'Whiteboard', tag: 'Infinite canvas', icon: 'WBD' },
   { id: 'form', label: 'Form', tag: 'Collect answers', icon: 'FRM' },
   { id: 'code', label: 'Code file', tag: 'Editor + files', icon: 'CODE' },
+  { id: 'site', label: 'Website', tag: 'Landing page builder', icon: 'WEB' },
 ];
 
 export const CATEGORIES = ['blank', 'business', 'education', 'personal', 'custom'];
@@ -50,6 +51,23 @@ const form = (title, description, fields) => ({
   fields,
 });
 const field = (id, type, label, extra = {}) => ({ id, type, label, required: !!extra.required, options: extra.options || [], help: extra.help || '' });
+const site = (brand, sections, theme = {}, seo = {}) => ({
+  brand,
+  sections,
+  theme: {
+    accent: theme.accent || '#e11d48',
+    bg: theme.bg || '#0b0b10',
+    surface: theme.surface || '#14141b',
+    text: theme.text || '#f7f7f8',
+    muted: theme.muted || '#a1a1aa',
+    font: theme.font || 'Inter',
+    radius: theme.radius ?? 14,
+    maxWidth: theme.maxWidth || 1120,
+  },
+  seo: { title: seo.title || brand, description: seo.description || '', ogImage: seo.ogImage || '' },
+  customCss: '',
+});
+const siteSection = (type, fields) => ({ id: `${type}-${Math.random().toString(36).slice(2, 7)}`, type, ...fields });
 
 export const TEMPLATES = [
   // ---------------- documents ----------------
@@ -280,6 +298,84 @@ export const TEMPLATES = [
     id: 'code-json', name: 'JSON config', kind: 'code', category: 'personal',
     description: 'Well-formed config starter.',
     build: () => code([{ name: 'config.json', language: 'json', text: '{\n  "name": "cascade-project",\n  "version": "1.0.0",\n  "private": true\n}\n' }]),
+  },
+
+  // ---------------- websites ----------------
+  {
+    id: 'site-saas', name: 'SaaS landing page', kind: 'site', category: 'business',
+    description: 'Hero, feature grid, social proof and conversion CTA.',
+    build: () => site('Northstar', [
+      siteSection('nav', { brand: 'Northstar', links: [{ label: 'Product', href: '#features' }, { label: 'Pricing', href: '#pricing' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Start free', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'Now in public beta', title: 'Ship your best work, faster.', text: 'Northstar gives product teams one calm place to plan, build and launch. No busywork. No tab archaeology.', ctaLabel: 'Start free', ctaHref: '#contact', secondaryLabel: 'See how it works', secondaryHref: '#features', align: 'left', image: '', style: { paddingY: 110, bg: 'gradient' } }),
+      siteSection('logos', { title: 'Trusted by teams who care about the details', items: ['Acme', 'Monogram', 'Northwind', 'Vertex', 'Kepler'] }),
+      siteSection('features', { title: 'Everything your next launch needs', text: 'A focused toolkit, designed to get out of your way.', items: [
+        { title: 'One source of truth', text: 'Plans, specs and decisions live together — searchable and always current.' },
+        { title: 'Fast by default', text: 'Everything is keyboard-first and responds instantly, even on slow connections.' },
+        { title: 'Built to share', text: 'Invite clients and teammates with exactly the access they need.' },
+        { title: 'Automatic history', text: 'Every save is versioned. Roll back a bad afternoon in two clicks.' },
+        { title: 'Works offline', text: 'Keep editing when the network drops; changes merge when you reconnect.' },
+        { title: 'Your data, yours', text: 'Self-host on your own terms with a clean, portable export whenever you want.' },
+      ], style: { paddingY: 90 } }),
+      siteSection('testimonials', { title: 'Teams do their clearest work here', items: [
+        { quote: 'We replaced four tools in a week. The team actually uses it.', name: 'Maya Chen', role: 'Head of Product, Vertex' },
+        { quote: 'The first planning tool that feels faster than a whiteboard.', name: 'Jon Bell', role: 'Founder, Monogram' },
+      ] }),
+      siteSection('cta', { title: 'Start with a clearer week.', text: 'Free for small teams. No credit card, no setup calls.', ctaLabel: 'Create your workspace', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Talk to us', text: 'Tell us what you are building. We reply within two working days.', email: 'hello@example.com' }),
+      siteSection('footer', { text: '© Your company. Built with Cascade.', links: [{ label: 'Privacy', href: '#' }, { label: 'Terms', href: '#' }] }),
+    ], { accent: '#e11d48', bg: '#09090e', surface: '#15151d', text: '#f8f8fa', muted: '#a6a6b3' }, { title: 'Northstar — Ship your best work', description: 'One calm place for product teams to plan, build and launch.' }),
+  },
+  {
+    id: 'site-studio', name: 'Design studio', kind: 'site', category: 'business',
+    description: 'Editorial hero, selected work and a strong contact section.',
+    build: () => site('Atelier', [
+      siteSection('nav', { brand: 'Atelier', links: [{ label: 'Work', href: '#work' }, { label: 'Studio', href: '#about' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Start a project', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'Independent design studio', title: 'Brands with a point of view.', text: 'We make identities, websites and campaigns for ambitious teams. Small by design, involved from first sketch to final ship.', ctaLabel: 'See selected work', ctaHref: '#work', secondaryLabel: 'About the studio', secondaryHref: '#about', align: 'left', style: { paddingY: 120, bg: 'plain' } }),
+      siteSection('gallery', { title: 'Selected work', text: 'A few recent projects. More on request.', images: [], style: { paddingY: 84 } }),
+      siteSection('about', { title: 'A small studio with a long attention span.', text: 'We work with a handful of clients at a time. That means senior people on every project, no handoffs, and work that gets better because we stayed long enough to make it better.', image: '', reverse: false, style: { paddingY: 92 } }),
+      siteSection('testimonials', { title: 'What clients say', items: [{ quote: 'They found the idea we had been circling for years.', name: 'Elena Rossi', role: 'Founder, Aperture' }] }),
+      siteSection('cta', { title: 'Have something worth making?', text: 'Tell us about the project. We will reply with honest thoughts and next steps.', ctaLabel: 'Start a conversation', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Get in touch', text: 'New business, collaborations, or a note about the work.', email: 'studio@example.com' }),
+      siteSection('footer', { text: 'Atelier Studio. All rights reserved.', links: [{ label: 'Instagram', href: '#' }, { label: 'LinkedIn', href: '#' }] }),
+    ], { accent: '#f97316', bg: '#0b0a09', surface: '#171411', text: '#faf7f2', muted: '#b0a89e', font: 'Georgia', radius: 4 }, { title: 'Atelier — Independent design studio', description: 'Brand, web and campaign design for ambitious teams.' }),
+  },
+  {
+    id: 'site-portfolio', name: 'Personal portfolio', kind: 'site', category: 'personal',
+    description: 'Minimal personal site with work, about and contact.',
+    build: () => site('Alex Rivera', [
+      siteSection('nav', { brand: 'Alex Rivera', links: [{ label: 'Work', href: '#work' }, { label: 'About', href: '#about' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Email me', ctaHref: 'mailto:hello@example.com' }),
+      siteSection('hero', { eyebrow: 'Product designer · San Francisco', title: 'I design calm interfaces for complicated products.', text: 'Currently designing developer tools. Previously at independent studios and a few very small startups.', ctaLabel: 'View work', ctaHref: '#work', secondaryLabel: 'Download CV', secondaryHref: '#', align: 'left', style: { paddingY: 100 } }),
+      siteSection('gallery', { title: 'Selected projects', text: 'Product design, design systems and the occasional website.', images: [], style: { paddingY: 78 } }),
+      siteSection('about', { title: 'About', text: 'I have spent a decade making software feel simpler. My favourite projects sit where research, interaction design and engineering meet. When I am not working, I am probably cooking or riding a bike too far from home.', image: '', style: { paddingY: 84 } }),
+      siteSection('contact', { title: 'Let’s work together', text: 'I am open to select freelance projects and full-time roles.', email: 'hello@example.com' }),
+      siteSection('footer', { text: '© Alex Rivera.', links: [{ label: 'LinkedIn', href: '#' }, { label: 'Read.cv', href: '#' }] }),
+    ], { accent: '#22d3ee', bg: '#08090b', surface: '#12151a', text: '#f2f5f7', muted: '#94a3b8', font: 'Inter', radius: 10 }, { title: 'Alex Rivera — Product designer', description: 'Product designer focused on calm interfaces for complicated products.' }),
+  },
+  {
+    id: 'site-event', name: 'Event page', kind: 'site', category: 'personal',
+    description: 'Conference landing page with schedule and registration.',
+    build: () => site('Field Notes', [
+      siteSection('nav', { brand: 'Field Notes', links: [{ label: 'Programme', href: '#programme' }, { label: 'Venue', href: '#venue' }, { label: 'Register', href: '#contact' }], ctaLabel: 'Get tickets', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'June 12–14 · Lisbon', title: 'Three days for people who make things.', text: 'A small conference about craft, tools and the strange paths between an idea and the thing itself.', ctaLabel: 'Get tickets', ctaHref: '#contact', secondaryLabel: 'See programme', secondaryHref: '#programme', align: 'center', style: { paddingY: 118, bg: 'gradient' } }),
+      siteSection('features', { title: 'Programme', text: 'Single track, long breaks, real conversations.', items: [
+        { title: 'Day one — Make', text: 'Workshops on prototyping, writing and building small tools.' },
+        { title: 'Day two — Share', text: 'Talks from designers, engineers and independent makers.' },
+        { title: 'Day three — Walk', text: 'A slow day of studio visits and conversations around the city.' },
+      ], style: { paddingY: 88 } }),
+      siteSection('testimonials', { title: 'From last year', items: [{ quote: 'The rare conference where the hallway track is as good as the programme.', name: 'Sam Okafor', role: 'Attendee' }] }),
+      siteSection('cta', { title: 'Doors open at 9.', text: 'Tickets include all three days, lunch and the Friday dinner.', ctaLabel: 'Register interest', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Register interest', text: 'Leave your email and we will send the ticket link first.', email: 'hello@example.com' }),
+      siteSection('footer', { text: 'Field Notes is an independent event.', links: [{ label: 'Code of conduct', href: '#' }, { label: 'Accessibility', href: '#' }] }),
+    ], { accent: '#facc15', bg: '#0b0b0c', surface: '#171719', text: '#fafafa', muted: '#a1a1aa', font: 'Inter', radius: 18 }, { title: 'Field Notes — A small conference', description: 'Three days for people who make things. Lisbon, June 12–14.' }),
+  },
+  {
+    id: 'site-blank', name: 'Blank website', kind: 'site', category: 'blank',
+    description: 'Start a page from a clean canvas.',
+    build: () => site('Your brand', [
+      siteSection('nav', { brand: 'Your brand', links: [{ label: 'Home', href: '#' }, { label: 'About', href: '#about' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Get in touch', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: '', title: 'A clear, confident headline.', text: 'One short paragraph that explains what you do and who it is for.', ctaLabel: 'Get started', ctaHref: '#contact', align: 'left', style: { paddingY: 110 } }),
+      siteSection('footer', { text: '© Your brand.', links: [] }),
+    ]),
   },
 
   // ---------------- forms ----------------

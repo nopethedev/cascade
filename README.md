@@ -14,20 +14,23 @@ Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard s
 |---|---|
 | **Document** | rich text, headings, lists, quotes, alignment, links, images, tables, header/footer, word count, Word (.docx) export with embedded images |
 | **Spreadsheet** | formula engine with dependency tracking (`=SUM(A1:A5)`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `PRODUCT`, `ROUND`, `ABS`, `IF`, cell refs and ranges), formatting, multiple sheets, column sort + filter, Excel (.xlsx) export |
-| **Presentation** | drag/resize text, shapes and images, slide list, speaker notes, present mode, undo/redo, PowerPoint (.pptx) export |
+| **Presentation** | drag/resize text, shapes and images, layouts, thumbnails, snapping, transitions (fade/push/wipe/zoom), per-element entrance animations and click builds, presenter mode, notes, PPTX export with native transitions |
 | **PDF** | pdf.js rendering with zoom/page navigation and text selection, highlight/text/comment/signature annotations, page rotate/reorder/duplicate/insert/delete, merge another PDF, split out selected pages, exported PDFs burn annotations in |
 | **Whiteboard** | infinite pan/zoom canvas, pen, rectangle, ellipse, arrow, text, sticky notes, eraser, undo/redo, SVG export |
 | **Form** | 8 field types, visual builder, publish link, server-side validation, stored responses, per-question analytics, CSV export |
 | **Code** | multi-file project, tabs, syntax highlighting, rename/delete, export |
+| **Website** | visual section builder, layers/reorder, responsive previews, theme + SEO, sandboxed custom code, publishing with forms/analytics/sitemap, custom domains, HTML/React export |
 
-Shared behaviour: debounced autosave, version history (last 25 snapshots, restorable), optimistic concurrency with a conflict bar when another session saves first, presence chips, share links, "save as template", a global `/search` across file names and document contents, and an image library for documents, spreadsheets and decks. The library lists your own image uploads, accepts new uploads, and searches free images from Wikimedia Commons with author/license attribution.
+Shared behaviour: Yjs/WebSocket live collaboration with cursors, selections, presence and reconnect recovery; offline draft merge; debounced autosave; version history (last 25 snapshots, restorable); server-enforced Owner/Editor/Commenter/Viewer roles; expiring capability links; threaded comments with @mentions; "save as template"; a global `/search` across file names and document contents; and an image library for documents, spreadsheets, decks and websites. Template cards render the actual template content, not placeholders.
 
-Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx`, `.pptx`) with embedded local images, so they open in Word, Excel and PowerPoint rather than being renamed HTML/CSV files. Shared-document pages expose only images owned by that document. PDFs are stored as their real PDF bytes (base64 inside the document JSON). Pages are edited in the browser with **pdf-lib** and rendered with **pdf.js**, both served from `public/vendor/`; annotations are burned into the export on the server. DOCX/XLSX/PPTX **import**, live cursors/CRDT collaboration, offline sync, AI assistance and a light theme are not included. Add `pdfjs-dist` and `pdf-lib` static builds again with the copy step in `AGENTS.md` if you upgrade them.
+Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx`, `.pptx`) with embedded local images, so they open in Word, Excel and PowerPoint rather than being renamed HTML/CSV files. Presentation exports include native OOXML slide transitions added after pptxgenjs writes the package. Shared-document pages expose only images owned by that document. PDFs are stored as their real PDF bytes (base64 inside the document JSON). Pages are edited in the browser with **pdf-lib** and rendered with **pdf.js**, both served from `public/vendor/`; annotations are burned into the export on the server. DOCX/XLSX/PPTX **import**, AI assistance and a light theme are not included. Add `pdfjs-dist` and `pdf-lib` static builds again with the copy step in `AGENTS.md` if you upgrade them.
 
 ## Features
 
 - Upload (multi-file, drag & drop, progress), view (images / video / audio inline), edit text files, rename, delete
-- Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms and code (see above)
+- Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms, code and websites (see above)
+- Live collaboration rooms, comments, roles and capability links across every editor
+- Published websites with forms, analytics, sitemap/robots and custom-domain Host routing
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (5-minute revalidating public cache)
 - Roles: `admin` / `user`, per-user quota (GB)
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
@@ -97,6 +100,8 @@ curl -H "x-api-key: $KEY" -H "content-type: application/json" \
 | `DELETE /api/files/:id` | delete from every replica |
 
 Workspace API (same auth): `POST /api/workspace/docs`, `GET|PUT /api/workspace/docs/:id`, `GET /api/workspace/docs/:id/versions`, `POST /api/workspace/docs/:id/restore`, `POST /api/workspace/docs/:id/heartbeat`, `POST /api/workspace/docs/:id/template`, `POST /api/workspace/folders`, `GET /export/:id`, `GET /download/:id`, `GET /api/images/search?q=`, `GET /api/images/proxy?url=` (editor image library; Wikimedia-host allowlist).
+
+Collaboration and websites (same auth): `GET /api/workspace/docs/:id/collab-token`, WebSocket `/collab?token=…`, `GET|POST /api/files/:id/access`, `POST /api/files/:id/share-links`, `POST /api/share-links/:token/revoke`, `GET|POST /api/workspace/docs/:id/comments`, `POST /api/workspace/docs/:id/publish`, `GET /sites/:slug`, `POST /sites/:slug/submit`, `GET /sites/:id/export.html|export.jsx|export.css`, `GET /sites/:slug/sitemap.xml`, and capability pages at `/s/:token`.
 
 ## Node protocol (main → node, header `x-node-key`)
 

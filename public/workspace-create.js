@@ -63,7 +63,53 @@
     setTimeout(() => nameInput.focus(), 40);
   }
 
-  cards.forEach((card) => card.addEventListener('click', () => openDialog(card)));
+  const previewDialog = document.getElementById('template-preview-dialog');
+  const previewFrame = document.getElementById('template-preview-frame');
+  const previewTitle = document.getElementById('template-preview-title');
+  const previewUse = document.getElementById('template-preview-use');
+  let previewCard = null;
+
+  function openPreview(card) {
+    if (!previewDialog || !previewFrame) return openDialog(card);
+    previewCard = card;
+    previewTitle.textContent = `${card.dataset.name} preview`;
+    previewFrame.src = `/template-preview/${encodeURIComponent(card.dataset.template)}`;
+    previewDialog.showModal();
+  }
+
+  cards.forEach((card) => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('[data-preview]')) return;
+      openDialog(card);
+    });
+    card.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.closest('[data-preview]')) return;
+      e.preventDefault();
+      openDialog(card);
+    });
+    const previewButton = card.querySelector('[data-preview]');
+    previewButton?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(card);
+    });
+    previewButton?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      e.stopPropagation();
+      openPreview(card);
+    });
+  });
+  document.getElementById('template-preview-close')?.addEventListener('click', () => previewDialog?.close());
+  previewUse?.addEventListener('click', () => {
+    if (!previewCard) return;
+    previewDialog.close();
+    openDialog(previewCard);
+  });
+  previewDialog?.addEventListener('click', (e) => {
+    if (e.target === previewDialog) previewDialog.close();
+  });
   dlg.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dlg.close()));
   dlg.addEventListener('click', (e) => {
     if (e.target === dlg) dlg.close();
