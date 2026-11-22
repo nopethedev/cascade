@@ -16,6 +16,7 @@ import { recordEvent, analyticsSummary } from './analytics.js';
 import { extractApiToken, authenticateApiKey, createApiKey, listApiKeys, revokeApiKey } from './apiKeys.js';
 import { createWorkspaceRouter } from './workspace.js';
 import { createImageRouter } from './images.js';
+import { createMcpRouter } from './mcp.js';
 import { KIND_BY_ID, KINDS } from './templates.js';
 import { computeSheet } from './formula.js';
 
@@ -145,7 +146,7 @@ export function createMainApp() {
       if (token) {
         const auth = await authenticateApiKey(token);
         if (!auth) {
-          if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'invalid or revoked API key' });
+          if (req.path.startsWith('/api/') || req.path === '/mcp') return res.status(401).json({ error: 'invalid or revoked API key' });
           return res.status(401).send('Invalid or revoked API key.');
         }
         req.user = auth.user;
@@ -168,7 +169,7 @@ export function createMainApp() {
       };
       // Authenticated JSON and editor responses must not be reused by a cache
       // for a different principal.
-      if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'private, no-store');
+      if (req.path.startsWith('/api/') || req.path === '/mcp') res.setHeader('Cache-Control', 'private, no-store');
 
       if (req.apiKey) {
         const scope = ['read', 'write', 'full'].includes(req.apiKey.scope) ? req.apiKey.scope : 'full';
@@ -178,7 +179,9 @@ export function createMainApp() {
             ? res.status(403).json({ error: 'API key scope does not allow admin access' })
             : res.status(403).render('error', { message: 'API key scope does not allow admin access.', status: 403 });
         }
-        if (scope === 'read' && !SAFE_METHODS.has(req.method)) {
+        // MCP uses POST for both reads and writes; its handler enforces
+        // per-tool read-only scope after authentication.
+        if (scope === 'read' && !SAFE_METHODS.has(req.method) && req.path !== '/mcp') {
           return req.path.startsWith('/api/')
             ? res.status(403).json({ error: 'API key is read-only' })
             : res.status(403).render('error', { message: 'API key is read-only.', status: 403 });
@@ -216,7 +219,7 @@ export function createMainApp() {
     wrap(async (req, res, next) => {
       if (!(await needsSetup())) return next();
       if (['/setup', '/docs'].includes(req.path) || req.path.startsWith('/public/')) return next();
-      if (req.path.startsWith('/api/')) return res.status(503).json({ error: 'setup required' });
+      if (req.path.startsWith('/api/') || req.path === '/mcp') return res.status(503).json({ error: 'setup required' });
       return res.redirect('/setup');
     }),
   );
@@ -726,6 +729,9 @@ export function createMainApp() {
   // Image library: keyless Wikimedia Commons search plus a constrained proxy.
   app.use('/api/images', createImageRouter());
 
+  // MCP: stateless Streamable HTTP JSON-RPC, same auth/owner checks as the app.
+  app.use('/mcp', createMcpRouter());
+
   // Workspace: /create, /edit/:id, /api/workspace/*, /export/:id, /forms/:slug, /search
   app.use(createWorkspaceRouter());
 
@@ -734,10 +740,16 @@ export function createMainApp() {
 
   // Errors
   app.use((err, req, res, next) => {
+    if (req.path === '/mcp' && (err instanceof SyntaxError || err.type === 'entity.parse.failed')) {
+      return res.status(400).json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } });
+    }
+    if (req.path === '/mcp' && err.type === 'entity.too.large') {
+      return res.status(413).json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'request too large' } });
+    }
     console.error('[cascade]', err?.message || err);
     const bad = err instanceof multer.MulterError;
     const status = bad ? 400 : 500;
-    if (req.path.startsWith('/api/')) {
+    if (req.path.startsWith('/api/') || req.path === '/mcp') {
       return res.status(status).json({ error: bad ? err.message : 'server error' });
     }
     res.status(status).render('error', { message: bad ? err.message : 'Something went wrong.', status });

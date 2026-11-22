@@ -18,6 +18,7 @@ No need to ask for confirmation first.
 - `SERVER_MODE=main|node` selects the role; `docker-compose.yml` has a single service.
 - API keys (`src/apiKeys.js`) are SHA-256-hashed and scoped (`read`, `write`, or `full`); requests authenticate with `x-api-key` or `Authorization: Bearer`. `req.user` is set for both sessions and keys. `scope` is added to existing databases by `migrateSchema()`.
 - Analytics events are written by `recordEvent()` (`src/analytics.js`) and never block a response.
+- MCP (`src/mcp.js`) is mounted at `/mcp` in `src/server.js`. It is stateless Streamable HTTP JSON-RPC, reuses the app auth middleware and API-key scopes, and every document lookup goes through an owner/admin check. Read-only keys may call read tools but never mutations.
 - User-facing docs live at `/docs` (`views/docs.ejs`); keep it current when routes or env vars change.
 
 ## Workspace suite

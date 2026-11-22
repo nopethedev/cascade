@@ -370,6 +370,7 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     const ownerId = (await json(await owner.request('/api/me'))).user.id;
     const otherId = (await json(await other.request('/api/me'))).user.id;
     const readKey = await makeKey('security read key', 'read', ownerId);
+    const mcpReadKey = await makeKey('security mcp read key', 'read', ownerId);
     const writeKey = await makeKey('security write key', 'write', ownerId);
     const otherKey = await makeKey('security other key', 'read', otherId);
 
@@ -416,6 +417,7 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     const keyListHtml = await bodyText(keyList);
     assert.equal(keyList.status, 200);
     assert.ok(!keyListHtml.includes(readKey), 'raw key must not appear in key list');
+    assert.ok(!keyListHtml.includes(mcpReadKey), 'raw MCP key must not appear in key list');
     assert.match(keyListHtml, /read-only/);
 
     const revokeRead = await admin.request(`/admin/api-keys/${stored.id}/revoke`, { method: 'POST' });
@@ -437,12 +439,178 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await createClient(base).request('/raw/does-not-exist')).status, 404);
     assert.equal((await createClient(base).request('/c/does-not-exist')).status, 404);
 
-    // No MCP endpoint is present in this build; both anonymous and authenticated probes are 404,
-    // so there is no MCP surface that could bypass the app's auth middleware.
-    assert.equal((await createClient(base).request('/mcp')).status, 404);
-    assert.equal((await owner.request('/mcp')).status, 404);
+    // MCP: same auth and owner scope, with per-tool read-only enforcement.
+    const anonMcp = await createClient(base).request('/mcp', {
+      method: 'POST',
+      json: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
+    });
+    assert.equal(anonMcp.status, 401, 'anonymous MCP must be rejected');
+    assert.ok(!(await bodyText(anonMcp)).includes(PRIVATE_MARKER));
+    assert.equal((await createClient(base).request('/mcp')).status, 401);
+    assert.equal((await owner.request('/mcp')).status, 405);
+
+    const mcpClient = async (client, payload) => {
+      const res = await client.request('/mcp', { method: 'POST', json: payload });
+      const text = await bodyText(res);
+      let body = null;
+      try { body = JSON.parse(text); } catch { /* non-JSON error */ }
+      return { res, body, text };
+    };
+    const mcpFetch = async (headers, payload) => {
+      const res = await fetch(`${base}/mcp`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let body = null;
+      try { body = JSON.parse(text); } catch { /* non-JSON error */ }
+      return { res, body, text };
+    };
+    const initialize = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } };
+    const ownerMcp = await mcpClient(owner, initialize);
+    assert.equal(ownerMcp.res.status, 200);
+    assert.match(ownerMcp.res.headers.get('content-type') || '', /application\/json/i);
+    assert.equal(ownerMcp.body.result.serverInfo.name, 'cascade-workspace');
+    assert.match(ownerMcp.body.result.instructions, /API key|owner/i);
+    const initialized = await owner.request('/mcp', {
+      method: 'POST',
+      json: { jsonrpc: '2.0', method: 'notifications/initialized' },
+    });
+    assert.equal(initialized.status, 202);
+    const ownerTools = await mcpClient(owner, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    assert.ok(ownerTools.body.result.tools.some((tool) => tool.name === 'create_document'));
+    assert.ok(ownerTools.body.result.tools.some((tool) => tool.name === 'get_document'));
+
+    const ownerRead = await mcpClient(owner, {
+      jsonrpc: '2.0', id: 3, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: docId } },
+    });
+    assert.equal(ownerRead.res.status, 200);
+    assert.ok(!ownerRead.body.result.isError);
+    assert.match(ownerRead.body.result.content[0].text, /PRIVATE SECURITY MARKER/);
+    const otherRead = await mcpClient(other, {
+      jsonrpc: '2.0', id: 4, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: docId } },
+    });
+    assert.equal(otherRead.res.status, 200);
+    assert.equal(otherRead.body.result.isError, true, 'cross-user MCP read must fail');
+    assert.ok(!otherRead.text.includes(PRIVATE_MARKER), 'cross-user MCP read must not leak content');
+
+    const crossOriginMcp = await owner.request('/mcp', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example' },
+      json: initialize,
+    });
+    assert.equal(crossOriginMcp.status, 403, 'cookie-authenticated MCP mutations need same-origin CSRF checks');
+
+    const readInit = await mcpFetch({ 'x-api-key': mcpReadKey }, initialize);
+    assert.equal(readInit.res.status, 200);
+    const readTools = await mcpFetch({ 'x-api-key': mcpReadKey }, { jsonrpc: '2.0', id: 5, method: 'tools/list' });
+    const readToolNames = readTools.body.result.tools.map((tool) => tool.name);
+    assert.ok(readToolNames.includes('get_document'));
+    assert.ok(!readToolNames.includes('create_document'), 'read-only key must not list mutation tools');
+    assert.ok(!readToolNames.includes('update_document'), 'read-only key must not list mutation tools');
+    const readGet = await mcpFetch({ 'x-api-key': mcpReadKey }, {
+      jsonrpc: '2.0', id: 6, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: docId } },
+    });
+    assert.equal(readGet.res.status, 200);
+    assert.match(readGet.body.result.content[0].text, /PRIVATE SECURITY MARKER/);
+    const readUpdate = await mcpFetch({ 'x-api-key': mcpReadKey }, {
+      jsonrpc: '2.0', id: 7, method: 'tools/call',
+      params: { name: 'update_document', arguments: { id: docId, content: { html: 'MCP-PWN' } } },
+    });
+    assert.equal(readUpdate.body.result.isError, true, 'read-only MCP tool call must fail');
+    assert.ok(!readUpdate.text.includes('MCP-PWN'));
+    const afterDeniedUpdate = await owner.request(`/api/workspace/docs/${docId}`);
+    assert.equal(afterDeniedUpdate.status, 200);
+    assert.ok(!(await bodyText(afterDeniedUpdate)).includes('MCP-PWN'), 'read-only MCP call must not mutate');
+
+    const writeCreate = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 8, method: 'tools/call',
+      params: { name: 'create_document', arguments: { kind: 'doc', name: 'MCP created', content: { html: '<h1>MCP CREATED</h1>' } } },
+    });
+    assert.equal(writeCreate.body.result.isError, undefined);
+    const createdPayload = JSON.parse(writeCreate.body.result.content[0].text);
+    const mcpDocId = createdPayload.document.id;
+    assert.ok(mcpDocId);
+
+    const writeUpdate = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 9, method: 'tools/call',
+      params: { name: 'update_document', arguments: { id: mcpDocId, content: { html: '<h1>MCP UPDATED</h1>' }, version: 1 } },
+    });
+    assert.equal(writeUpdate.body.result.isError, undefined);
+    const updated = JSON.parse(writeUpdate.body.result.content[0].text);
+    assert.equal(updated.version, 2);
+    assert.equal((await owner.request(`/api/workspace/docs/${mcpDocId}`)).status, 200);
+    const listed = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 9.1, method: 'tools/call',
+      params: { name: 'list_documents', arguments: {} },
+    });
+    const listedIds = JSON.parse(listed.body.result.content[0].text).documents.map((doc) => doc.id);
+    assert.ok(listedIds.includes(mcpDocId));
+    assert.ok(listedIds.includes(docId), 'MCP list includes the owner\'s existing document');
+    const otherList = await mcpFetch({ 'x-api-key': otherKey }, {
+      jsonrpc: '2.0', id: 9.05, method: 'tools/call',
+      params: { name: 'list_documents', arguments: {} },
+    });
+    const otherListIds = JSON.parse(otherList.body.result.content[0].text).documents.map((doc) => doc.id);
+    assert.ok(!otherListIds.includes(docId) && !otherListIds.includes(mcpDocId), 'MCP list must not enumerate another owner');
+    const versions = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 9.2, method: 'tools/call',
+      params: { name: 'get_version', arguments: { id: mcpDocId, version: 1 } },
+    });
+    assert.match(versions.body.result.content[0].text, /MCP CREATED/);
+    const pdfCreate = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 9.3, method: 'tools/call',
+      params: { name: 'create_document', arguments: { kind: 'pdf', name: 'MCP PDF' } },
+    });
+    assert.equal(pdfCreate.body.result.isError, undefined);
+    const pdfDocument = JSON.parse(pdfCreate.body.result.content[0].text).document;
+    const pdfRead = await mcpFetch({ 'x-api-key': writeKey }, {
+      jsonrpc: '2.0', id: 9.4, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: pdfDocument.id } },
+    });
+    assert.match(JSON.parse(pdfRead.body.result.content[0].text).document.content.pdf, /^JVBERi/);
+    const otherMcpRead = await mcpFetch({ 'x-api-key': otherKey }, {
+      jsonrpc: '2.0', id: 10, method: 'tools/call',
+      params: { name: 'get_document', arguments: { id: mcpDocId } },
+    });
+    assert.equal(otherMcpRead.body.result.isError, true, 'foreign API key must not read MCP document');
+    assert.ok(!otherMcpRead.text.includes('MCP UPDATED'));
+    const otherResource = await mcpFetch({ 'x-api-key': otherKey }, {
+      jsonrpc: '2.0', id: 10.1, method: 'resources/read',
+      params: { uri: `cascade://documents/${docId}` },
+    });
+    assert.equal(otherResource.body.result.contents, undefined, 'foreign resource must not be returned');
+    assert.ok(!otherResource.text.includes(PRIVATE_MARKER));
+
+    const resources = await mcpFetch({ 'x-api-key': mcpReadKey }, { jsonrpc: '2.0', id: 11, method: 'resources/list' });
+    assert.ok(resources.body.result.resources.some((resource) => resource.uri === `cascade://documents/${docId}`));
+    const unknownMethod = await mcpFetch({ 'x-api-key': mcpReadKey }, { jsonrpc: '2.0', id: 12, method: 'unknown/method' });
+    assert.equal(unknownMethod.body.error.code, -32601);
+    const resourceRead = await mcpFetch({ 'x-api-key': mcpReadKey }, {
+      jsonrpc: '2.0', id: 13, method: 'resources/read',
+      params: { uri: `cascade://documents/${docId}` },
+    });
+    assert.equal(resourceRead.res.status, 200);
+    assert.match(resourceRead.body.result.contents[0].text, /PRIVATE SECURITY MARKER/);
+    const malformed = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { cookie: owner.cookie, 'content-type': 'application/json' },
+      body: '{"jsonrpc":',
+    });
+    assert.equal(malformed.status, 400);
+    assert.equal((await malformed.json()).error.code, -32700);
+    const mcpKeyRows = await queryRows(dbPath, 'select * from api_keys where name = ?', ['security mcp read key']);
+    assert.equal(mcpKeyRows.length, 1);
+    await admin.request(`/admin/api-keys/${mcpKeyRows[0].id}/revoke`, { method: 'POST' });
+    const revokedMcp = await mcpFetch({ 'x-api-key': mcpReadKey }, initialize);
+    assert.equal(revokedMcp.res.status, 401, 'revoked API key must not reach MCP');
 
     assert.ok(!logs.join('').includes(readKey), 'raw API key must not be written to server logs');
+    assert.ok(!logs.join('').includes(mcpReadKey), 'raw MCP API key must not be written to server logs');
   } finally {
     await stopServer(child);
     fs.rmSync(dir, { recursive: true, force: true });

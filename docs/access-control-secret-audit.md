@@ -9,7 +9,7 @@
 
 The tested app routes now fail closed: anonymous API/export/media/API-key requests are `401`; authenticated non-owners receive `404` for documents, spreadsheets, presentations, PDFs, media, versions and exports; public sharing is the only anonymous content path. Two confirmed vulnerabilities were found and fixed: session-cookie CSRF and stored XSS via inline uploaded HTML. API keys are SHA-256-hashed, scoped, revocable, non-enumerable and absent from list responses/logs. No SQL injection or filesystem traversal was reproduced.
 
-There is **no MCP endpoint in this repository**: `/mcp` returns `404` both anonymously and with a valid session, so an MCP auth/scoping claim cannot be verified here.
+An MCP server now exists at **`POST /mcp`** in `src/mcp.js`. It is authenticated by the same session/API-key middleware, performs its own owner/admin check on every document lookup, and filters mutation tools for read-only keys. The real-HTTP test verifies anonymous rejection, cross-user isolation, read-only denial, create/update versioning, resource reads and revocation.
 
 ## Executed access matrix
 
@@ -33,7 +33,16 @@ All requests were sent to the live server; redirects were not followed.
 | Anonymous `GET /c/:slug/asset/:id` for an image owned by the shared document owner | **200** |
 | Same route using an image owned by another user | **404** |
 | Revoked public file `GET /raw/:slug` after `isPublic:false` | **404** |
-| Authenticated `GET /mcp` or anonymous `/mcp` | **404** — no MCP route exists |
+| Anonymous `POST /mcp` or `GET /mcp` | **401** |
+| Authenticated `GET /mcp` | **405** `Allow: POST` (stateless; no SSE GET) |
+| Owner session `initialize` / `tools/list` / `get_document` | **200**; own content returned |
+| Non-owner session or non-owner API key `get_document` | HTTP **200** JSON-RPC result with `isError:true`; no content or existence marker |
+| Read-only key `tools/list` / `get_document` | **200**; read tools only, own content returned |
+| Read-only key `update_document` | JSON-RPC `isError:true`; document unchanged |
+| Write key `create_document` / `update_document` | **200**; version advanced from 1 to 2 |
+| Revoked key `POST /mcp` | **401** |
+| Cross-origin cookie `POST /mcp` | **403** |
+| Malformed `/mcp` JSON body | **400**, JSON-RPC `-32700` |
 
 The API file list stayed owner-scoped (`?all=1` is admin-only). Search for `' OR 1=1--` as another user returned no owner data. A malicious `limit=1 OR 1=1` value stayed a bounded integer. The only raw SQL in the app is the fixed `PRAGMA`/`ALTER` schema migration; user input reaches Sequelize parameterized `where`/`findByPk` calls.
 
@@ -82,6 +91,23 @@ Verified: read key `GET /api/me` **200**, `POST /api/upload` **403**, `GET /admi
 - Public board/deck rendering escapes/sanitizes user-controlled style values and adds CSP headers.
 - No CORS policy is enabled, and cross-origin session mutations are rejected independently of CORS.
 
+## MCP server
+
+The endpoint is stateless Streamable HTTP JSON-RPC: every client message is a POST, ordinary JSON responses are returned, and no `Mcp-Session-Id` is issued. It supports `initialize`, `ping`, `notifications/initialized`, `tools/list`, `tools/call`, `resources/list` and `resources/read`.
+
+Tools:
+
+| Tool | Scope | Behaviour |
+|---|---|---|
+| `whoami` | read | Authenticated user and key scope; never key material. |
+| `list_documents` | read | Owner-scoped workspace list, optional kind/folder/limit. |
+| `get_document` | read | Owner-or-admin document JSON, including version. |
+| `list_versions`, `get_version` | read | Owner-or-admin snapshots. |
+| `create_document` | write | Creates an owner document from a template or supplied JSON. |
+| `update_document` | write | Optimistic version check, snapshot, size cap, owner-or-admin check. |
+
+The route reuses the app auth middleware, so an API key is resolved to its owner and a session uses the logged-in user. The MCP handler then calls the same owner/admin predicate as the editor: cross-user ids return the same `document not found` tool error as unknown ids, without loading or returning content. Read-only API keys are filtered out of `tools/list` mutation entries and are denied in `tools/call` before any mutation. `resources/list` and `resources/read` use `cascade://documents/:id` and the same owner check. The key is never placed in a URL, tool argument, response, or log.
+
 ## Tests and commands run
 
 ```text
@@ -102,11 +128,12 @@ The security test asserts:
 - CSRF 403 and `SameSite=Lax`/`HttpOnly` cookies;
 - upload traversal containment, active-content headers, MIME normalization, and cache no-store;
 - read-only/write/full-scope behavior, SHA-256 storage, no raw key in list/log, revocation return 401, and non-owner key isolation;
-- SQL/filter probes and the absent `/mcp` surface.
+- MCP anonymous 401, owner 200, non-owner tool isolation with no content, read-only tool filtering/denial, write create/update versioning, resource reads, malformed JSON handling, and revoked-key 401;
+- SQL/filter probes.
 
 ## Residual / unverified risks
 
-1. **MCP is not implemented in this repository.** `/mcp` is 404, so there is no MCP server whose auth/workspace scoping can be demonstrated. If an external MCP process is deployed separately, it needs its own audit.
+1. **MCP transport coverage is intentionally narrow.** The server implements stateless Streamable HTTP with JSON responses (and accepts the 2025 initialization handshake). It does not implement an SSE stream, a GET event stream, protocol-level sessions, or a separate stdio command; the 2026-07-28 no-handshake/`server/discover` flow was not exercised by a real client. Those client-specific behaviors remain unverified.
 2. **No external CDN or reverse proxy was tested.** Public cache lifetime was reduced to 5 minutes and origin revocation returns 404, but an upstream cache can still serve a previously cached public object until revalidation. This cannot be exercised without a CDN here.
 3. **Uploads are memory-buffered.** The endpoint has a 1 GiB per-file cap and a 20-file field limit, but 20 concurrent large uploads can still pressure memory and quota checks are not atomic under concurrency. This is a suspected DoS/performance risk, not reproduced with a production-sized payload.
 4. **No rate limiting** exists on login or API-key use; credential brute-force and key abuse rate limits were not tested.

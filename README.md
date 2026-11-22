@@ -33,6 +33,7 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
 - **Analytics** — views, downloads, uploads, unique visitors, traffic chart, top files and recent events, all stored in SQLite (no third-party scripts)
 - **API keys** — SHA-256-hashed, revocable keys with read-only, read/write or full-owner scopes; create/revoke in the admin panel
+- **MCP server** — stateless Streamable HTTP at `/mcp` with owner-scoped workspace tools and resources, using the same API keys and permissions as the app
 - **Documentation** — `/docs` in the app (API reference, nodes, config, backups)
 - First-run setup wizard creates the admin user
 - `SERVER_MODE=main | node`

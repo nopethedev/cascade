@@ -6,7 +6,8 @@ function currentUser(req) {
 }
 
 function isApiRequest(req) {
-  return req.path.startsWith('/api/') || String(req.originalUrl || '').startsWith('/api/');
+  const path = req.path || '';
+  return path.startsWith('/api/') || path === '/mcp' || String(req.originalUrl || '').startsWith('/api/');
 }
 
 export function requireLogin(req, res, next) {
