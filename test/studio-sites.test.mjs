@@ -7,8 +7,8 @@ import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { buildPluginModel } from '../src/robloxPlugin.js';
 import { validateScene, validateCommand, applyCommandToContent, starterScene } from '../src/studio.js';
-import { renderSiteDocument } from '../public/site-render.mjs';
-import { TEMPLATES } from '../src/templates.js';
+import { renderSiteDocument, siteCss, renderSiteBody } from '../public/site-render.mjs';
+import { TEMPLATES, templatesFor } from '../src/templates.js';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const ADMIN_PASSWORD = 'studio-admin-password';
@@ -97,6 +97,45 @@ test('Roblox Studio unit validation rejects unsafe payloads and persists support
   assert.match(xml, /ProtectedString name="Source"/);
   assert.match(xml, /&quot;/);
   assert.doesNotMatch(xml, /<script>/i);
+});
+
+test('website engine emits real responsive CSS, breakpoints, layout variants and media', () => {
+  const content = {
+    brand: 'Responsive QA',
+    theme: { breakpoints: { tablet: 820, mobile: 560 }, accent: '#e11d48' },
+    sections: [
+      {
+        id: 'layout-features', type: 'features', title: 'Layouts', items: [{ title: 'A', text: 'one' }, { title: 'B', text: 'two' }],
+        layout: { display: 'flex', columns: 4, tablet: 2, mobile: 1, gap: 22, justify: 'space-between' },
+        style: { paddingY: 90, paddingYTablet: 50, paddingYMobile: 22, bg: 'gradient', bgFrom: '#111111', bgTo: '#222222', bgVideo: 'https://cdn.example.test/loop.mp4' },
+      },
+      { id: 'layout-gallery', type: 'gallery', title: 'Work', images: [], layout: { display: 'grid', columns: 3 } },
+      { id: 'layout-freeform', type: 'freeform', height: 500, items: [{ id: 'block-a', title: 'SVG mark', x: 6, y: 10, w: 32, h: 24, image: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=' }, { id: 'block-b', title: 'Layer two', x: 56, y: 46, w: 28, h: 30 }] },
+    ],
+  };
+  const html = renderSiteBody(content);
+  const css = siteCss(content);
+  assert.match(html, /--cs-layout:flex/);
+  assert.match(html, /--cs-cols:4/);
+  assert.match(html, /cs-layout-flex/);
+  assert.match(html, /<video class="cs-bg-video"[^>]+src="https:\/\/cdn\.example\.test\/loop\.mp4"/);
+  assert.match(html, /data-freeform-id="block-a"/);
+  assert.match(html, /left:6%;top:10%;width:32%;height:24%/);
+  assert.match(html, /data:image\/svg\+xml;base64/);
+  assert.match(html, /--cs-freeform-height:500px/);
+  assert.match(css, /@media \(max-width:820px\)/);
+  assert.match(css, /@media \(max-width:560px\)/);
+  assert.match(css, /\[data-cs-id="layout-features"\]\{padding-top:50px;padding-bottom:50px\}/);
+  assert.match(css, /\[data-cs-id="layout-features"\]\{padding-top:22px;padding-bottom:22px\}/);
+  const doc = renderSiteDocument(content);
+  assert.match(doc, /@media \(max-width:820px\)/);
+  assert.match(doc, /--cs-cols-tablet:2/);
+  assert.ok(templatesFor('site').some((t) => t.id === 'site-landing'));
+  assert.ok(templatesFor('site').some((t) => t.id === 'site-community'));
+  assert.ok(templatesFor('site', 'community').length >= 1);
+  const landing = TEMPLATES.find((t) => t.id === 'site-landing').build();
+  assert.ok(landing.sections.length >= 5);
+  assert.match(renderSiteDocument(landing), /cs-feature-grid/);
 });
 
 test('Studio relay, website publishing, CMS, rollback, MCP and cross-user isolation work end-to-end', { timeout: 90000 }, async (t) => {

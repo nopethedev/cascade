@@ -1,4 +1,4 @@
-import { renderSiteBody, siteCss, SECTION_LABELS } from '../site-render.mjs';
+import { renderSiteBody, siteCss, SECTION_LABELS, breakpointsFor } from '../site-render.mjs';
 
 const DOC = window.__DOC__;
 if (DOC) {
@@ -52,6 +52,7 @@ if (DOC) {
     data.sections = JSON.parse(history.pop());
     selected = data.sections[0]?.id || null;
     paint();
+    renderLayers();
     renderProps();
     window.Workspace.schedule();
   }
@@ -61,6 +62,7 @@ if (DOC) {
     data.sections = JSON.parse(future.pop());
     selected = data.sections[0]?.id || null;
     paint();
+    renderLayers();
     renderProps();
     window.Workspace.schedule();
   }
@@ -80,6 +82,14 @@ if (DOC) {
       return { ...base(), eyebrow: 'From the journal', title: collection?.name || 'Latest posts', text: 'Published items are loaded from the site CMS.', collectionId: collection?.id || '', collectionSlug: collection?.slug || '', limit: 6, style: { paddingY: 88 } };
     }
     if (type === 'custom') return { ...base(), title: 'Custom embed', html: '<h2>Your custom content</h2><p>Edit the HTML, CSS and JS in the inspector.</p>', css: '', js: '', style: { paddingY: 40 } };
+    if (type === 'freeform') return {
+      ...base(), height: 460,
+      items: [
+        { id: uid('block'), title: 'A precise block', text: 'Drag blocks on the canvas. They snap to the 1% grid and center guides.', x: 6, y: 10, w: 44, h: 42, bg: '#1d2433' },
+        { id: uid('block'), title: 'Another layer', text: 'Freeform layout keeps positions while the page scales.', x: 56, y: 28, w: 37, h: 48, bg: '#27314a' },
+      ],
+      style: { paddingY: 60 },
+    };
     return { ...base(), title: SECTION_LABELS[type] || type, style: { paddingY: 60 } };
   }
 
@@ -92,14 +102,97 @@ if (DOC) {
   }
 
   // ---------------- canvas ----------------
+  function bindFreeformDrag(itemEl, sectionEl) {
+    const section = data.sections.find((s) => s.id === sectionEl.dataset.sectionId);
+    const item = section?.items?.find((entry, index) => String(entry.id || index) === itemEl.dataset.freeformId);
+    if (!section || !item) return;
+    const canvas = itemEl.parentElement;
+    const vertical = document.createElement('i');
+    const horizontal = document.createElement('i');
+    vertical.className = 'cs-freeform-guide is-v';
+    horizontal.className = 'cs-freeform-guide is-h';
+    vertical.hidden = true;
+    horizontal.hidden = true;
+    canvas.append(vertical, horizontal);
+    itemEl.addEventListener('dragstart', (e) => e.preventDefault());
+    itemEl.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !canEdit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const itemRect = itemEl.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      const state = {
+        pointerId: e.pointerId,
+        offsetX: e.clientX - itemRect.left,
+        offsetY: e.clientY - itemRect.top,
+        x: Number(item.x) || 0,
+        y: Number(item.y) || 0,
+        moved: false,
+      };
+      snapshot();
+      itemEl.setPointerCapture(e.pointerId);
+      itemEl.classList.add('is-dragging');
+      const onMove = (event) => {
+        if (event.pointerId !== state.pointerId) return;
+        const rawX = ((event.clientX - canvasRect.left - state.offsetX) / canvasRect.width) * 100;
+        const rawY = ((event.clientY - canvasRect.top - state.offsetY) / canvasRect.height) * 100;
+        let x = Math.max(0, Math.min(100 - (Number(item.w) || 20), rawX));
+        let y = Math.max(0, Math.min(100 - (Number(item.h) || 20), rawY));
+        let guideX = null;
+        let guideY = null;
+        const grid = 1;
+        x = Math.round(x / grid) * grid;
+        y = Math.round(y / grid) * grid;
+        const centerX = x + (Number(item.w) || 20) / 2;
+        const centerY = y + (Number(item.h) || 20) / 2;
+        for (const target of [0, 25, 50, 75, 100]) {
+          if (Math.abs(x - target) <= 1.2) { x = target; guideX = target; }
+          if (Math.abs(centerX - target) <= 1.2) { x = target - (Number(item.w) || 20) / 2; guideX = target; }
+          if (Math.abs(y - target) <= 1.2) { y = target; guideY = target; }
+          if (Math.abs(centerY - target) <= 1.2) { y = target - (Number(item.h) || 20) / 2; guideY = target; }
+        }
+        x = Math.max(0, Math.min(100 - (Number(item.w) || 20), x));
+        y = Math.max(0, Math.min(100 - (Number(item.h) || 20), y));
+        itemEl.style.left = `${x}%`;
+        itemEl.style.top = `${y}%`;
+        vertical.hidden = guideX === null;
+        horizontal.hidden = guideY === null;
+        if (guideX !== null) vertical.style.left = `${guideX}%`;
+        if (guideY !== null) horizontal.style.top = `${guideY}%`;
+        state.x = x;
+        state.y = y;
+        state.moved = true;
+      };
+      const onUp = (event) => {
+        if (event.pointerId !== state.pointerId) return;
+        itemEl.removeEventListener('pointermove', onMove);
+        itemEl.removeEventListener('pointerup', onUp);
+        itemEl.removeEventListener('pointercancel', onUp);
+        itemEl.classList.remove('is-dragging');
+        vertical.remove();
+        horizontal.remove();
+        if (!state.moved) return;
+        item.x = Math.round(state.x * 10) / 10;
+        item.y = Math.round(state.y * 10) / 10;
+        paint();
+        renderProps();
+        window.Workspace.schedule();
+      };
+      itemEl.addEventListener('pointermove', onMove);
+      itemEl.addEventListener('pointerup', onUp);
+      itemEl.addEventListener('pointercancel', onUp);
+    });
+  }
+
   function paint() {
     // Timers, not requestAnimationFrame: embedded previews and background tabs
     // can pause rAF indefinitely, which would leave the canvas blank.
     if (paintTimer) clearTimeout(paintTimer);
     paintTimer = setTimeout(() => {
       paintTimer = null;
-      const max = device === 'mobile' ? 390 : device === 'tablet' ? 834 : Math.max(900, Number(data.theme.maxWidth) || 1120);
-      host.style.width = device === 'desktop' ? `${max}px` : `${max}px`;
+      const bp = breakpointsFor(data);
+      const max = device === 'mobile' ? Math.max(320, bp.mobile - 10) : device === 'tablet' ? Math.max(400, bp.tablet - 26) : Math.max(900, Number(data.theme.maxWidth) || 1120);
+      host.style.width = `${max}px`;
       host.style.maxWidth = '100%';
       host.style.setProperty('--site-canvas-bg', data.theme.bg || '#0b0b10');
       host.style.zoom = String(zoom);
@@ -154,6 +247,10 @@ if (DOC) {
           reorderBefore(dragId, section.dataset.sectionId);
         });
       }
+      shadow.querySelectorAll('[data-freeform-canvas] .cs-freeform-item').forEach((itemEl) => {
+        const sectionEl = itemEl.closest('[data-section-id]');
+        if (sectionEl && canEdit) bindFreeformDrag(itemEl, sectionEl);
+      });
       updateCanvasLabels();
     });
   }
@@ -199,11 +296,15 @@ if (DOC) {
   function addSection(type, at = null) {
     if (!canEdit) return;
     if (type.startsWith('component:')) {
-      const component = data.components[Number(type.split(':')[1])];
+      const parts = type.split(':');
+      const component = data.components[Number(parts[1])];
       if (!component) return;
+      const variant = parts[2] === 'variant' ? (component.variants || [])[Number(parts[3])] : null;
       snapshot();
-      const section = JSON.parse(JSON.stringify(component.section));
+      const section = JSON.parse(JSON.stringify(variant?.section || component.section));
       section.id = uid(section.type);
+      section.componentId = component.id;
+      if (variant) section.variantId = variant.id;
       data.sections.splice(at ?? Math.max(0, data.sections.length - 1), 0, section);
       selected = section.id;
       paint();
@@ -282,6 +383,13 @@ if (DOC) {
       option.dataset.component = '1';
       option.textContent = `Component · ${component.name}`;
       addSelect.append(option);
+      (component.variants || []).forEach((variant, j) => {
+        const variantOption = document.createElement('option');
+        variantOption.value = `component:${i}:variant:${j}`;
+        variantOption.dataset.component = '1';
+        variantOption.textContent = `Variant · ${component.name} / ${variant.name}`;
+        addSelect.append(variantOption);
+      });
     });
   }
 
@@ -331,6 +439,18 @@ if (DOC) {
     }
     sel.addEventListener('change', () => { snapshot(); onChange(sel.value); paint(); renderProps(); window.Workspace.schedule(); });
     return sel;
+  }
+  function checkbox(checked, onChange) {
+    const label = document.createElement('label');
+    label.className = 'check';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!checked;
+    const text = document.createElement('span');
+    text.textContent = 'Enabled';
+    input.addEventListener('change', () => { snapshot(); onChange(input.checked); paint(); window.Workspace.schedule(); });
+    label.append(input, text);
+    return label;
   }
   function colorInput(value, onChange) {
     const input = document.createElement('input');
@@ -403,6 +523,35 @@ if (DOC) {
       box.append(r);
     });
     box.append(button('+ Add item', () => { items.push(make()); renderProps(); paint(); window.Workspace.schedule(); }, 'btn btn-ghost btn-sm'));
+    return box;
+  }
+
+  function freeformItemsEditor(section) {
+    const box = document.createElement('div');
+    box.className = 'repeater';
+    const items = section.items || (section.items = []);
+    for (const [index, item] of items.entries()) {
+      item.id = item.id || uid('block');
+      const card = document.createElement('div');
+      card.className = 'repeater-card';
+      card.append(
+        prop('Title', textInput(item.title, (v) => { item.title = v; }, 'Block title')),
+        prop('Text', textInput(item.text, (v) => { item.text = v; }, 'Optional description')),
+        row(
+          numberInput(item.x ?? 8, (v) => { item.x = Math.max(0, Math.min(94, v)); }, { min: 0, max: 94 }),
+          numberInput(item.y ?? 8, (v) => { item.y = Math.max(0, Math.min(94, v)); }, { min: 0, max: 94 }),
+          numberInput(item.w ?? 30, (v) => { item.w = Math.max(4, Math.min(100, v)); }, { min: 4, max: 100 }),
+          numberInput(item.h ?? 24, (v) => { item.h = Math.max(4, Math.min(100, v)); }, { min: 4, max: 100 }),
+        ),
+        prop('Block colour', colorInput(item.bg || '#1d2433', (v) => { item.bg = v; })),
+        button('Remove block', () => { items.splice(index, 1); renderProps(); paint(); window.Workspace.schedule(); }, 'btn btn-quiet btn-sm'),
+      );
+      box.append(card);
+    }
+    box.append(button('+ Add block', () => {
+      items.push({ id: uid('block'), title: 'New block', text: '', x: 10, y: 10, w: 30, h: 24, bg: '#1d2433' });
+      renderProps(); paint(); window.Workspace.schedule();
+    }, 'btn btn-ghost btn-sm'));
     return box;
   }
 
@@ -533,6 +682,15 @@ if (DOC) {
         note.className = 'side-note';
         note.textContent = 'Runs inside a sandboxed iframe and cannot access Cascade or your session.';
         contentWrap.append(note);
+      } else if (section.type === 'freeform') {
+        contentWrap.append(
+          prop('Canvas height (px)', numberInput(section.height ?? 460, (v) => { section.height = Math.max(260, Math.min(900, v)); }, { min: 260, max: 900 })),
+          prop('Blocks — x, y, width, height are percentages', freeformItemsEditor(section)),
+        );
+        const note = document.createElement('p');
+        note.className = 'side-note';
+        note.textContent = 'Drag blocks directly on the canvas; they snap to a 1% grid and center guides. Mobile stacks blocks so text stays readable.';
+        contentWrap.append(note);
       }
 
       const style = section.style || (section.style = {});
@@ -545,12 +703,39 @@ if (DOC) {
           renderProps();
         })),
       );
+      if (style.bg === 'gradient') {
+        styleBox.append(
+          prop('Gradient from', colorInput(style.bgFrom || data.theme.surface, (v) => { style.bgFrom = v; })),
+          prop('Gradient to', colorInput(style.bgTo || data.theme.bg, (v) => { style.bgTo = v; })),
+        );
+      }
       if (style.bg === 'custom') styleBox.append(prop('Background colour', colorInput(style.bgColor, (v) => { style.bgColor = v; })));
       styleBox.append(
+        prop('Background image', row(button(style.bgImage ? 'Change image' : '+ Image', chooseImage((src) => { style.bgImage = src; }), 'btn btn-ghost btn-sm'), style.bgImage ? button('Remove', () => { delete style.bgImage; renderProps(); paint(); window.Workspace.schedule(); }, 'btn btn-quiet btn-sm') : null)),
+        prop('Background video URL', textInput(style.bgVideo, (v) => { if (!v || /^https?:\/\//i.test(v)) style.bgVideo = v; }, 'https://…/loop.mp4')),
         prop('Text alignment', select(style.align || 'left', { left: 'Left', center: 'Center', right: 'Right' }, (v) => { style.align = v; })),
         prop('Entrance animation', select(section.animation || 'none', { none: 'None', 'cs-rise': 'Fade up' }, (v) => { section.animation = v; })),
+        prop('Tablet padding', numberInput(style.paddingYTablet ?? style.paddingY ?? 80, (v) => { style.paddingYTablet = Math.max(0, Math.min(260, v)); }, { min: 0, max: 260 })),
+        prop('Mobile padding', numberInput(style.paddingYMobile ?? style.paddingY ?? 80, (v) => { style.paddingYMobile = Math.max(0, Math.min(260, v)); }, { min: 0, max: 260 })),
+        prop('Hide on tablet', checkbox(!!style.hideTablet, (v) => { style.hideTablet = v; })),
+        prop('Hide on mobile', checkbox(!!style.hideMobile, (v) => { style.hideMobile = v; })),
       );
       contentWrap.append(styleBox);
+
+      if (['features', 'gallery', 'testimonials', 'cms'].includes(section.type)) {
+        const layout = section.layout || (section.layout = {});
+        const layoutBox = block('Auto-layout & breakpoints');
+        layoutBox.append(
+          prop('Layout', select(layout.display || 'grid', { grid: 'CSS Grid', flex: 'Flexbox' }, (v) => { layout.display = v; })),
+          prop('Columns', numberInput(layout.columns ?? (section.type === 'gallery' ? 2 : 3), (v) => { layout.columns = Math.max(1, Math.min(6, v)); }, { min: 1, max: 6 })),
+          prop('Tablet columns', numberInput(layout.tablet ?? (section.type === 'gallery' ? 2 : 2), (v) => { layout.tablet = Math.max(1, Math.min(4, v)); }, { min: 1, max: 4 })),
+          prop('Mobile columns', numberInput(layout.mobile ?? 1, (v) => { layout.mobile = Math.max(1, Math.min(2, v)); }, { min: 1, max: 2 })),
+          prop('Gap', numberInput(layout.gap ?? 14, (v) => { layout.gap = Math.max(0, Math.min(72, v)); }, { min: 0, max: 72 })),
+          prop('Align', select(layout.align || 'stretch', { stretch: 'Stretch', start: 'Start', center: 'Center', end: 'End' }, (v) => { layout.align = v; })),
+          prop('Justify', select(layout.justify || 'start', { start: 'Start', center: 'Center', end: 'End', 'space-between': 'Space between' }, (v) => { layout.justify = v; })),
+        );
+        contentWrap.append(layoutBox);
+      }
       propsBody.append(contentWrap);
     }
 
@@ -564,9 +749,12 @@ if (DOC) {
       prop('Surface', colorInput(theme.surface, (v) => { theme.surface = v; })),
       prop('Text', colorInput(theme.text, (v) => { theme.text = v; })),
       prop('Muted text', colorInput(theme.muted, (v) => { theme.muted = v; })),
-      prop('Font', textInput(theme.font, (v) => { theme.font = v; }, 'Inter')),
+      prop('Body font', textInput(theme.font, (v) => { theme.font = v; }, 'Inter')),
+      prop('Heading font', textInput(theme.headingFont || theme.font, (v) => { theme.headingFont = v; }, 'Inter or Georgia')),
       prop('Corner radius', numberInput(theme.radius ?? 14, (v) => { theme.radius = Math.max(0, Math.min(40, v)); }, { min: 0, max: 40 })),
       prop('Content width', numberInput(theme.maxWidth ?? 1120, (v) => { theme.maxWidth = Math.max(720, Math.min(1440, v)); }, { min: 720, max: 1440 })),
+      prop('Tablet breakpoint', numberInput(theme.breakpoints?.tablet ?? 860, (v) => { theme.breakpoints = { ...(theme.breakpoints || {}), tablet: Math.max(600, Math.min(1200, v)) }; }, { min: 600, max: 1200 })),
+      prop('Mobile breakpoint', numberInput(theme.breakpoints?.mobile ?? 600, (v) => { theme.breakpoints = { ...(theme.breakpoints || {}), mobile: Math.max(320, Math.min(720, v)) }; }, { min: 320, max: 720 })),
     );
     const seoBox = block('SEO & social sharing');
     seoBox.append(
@@ -576,11 +764,75 @@ if (DOC) {
       prop('Custom CSS', areaInput(data.customCss, (v) => { data.customCss = v; }, 5)),
     );
     propsBody.append(themeBox, seoBox);
-    if (data.components.length) {
-      const components = block('Reusable components');
-      components.append(button('Save current section as component', saveComponent, 'btn btn-ghost btn-sm'));
+    if (data.components.length || selectedSection()) {
+      const components = block('Reusable components & variants');
+      components.append(button(selectedSection()?.componentId ? 'Save current style as variant' : 'Save current section as component', selectedSection()?.componentId ? saveVariant : saveComponent, 'btn btn-ghost btn-sm'));
+      data.components.forEach((component, i) => {
+        const line = document.createElement('div');
+        line.className = 'repeater-row';
+        const name = document.createElement('strong');
+        name.textContent = component.name;
+        const insert = button('Insert', () => addSection(`component:${i}`), 'btn btn-quiet btn-sm');
+        line.append(name, insert);
+        components.append(line);
+        (component.variants || []).forEach((variant, j) => {
+          const variantLine = document.createElement('div');
+          variantLine.className = 'repeater-row';
+          const variantName = document.createElement('span');
+          variantName.textContent = `Variant · ${variant.name}`;
+          variantLine.append(variantName, button('Insert', () => addSection(`component:${i}:variant:${j}`), 'btn btn-quiet btn-sm'));
+          components.append(variantLine);
+        });
+      });
       propsBody.append(components);
     }
+  }
+
+    function duplicateSection(id) {
+    const section = data.sections.find((s) => s.id === id);
+    if (!section) return;
+    snapshot();
+    const copy = JSON.parse(JSON.stringify(section));
+    copy.id = uid(section.type);
+    delete copy.componentId;
+    delete copy.variantId;
+    const at = data.sections.findIndex((s) => s.id === id) + 1;
+    data.sections.splice(at, 0, copy);
+    selected = copy.id;
+    paint();
+    renderLayers();
+    renderProps();
+    window.Workspace.schedule();
+  }
+
+  const CLIPBOARD_KEY = 'cascade.site.section.v1';
+  function copySection(id = selected) {
+    const section = data.sections.find((s) => s.id === id);
+    if (!section) return;
+    const serialized = JSON.stringify({ type: section.type, section });
+    try { localStorage.setItem(CLIPBOARD_KEY, serialized); } catch { /* private mode */ }
+    navigator.clipboard?.writeText(serialized).catch(() => {});
+    window.cascadeToast?.('Section copied — paste it here or in another site');
+  }
+  function pasteSection() {
+    if (!canEdit) return;
+    let parsed;
+    try { parsed = JSON.parse(localStorage.getItem(CLIPBOARD_KEY) || 'null'); } catch { return; }
+    const source = parsed?.section;
+    if (!source || typeof source !== 'object' || !SECTION_LABELS[source.type]) return window.cascadeToast?.('No copied section found', true);
+    snapshot();
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id = uid(copy.type);
+    delete copy.componentId;
+    delete copy.variantId;
+    const at = data.sections.findIndex((s) => s.id === selected);
+    data.sections.splice(at < 0 ? data.sections.length : at + 1, 0, copy);
+    selected = copy.id;
+    paint();
+    renderLayers();
+    renderProps();
+    window.Workspace.schedule();
+    window.cascadeToast?.('Section pasted');
   }
 
   function sectionTitleBar(section) {
@@ -593,18 +845,9 @@ if (DOC) {
     tools.append(
       button('↑', () => moveSection(section.id, -1), 'btn btn-quiet btn-sm'),
       button('↓', () => moveSection(section.id, 1), 'btn btn-quiet btn-sm'),
-      button('Duplicate', () => {
-        snapshot();
-        const copy = JSON.parse(JSON.stringify(section));
-        copy.id = uid(section.type);
-        const at = data.sections.findIndex((s) => s.id === section.id) + 1;
-        data.sections.splice(at, 0, copy);
-        selected = copy.id;
-        paint();
-        renderLayers();
-        renderProps();
-        window.Workspace.schedule();
-      }, 'btn btn-quiet btn-sm'),
+      button('Copy', () => copySection(section.id), 'btn btn-quiet btn-sm'),
+      button('Paste', () => pasteSection(), 'btn btn-quiet btn-sm'),
+      button('Duplicate', () => duplicateSection(section.id), 'btn btn-quiet btn-sm'),
       button('Delete', () => deleteSection(section.id), 'btn btn-danger btn-sm'),
     );
     bar.append(tools);
@@ -642,10 +885,32 @@ if (DOC) {
     if (!section) return;
     const name = window.prompt('Component name', section.title || sectionLabel(section));
     if (!name) return;
-    data.components.push({ id: uid('component'), name: name.slice(0, 60), section: JSON.parse(JSON.stringify(section)) });
+    const component = { id: uid('component'), name: name.slice(0, 60), section: JSON.parse(JSON.stringify(section)), variants: [] };
+    section.componentId = component.id;
+    data.components.push(component);
     refreshAddSelect();
+    renderProps();
     window.Workspace.schedule();
     window.cascadeToast?.('Component saved — add it from the section menu');
+  }
+
+  function saveVariant() {
+    const section = selectedSection();
+    if (!section) return;
+    const component = data.components.find((item) => item.id === section.componentId);
+    if (!component) return saveComponent();
+    const name = window.prompt('Variant name', `${sectionLabel(section)} variant`);
+    if (!name) return;
+    const variant = { id: uid('variant'), name: name.slice(0, 60), section: JSON.parse(JSON.stringify(section)) };
+    delete variant.section.componentId;
+    delete variant.section.variantId;
+    component.variants = Array.isArray(component.variants) ? component.variants : [];
+    component.variants.push(variant);
+    section.variantId = variant.id;
+    refreshAddSelect();
+    renderProps();
+    window.Workspace.schedule();
+    window.cascadeToast?.('Variant saved');
   }
 
   // ---------------- CMS and deployments ----------------
@@ -976,9 +1241,24 @@ if (DOC) {
   document.addEventListener('keydown', (e) => {
     if (e.target.matches('input, textarea, select, [contenteditable="true"]')) return;
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.key.toLowerCase() === 'z') {
+    const key = e.key.toLowerCase();
+    if (mod && key === 'z') {
       e.preventDefault();
       if (e.shiftKey) redo(); else undo();
+    }
+    if (mod && key === 'c' && selected) { e.preventDefault(); copySection(selected); }
+    if (mod && key === 'v' && canEdit) { e.preventDefault(); pasteSection(); }
+    if (mod && key === 'd' && selected) { e.preventDefault(); duplicateSection(selected); }
+    if (mod && key === 's') { e.preventDefault(); window.Workspace.saveNow(true); }
+    if (e.altKey && selected && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      moveSection(selected, e.key === 'ArrowUp' ? -1 : 1);
+    }
+    if (e.key === 'Escape' && !e.target.closest('dialog')) {
+      selected = null;
+      paint();
+      renderLayers();
+      renderProps();
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
       e.preventDefault();

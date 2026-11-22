@@ -14,7 +14,7 @@ export const KINDS = [
   { id: 'roblox', label: 'Roblox place', tag: 'Studio relay + 3D', icon: 'RBX' },
 ];
 
-export const CATEGORIES = ['blank', 'business', 'education', 'personal', 'blog', 'ecommerce', 'game', 'custom'];
+export const CATEGORIES = ['blank', 'business', 'education', 'personal', 'blog', 'ecommerce', 'community', 'game', 'custom'];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const doc = (html, extra = {}) => ({ html, header: extra.header || '', footer: extra.footer || '' });
@@ -450,6 +450,39 @@ export const TEMPLATES = [
       siteSection('contact', { title: 'Book a discovery call', text: 'A 30-minute conversation, no pitch deck required.', email: 'hello@example.com' }),
       siteSection('footer', { text: '© Northline.', links: [{ label: 'Privacy', href: '#' }, { label: 'Terms', href: '#' }] }),
     ], { accent: '#0ea5e9', bg: '#080b0f', surface: '#121a22', text: '#f1f7fb', muted: '#93a8b8', font: 'Inter', radius: 12 }, { title: 'Northline — Make the work flow', description: 'Operations consulting for growing service teams.' }),
+  },
+  {
+    id: 'site-landing', name: 'Product launch landing', kind: 'site', category: 'business',
+    description: 'Focused launch page with a single offer, proof and signup flow.',
+    build: () => site('Launchpad', [
+      siteSection('nav', { brand: 'Launchpad', links: [{ label: 'Why', href: '#features' }, { label: 'Proof', href: '#proof' }, { label: 'Get access', href: '#contact' }], ctaLabel: 'Join the waitlist', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'Private beta · Opening soon', title: 'One focused tool. A much shorter week.', text: 'Launchpad brings the scattered pieces of a product launch into one calm workspace, so your team can ship instead of chasing status.', ctaLabel: 'Join the waitlist', ctaHref: '#contact', secondaryLabel: 'See the workflow', secondaryHref: '#features', align: 'center', style: { paddingY: 126, bg: 'gradient' } }),
+      siteSection('features', { title: 'Less ceremony. More shipped work.', text: 'Everything is designed around the next decision, not another dashboard.', items: [
+        { title: 'One live plan', text: 'Goals, owners and dates stay in the same place — and stay current.' },
+        { title: 'A clear next step', text: 'Each morning starts with the smallest useful move, not a backlog.' },
+        { title: 'Proof, not promises', text: 'Every launch leaves a clean record of what changed and why.' },
+      ], style: { paddingY: 92 } }),
+      siteSection('testimonials', { title: 'From the first teams', items: [{ quote: 'We stopped running launches from three tabs and a group chat.', name: 'Mara Voss', role: 'Product lead, Northwind' }] }),
+      siteSection('cta', { title: 'Be first through the door.', text: 'A short note when the beta opens. No newsletter, no noise.', ctaLabel: 'Join the waitlist', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Join the waitlist', text: 'Leave your email and we will send your invite when a seat opens.', email: 'hello@launchpad.example' }),
+      siteSection('footer', { text: '© Launchpad. Built with Cascade.', links: [{ label: 'Privacy', href: '#' }] }),
+    ], { accent: '#8b5cf6', bg: '#09080f', surface: '#16131f', text: '#f7f5ff', muted: '#a9a4b8', font: 'Inter', radius: 12 }, { title: 'Launchpad — Ship your next launch', description: 'One calm workspace for product launches.' }),
+  },
+  {
+    id: 'site-community', name: 'Community showcase', kind: 'site', category: 'community',
+    description: 'A contributor-made community page with events, projects and a call to join.',
+    build: () => site('Open Circle', [
+      siteSection('nav', { brand: 'Open Circle', links: [{ label: 'Projects', href: '#work' }, { label: 'Events', href: '#events' }, { label: 'Join', href: '#contact' }], ctaLabel: 'Join the circle', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'A community-made template', title: 'Make things. Share the path.', text: 'Open Circle is a home for independent builders to show work in progress, trade honest feedback and meet the people one step ahead or behind.', ctaLabel: 'See community projects', ctaHref: '#work', secondaryLabel: 'Upcoming events', secondaryHref: '#events', align: 'left', style: { paddingY: 116, bg: 'gradient' } }),
+      siteSection('gallery', { title: 'Built in the open', text: 'A rotating selection of community projects and experiments.', images: [], style: { paddingY: 82 } }),
+      siteSection('features', { title: 'What happens here', text: 'No growth loops. Just a useful room for people who make things.', items: [
+        { title: 'Show work in progress', text: 'Share the messy middle and get feedback before the launch.' },
+        { title: 'Meet nearby builders', text: 'Small, local meetups and a monthly online show-and-tell.' },
+        { title: 'Leave a useful trail', text: 'Write down what worked so the next person starts further ahead.' },
+      ], style: { paddingY: 88 } }),
+      siteSection('contact', { title: 'Join the circle', text: 'Tell us what you are building and we will send the next gathering details.', email: 'hello@opencircle.example' }),
+      siteSection('footer', { text: 'Open Circle — a community project.', links: [{ label: 'Code of conduct', href: '#' }, { label: 'Contribute', href: '#' }] }),
+    ], { accent: '#14b8a6', bg: '#07100f', surface: '#0f1b1a', text: '#f0fdfa', muted: '#94b8b4', font: 'Inter', radius: 16 }, { title: 'Open Circle — Make things, share the path', description: 'A community for independent builders.' }),
   },
   {
     id: 'roblox-starter', name: 'Roblox place', kind: 'roblox', category: 'game',

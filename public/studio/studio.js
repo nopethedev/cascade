@@ -1,4 +1,14 @@
 import * as THREE from '/public/vendor/three.module.js';
+import {
+  buildSceneMeshes,
+  orbitPosition,
+  orbitCamera,
+  zoomCamera,
+  screenPanDelta,
+  applyGizmoDrag,
+  transformCommand,
+  snapshotTransform,
+} from './scene-engine.mjs';
 
 const bootstrap = JSON.parse(document.getElementById('studio-bootstrap')?.textContent || '{}');
 const app = document.getElementById('studio-app');
@@ -971,7 +981,7 @@ $('studio-script-diff')?.addEventListener('click', () => {
 });
 
 // ----------------------------- viewport -----------------------------
-const viewport = { renderer: null, scene: null, camera: null, root: null, selection: null, meshes: new Map(), target: new THREE.Vector3(0, 4, 0), radius: 34, theta: 0.8, phi: 1.05 };
+const viewport = { renderer: null, scene: null, camera: null, root: null, selection: null, gizmo: null, meshes: new Map(), target: new THREE.Vector3(0, 4, 0), radius: 34, theta: 0.8, phi: 1.05 };
 function viewportFallback(message) {
   const canvas = $('studio-viewport');
   if (!canvas) return;
@@ -1033,6 +1043,9 @@ function initViewport() {
   viewport.selection.visible = false;
   viewport.selection.userData.system = true;
   viewport.root.add(viewport.selection);
+  viewport.gizmo = makeTransformGizmo();
+  viewport.gizmo.visible = false;
+  viewport.root.add(viewport.gizmo);
   bindViewportInput(canvas);
   const resize = () => {
     const box = canvas.parentElement?.getBoundingClientRect();
@@ -1053,12 +1066,8 @@ function initViewport() {
     if (!viewport.renderer) return;
     requestAnimationFrame(tick);
     if (!viewport.camera) return;
-    const p = viewport.target.clone().add(new THREE.Vector3(
-      viewport.radius * Math.sin(viewport.phi) * Math.sin(viewport.theta),
-      viewport.radius * Math.cos(viewport.phi),
-      viewport.radius * Math.sin(viewport.phi) * Math.cos(viewport.theta),
-    ));
-    viewport.camera.position.copy(p);
+    const p = orbitPosition({ target: viewport.target, radius: viewport.radius, theta: viewport.theta, phi: viewport.phi });
+    viewport.camera.position.set(p.x, p.y, p.z);
     viewport.camera.lookAt(viewport.target);
     try {
       viewport.renderer.render(viewport.scene, viewport.camera);
@@ -1069,22 +1078,38 @@ function initViewport() {
   };
   requestAnimationFrame(tick);
 }
-function makeMesh(node) {
-  const className = classNameOf(node);
-  if (/Script|Module|Gui|Frame|Label|Button|Image|Scrolling|UIList|UIPadding|UICorner|UIStroke|UIGradient|Sound|Camera/.test(className)) return null;
-  const p = propsOf(node);
-  if (!p.Size && !/Model|Folder|Service|Workspace|Lighting|Storage/.test(className)) return null;
-  const size = p.Size && typeof p.Size === 'object' ? p.Size : { x: 4, y: 1, z: 4 };
-  const pos = p.Position && typeof p.Position === 'object' ? p.Position : { x: 0, y: 0, z: 0 };
-  const sx = Math.max(0.05, num(size.x, 4)), sy = Math.max(0.05, num(size.y, 1)), sz = Math.max(0.05, num(size.z, 4));
+function makeTransformGizmo() {
+  const group = new THREE.Group();
+  group.userData.system = true;
+  const axes = [
+    ['x', 8, 0.22, 0xf87171, new THREE.Vector3(1, 0, 0)],
+    ['y', 8, 0.22, 0x4ade80, new THREE.Vector3(0, 1, 0)],
+    ['z', 8, 0.22, 0x60a5fa, new THREE.Vector3(0, 0, 1)],
+  ];
+  for (const [axis, length, head, color, direction] of axes) {
+    const arrow = new THREE.ArrowHelper(direction, new THREE.Vector3(0, 0, 0), length, color, head, 0.45);
+    arrow.userData.gizmoAxis = axis;
+    arrow.traverse((child) => { child.userData.gizmoAxis = axis; });
+    group.add(arrow);
+  }
+  return group;
+}
+function makeMesh(item) {
+  const className = item.className;
+  const { x: sx, y: sy, z: sz } = item.size;
   const geometry = className === 'MeshPart' ? new THREE.SphereGeometry(Math.max(sx, sy, sz) / 2, 24, 16) : new THREE.BoxGeometry(sx, sy, sz);
-  const color = /^#[0-9a-f]{6}$/i.test(p.Color || '') ? p.Color : '#64748b';
-  const material = new THREE.MeshStandardMaterial({ color, roughness: p.Material === 'Metal' ? 0.25 : 0.72, metalness: p.Material === 'Metal' ? 0.65 : 0.06, transparent: num(p.Transparency, 0) > 0, opacity: 1 - Math.max(0, Math.min(1, num(p.Transparency, 0))), emissive: p.Material === 'Neon' ? color : 0x000000, emissiveIntensity: p.Material === 'Neon' ? 0.55 : 0 });
+  const color = item.color;
+  const material = new THREE.MeshStandardMaterial({ color, roughness: item.material === 'Metal' ? 0.25 : 0.72, metalness: item.material === 'Metal' ? 0.65 : 0.06, transparent: item.transparency > 0, opacity: 1 - item.transparency, emissive: item.material === 'Neon' ? color : 0x000000, emissiveIntensity: item.material === 'Neon' ? 0.55 : 0 });
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(num(pos.x), num(pos.y), num(pos.z));
-  if (p.CFrame && typeof p.CFrame === 'object') mesh.rotation.set(THREE.MathUtils.degToRad(num(p.CFrame.rx)), THREE.MathUtils.degToRad(num(p.CFrame.ry)), THREE.MathUtils.degToRad(num(p.CFrame.rz)));
-  mesh.userData.id = node.id;
-  mesh.userData.node = node;
+  mesh.position.set(item.position.x, item.position.y, item.position.z);
+  mesh.rotation.set(
+    THREE.MathUtils.degToRad(item.rotation.rx),
+    THREE.MathUtils.degToRad(item.rotation.ry),
+    THREE.MathUtils.degToRad(item.rotation.rz),
+  );
+  mesh.userData.id = item.id;
+  mesh.userData.className = className;
+  mesh.userData.transform = item;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.35 })));
@@ -1093,19 +1118,15 @@ function makeMesh(node) {
 function rebuildViewport(revealId = null) {
   if (!viewport.root) return;
   for (const child of [...viewport.root.children]) {
-    // Grid, axes and the selection helper are renderer infrastructure, not
-    // scene nodes. Rebuilding the scene must not remove them.
-    if (child === viewport.selection || child.userData.system) continue;
+    // Grid, axes, selection and gizmo are renderer infrastructure, not scene nodes.
+    if (child === viewport.selection || child === viewport.gizmo || child.userData.system) continue;
     viewport.root.remove(child);
   }
   viewport.meshes.clear();
-  const addNode = (node) => {
-    const mesh = makeMesh(node);
-    if (mesh) { viewport.root.add(mesh); viewport.meshes.set(node.id, mesh); }
-    for (const child of node.children || []) addNode(child);
-  };
-  for (const svc of scene.services || []) {
-    if (['Workspace', 'Lighting', 'ReplicatedStorage', 'ServerScriptService', 'StarterGui'].includes(svc.name)) addNode(svc);
+  for (const item of buildSceneMeshes(scene)) {
+    const mesh = makeMesh(item);
+    viewport.root.add(mesh);
+    viewport.meshes.set(item.id, mesh);
   }
   if (revealId) focusNode(revealId);
   renderViewportSelection();
@@ -1113,9 +1134,19 @@ function rebuildViewport(revealId = null) {
 function renderViewportSelection() {
   if (!viewport.selection) return;
   const mesh = primaryId ? viewport.meshes.get(primaryId) : null;
-  if (!mesh) { viewport.selection.visible = false; return; }
+  if (!mesh) {
+    viewport.selection.visible = false;
+    if (viewport.gizmo) viewport.gizmo.visible = false;
+    return;
+  }
   viewport.selection.setFromObject(mesh);
   viewport.selection.visible = true;
+  if (viewport.gizmo) {
+    viewport.gizmo.position.copy(mesh.position);
+    viewport.gizmo.rotation.set(0, mesh.rotation.y, 0);
+    viewport.gizmo.scale.setScalar(transformTool === 'scale' ? 1.25 : 1);
+    viewport.gizmo.visible = transformTool !== 'select';
+  }
 }
 function focusNode(id) {
   const mesh = id ? viewport.meshes.get(id) : null;
@@ -1129,26 +1160,34 @@ function raycast(event) {
   const mouse = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(mouse, viewport.camera);
-  return raycaster.intersectObjects([...viewport.meshes.values()], false)[0] || null;
+  const objects = [...viewport.meshes.values()];
+  if (viewport.gizmo?.visible) objects.push(...viewport.gizmo.children);
+  return raycaster.intersectObjects(objects, true)[0] || null;
 }
 function bindViewportInput(canvas) {
   let pointer = null;
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     const hit = raycast(e);
-    if (e.button === 0 && ['move', 'rotate', 'scale'].includes(transformTool) && hit?.object?.userData?.id) {
-      selected = new Set([hit.object.userData.id]); primaryId = hit.object.userData.id;
-      renderTree(); renderProps(); renderGui(); renderViewportSelection();
-      pointer = {
-        mode: transformTool,
-        x: e.clientX,
-        y: e.clientY,
-        startPosition: hit.object.position.clone(),
-        startRotation: hit.object.rotation.clone(),
-        startScale: hit.object.scale.clone(),
-        object: hit.object,
-      };
-      return;
+    const hitId = hit?.object?.userData?.id;
+    const gizmoAxis = hit?.object?.userData?.gizmoAxis;
+    if (e.button === 0 && gizmoAxis && ['move', 'rotate', 'scale'].includes(transformTool) && primaryId) {
+      const node = findNode(primaryId);
+      const mesh = viewport.meshes.get(primaryId);
+      if (node && mesh) {
+        pointer = { mode: transformTool, axis: gizmoAxis, x: e.clientX, y: e.clientY, start: snapshotTransform(node), object: mesh };
+        return;
+      }
+    }
+    if (e.button === 0 && ['move', 'rotate', 'scale'].includes(transformTool) && hitId) {
+      const node = findNode(hitId);
+      const mesh = viewport.meshes.get(hitId);
+      if (node && mesh) {
+        selected = new Set([hitId]); primaryId = hitId;
+        renderTree(); renderProps(); renderGui(); renderViewportSelection();
+        pointer = { mode: transformTool, axis: null, x: e.clientX, y: e.clientY, start: snapshotTransform(node), object: mesh };
+        return;
+      }
     }
     pointer = { mode: e.button === 2 || e.shiftKey ? 'pan' : 'orbit', x: e.clientX, y: e.clientY, theta: viewport.theta, phi: viewport.phi, target: viewport.target.clone() };
     if (e.button === 0 && hit?.object?.userData?.id) {
@@ -1162,63 +1201,60 @@ function bindViewportInput(canvas) {
     if (!pointer) return;
     const dx = e.clientX - pointer.x, dy = e.clientY - pointer.y;
     if (pointer.mode === 'orbit') {
-      viewport.theta = pointer.theta - dx * 0.006;
-      viewport.phi = Math.max(0.08, Math.min(Math.PI - 0.08, pointer.phi - dy * 0.006));
+      const next = orbitCamera({ theta: pointer.theta, phi: pointer.phi }, dx, dy);
+      viewport.theta = next.theta;
+      viewport.phi = next.phi;
     } else if (pointer.mode === 'pan') {
       const right = new THREE.Vector3().setFromMatrixColumn(viewport.camera.matrix, 0);
       const up = new THREE.Vector3().setFromMatrixColumn(viewport.camera.matrix, 1);
-      viewport.target.copy(pointer.target).addScaledVector(right, -dx * viewport.radius * 0.0016).addScaledVector(up, dy * viewport.radius * 0.0016);
-    } else if (pointer.mode === 'move') {
+      const delta = screenPanDelta({ dx, dy, radius: viewport.radius, right, up });
+      viewport.target.copy(pointer.target).add(new THREE.Vector3(delta.x, delta.y, delta.z));
+    } else if (['move', 'rotate', 'scale'].includes(pointer.mode)) {
+      const next = applyGizmoDrag(pointer.start, {
+        mode: pointer.mode,
+        axis: pointer.axis,
+        dx,
+        dy,
+        radius: viewport.radius,
+        space: transformSpace,
+        snapStep: gridSnap,
+        rotationSnap: !!gridSnap,
+        rotationDegrees: 15,
+      });
+      pointer.next = next;
       const obj = pointer.object;
-      obj.position.x = pointer.startPosition.x + dx * viewport.radius * 0.0018;
-      obj.position.z = pointer.startPosition.z + dy * viewport.radius * 0.0018;
-      if (gridSnap) { const step = Number($('studio-snap-size')?.value || 1); obj.position.x = Math.round(obj.position.x / step) * step; obj.position.z = Math.round(obj.position.z / step) * step; }
+      if (pointer.mode === 'move') obj.position.set(next.position.x, next.position.y, next.position.z);
+      if (pointer.mode === 'rotate') obj.rotation.y = THREE.MathUtils.degToRad(next.rotation.ry);
+      if (pointer.mode === 'scale') {
+        const base = pointer.start.size;
+        obj.scale.set(next.size.x / base.x, next.size.y / base.y, next.size.z / base.z);
+      }
       viewport.selection.setFromObject(obj);
-    } else if (pointer.mode === 'rotate') {
-      const obj = pointer.object;
-      obj.rotation.y = pointer.startRotation.y + dx * 0.012;
-      if (gridSnap) { const step = Number($('studio-snap-size')?.value || 1) * (Math.PI / 12); obj.rotation.y = Math.round(obj.rotation.y / step) * step; }
-      viewport.selection.setFromObject(obj);
-    } else if (pointer.mode === 'scale') {
-      const obj = pointer.object;
-      const factor = Math.max(0.05, Math.min(20, 1 + (dx - dy) * 0.004));
-      obj.scale.set(factor, factor, factor);
-      viewport.selection.setFromObject(obj);
+      if (viewport.gizmo) viewport.gizmo.position.copy(obj.position);
     }
   });
   canvas.addEventListener('pointerup', () => {
-    if (pointer && canEdit && ['move', 'rotate', 'scale'].includes(pointer.mode)) {
-      const obj = pointer.object;
-      const node = findNode(obj.userData.id);
-      if (node) {
-        const p = propsOf(node);
-        if (pointer.mode === 'move') {
-          const pos = { ...(p.Position || {}), x: obj.position.x, y: obj.position.y, z: obj.position.z };
-          node.props = { ...p, Position: pos };
-          queueCommand('update', { instanceId: node.id, props: { Position: pos } }, { optimistic: false });
-        } else if (pointer.mode === 'rotate') {
-          const cframe = { ...(p.CFrame || {}), ...(p.Position || {}), ry: THREE.MathUtils.radToDeg(obj.rotation.y) };
-          node.props = { ...p, CFrame: cframe };
-          queueCommand('update', { instanceId: node.id, props: { CFrame: cframe } }, { optimistic: false });
-        } else {
-          const base = p.Size && typeof p.Size === 'object' ? p.Size : { x: 4, y: 1, z: 4 };
-          const factor = obj.scale.x;
-          const size = { x: Math.max(0.05, Number(base.x) * factor), y: Math.max(0.05, Number(base.y) * factor), z: Math.max(0.05, Number(base.z) * factor) };
-          node.props = { ...p, Size: size };
-          queueCommand('update', { instanceId: node.id, props: { Size: size } }, { optimistic: false });
-        }
+    if (pointer?.next && canEdit && ['move', 'rotate', 'scale'].includes(pointer.mode)) {
+      const node = findNode(pointer.start.id);
+      const command = node ? transformCommand(node.id, pointer.start, pointer.next, pointer.mode) : null;
+      if (node && command) {
+        // Capture undo history from the pre-drag props, then apply the local
+        // transform immediately; the server command remains the relay diff.
+        queueCommand(command.kind, command.payload, { optimistic: false });
+        node.props = { ...propsOf(node), ...command.payload.props };
         renderProps();
         rebuildViewport(node.id);
       }
     }
     pointer = null;
   });
-  canvas.addEventListener('wheel', (e) => { e.preventDefault(); viewport.radius = Math.max(3, Math.min(150, viewport.radius + e.deltaY * 0.035)); }, { passive: false });
+  canvas.addEventListener('wheel', (e) => { e.preventDefault(); viewport.radius = zoomCamera(viewport.radius, e.deltaY); }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 document.querySelectorAll('[data-studio-tool]').forEach((b) => b.addEventListener('click', () => {
   transformTool = b.dataset.studioTool;
   document.querySelectorAll('[data-studio-tool]').forEach((x) => x.classList.toggle('is-active', x === b));
+  renderViewportSelection();
 }));
 $('studio-transform-space')?.addEventListener('change', (e) => { transformSpace = e.target.value; });
 $('studio-snap')?.addEventListener('change', (e) => { gridSnap = e.target.checked ? Number($('studio-snap-size').value) : 0; });
