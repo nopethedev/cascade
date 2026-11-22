@@ -16,6 +16,7 @@
   <div class="tool-group">
     <button class="tool" type="button" id="add-row">+ Row</button>
     <button class="tool" type="button" id="add-col">+ Col</button>
+    <button class="tool" type="button" id="add-sheet-image">+ Image</button>
     <button class="tool" type="button" id="sort-asc" title="Sort the selected column, whole rows">Sort ↑</button>
     <button class="tool" type="button" id="sort-desc">Sort ↓</button>
     <input type="search" id="sheet-filter" class="tool-input" placeholder="Filter selected column…" aria-label="Filter rows" />
@@ -29,6 +30,8 @@
   <input id="formula-input" class="formula-input" placeholder="Type a value or =FORMULA, then Enter" aria-label="Formula bar" spellcheck="false" />
 </div>
 
+<div id="sheet-images" class="sheet-images" hidden></div>
+
 <div class="sheet-wrap"><div id="sheet-grid" class="sheet-grid"></div></div>
 
 <div class="sheet-tabs">
@@ -40,5 +43,6 @@
   window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
 </script>
 <script src="/public/editors/common.js"></script>
+<script src="/public/image-library.js"></script>
 <script src="/public/editors/sheet.js"></script>
 <%- include('../partials/foot') %>

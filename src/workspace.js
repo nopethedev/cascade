@@ -530,7 +530,7 @@ export function createWorkspaceRouter() {
     }
     if (file.kind === 'sheet') {
       return {
-        body: await sheetToXlsx(content),
+        body: await sheetToXlsx(content, resolveImage),
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         filename: `${base}.xlsx`,
       };

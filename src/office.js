@@ -334,8 +334,18 @@ async function blocksFromNode(node, resolveImage) {
 
 export async function docToDocx(file, content, resolveImage) {
   const root = parse(String(content.html || '<p></p>'));
+  const nodes = [...root.childNodes];
+  // Empty editor paragraphs are useful on screen, but a trailing editor-created
+  // <p><br></p> after an image can create a blank final Word page.
+  while (nodes.length) {
+    const last = nodes[nodes.length - 1];
+    const whitespaceText = last.nodeType === 3 && !last.text.trim();
+    const emptyParagraph = last.nodeType === 1 && String(last.rawTagName || '').toLowerCase() === 'p' && !last.text.trim() && !last.querySelector('img');
+    if (!whitespaceText && !emptyParagraph) break;
+    nodes.pop();
+  }
   const children = [];
-  for (const node of root.childNodes) {
+  for (const node of nodes) {
     if (node.nodeType === 1) children.push(...(await blocksFromNode(node, resolveImage)));
     else if (node.nodeType === 3 && node.text.trim()) {
       children.push(new Paragraph({ children: [new TextRun({ text: node.text, font: DOCX_FONT, size: DOCX_SIZE })] }));
@@ -386,7 +396,7 @@ function sheetName(name, used, index) {
   return out;
 }
 
-export async function sheetToXlsx(content) {
+export async function sheetToXlsx(content, resolveImage) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Cascade';
   wb.created = new Date();
@@ -397,24 +407,69 @@ export async function sheetToXlsx(content) {
     const ws = wb.addWorksheet(sheetName(source.name, used, i), {
       views: [{ state: 'frozen', ySplit: 1 }],
     });
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, horizontalDpi: 96, verticalDpi: 96 };
     const cells = source.cells || {};
     const computed = computeSheet(source);
     const refs = Object.keys(cells);
     const widths = new Map();
+    let maxRow = 0;
     for (const ref of refs) {
       const m = /^([A-Z]+)(\d+)$/.exec(ref);
       if (!m) continue;
       const col = colNumber(m[1]);
+      const row = Number(m[2]);
+      maxRow = Math.max(maxRow, row);
       const cell = cells[ref] || {};
       const value = computed[ref] ?? cell.v ?? cell.f ?? '';
       const target = ws.getCell(ref);
       if (value !== '' && value !== undefined && value !== null) {
-        target.value = typeof value === 'number' ? value : String(value);
+        // Keep the formula and its computed result. Excel/LibreOffice can
+        // recalculate it, while viewers that do not calculate still show the
+        // value the Cascade formula engine computed.
+        target.value = cell.f && String(cell.f).startsWith('=')
+          ? { formula: String(cell.f).slice(1), result: value }
+          : typeof value === 'number' ? value : String(value);
         const len = String(value).length;
         widths.set(col, Math.max(widths.get(col) || 10, Math.min(60, Math.max(10, len + 2))));
       }
+      if (cell.b || cell.i || cell.color) {
+        target.font = {
+          ...(target.font || {}),
+          ...(cell.b ? { bold: true } : {}),
+          ...(cell.i ? { italic: true } : {}),
+          ...(cell.color ? { color: { argb: `FF${cleanColor(cell.color, '111111')}` } } : {}),
+        };
+      }
+      if (cell.align) target.alignment = { horizontal: cell.align };
+      if (cell.bg) target.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: `FF${cleanColor(cell.bg, 'FFFFFF')}` } };
     }
     for (const [col, width] of widths) ws.getColumn(col).width = width;
+
+    const images = Array.isArray(source.images) ? source.images : [];
+    for (let n = 0; n < images.length; n++) {
+      const entry = images[n] || {};
+      const img = await embeddableImage(entry.src, resolveImage);
+      if (!img) continue;
+      const naturalW = Math.max(24, Number(img.width) || 320);
+      const naturalH = Math.max(24, Number(img.height) || 200);
+      const maxW = Math.min(320, naturalW);
+      const maxH = 240;
+      const scale = Math.min(maxW / naturalW, maxH / naturalH, 1);
+      const width = Math.max(24, Math.round(naturalW * scale));
+      const height = Math.max(24, Math.round(naturalH * scale));
+      const col = Math.max(0, Number(entry.col) || 0);
+      const row = Math.max(0, Number(entry.row) || maxRow + 1 + n * 8);
+      const imageId = wb.addImage({
+        buffer: img.buffer,
+        extension: img.type === 'png' ? 'png' : 'jpeg',
+        name: entry.alt || `image-${i + 1}-${n + 1}`,
+      });
+      ws.addImage(imageId, {
+        tl: { col, row },
+        ext: { width, height },
+        editAs: 'oneCell',
+      });
+    }
   }
   if (!sheets.length) wb.addWorksheet('Sheet1');
   wb.views = [{ activeTab: 0 }];

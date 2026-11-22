@@ -13,6 +13,7 @@
   const formula = document.getElementById('formula-input');
   const refLabel = document.getElementById('cell-ref');
   const filterInput = document.getElementById('sheet-filter');
+  const imageBar = document.getElementById('sheet-images');
   let selected = 'A1';
 
   const colName = (i) => {
@@ -243,6 +244,40 @@
     });
   }
 
+  function renderImages() {
+    if (!imageBar) return;
+    const list = Array.isArray(sheet().images) ? sheet().images : [];
+    imageBar.textContent = '';
+    imageBar.hidden = list.length === 0;
+    for (let i = 0; i < list.length; i++) {
+      const entry = list[i];
+      const card = document.createElement('div');
+      card.className = 'sheet-image-card';
+      const thumb = document.createElement('img');
+      thumb.src = entry.src || '';
+      thumb.alt = entry.alt || 'Sheet image';
+      thumb.title = entry.credit || entry.alt || '';
+      const meta = document.createElement('div');
+      meta.className = 'sheet-image-meta';
+      const name = document.createElement('strong');
+      name.textContent = entry.alt || `Image ${i + 1}`;
+      const credit = document.createElement('span');
+      credit.textContent = entry.credit || 'Your image';
+      meta.append(name, credit);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'sheet-image-remove';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => {
+        list.splice(i, 1);
+        render();
+        ws.schedule();
+      });
+      card.append(thumb, meta, remove);
+      imageBar.append(card);
+    }
+  }
+
   function render() {
     const sh = sheet();
     const disp = computeAll(sh);
@@ -294,6 +329,7 @@
     updateFormulaBar();
     renderTabs();
     applyFilter();
+    renderImages();
   }
 
   // ---- shared runtime -----------------------------------------------------
@@ -343,6 +379,27 @@
     sheet().cols = Math.min(40, sheet().cols + 2);
     render();
     ws.schedule();
+  });
+
+  document.getElementById('add-sheet-image').addEventListener('click', () => {
+    window.CascadeImages?.open({
+      onPick({ src, alt, credit }) {
+        const p = partsOf(selected);
+        const list = Array.isArray(sheet().images) ? sheet().images : (sheet().images = []);
+        list.push({
+          id: 'img' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          src,
+          alt: alt || 'Image',
+          credit: credit || '',
+          col: p ? colIndex(p.col) : 0,
+          row: Math.max(0, (p ? p.row - 1 : 0) + list.length * 8),
+          w: 240,
+          h: 160,
+        });
+        render();
+        ws.schedule();
+      },
+    });
   });
 
   function sortBy(dir) {

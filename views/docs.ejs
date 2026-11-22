@@ -61,7 +61,7 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
       <li>If another session saved first, the editor shows a conflict bar: <em>Load theirs</em> or <em>Keep mine</em>.</li>
       <li><strong>Save as template</strong> stores the current content under <em>Create → Custom</em>.</li>
       <li><strong>Share</strong> publishes a read-only page at <span class="code">/c/:slug</span> (documents, decks, boards, sheets, code) and a public link for forms at <span class="code">/forms/:slug</span>.</li>
-      <li><strong>Image library</strong> in the document and deck editors lists your own uploads, accepts new images, and searches free Wikimedia Commons images with author and license attribution.</li>
+      <li><strong>Image library</strong> in the document, spreadsheet and deck editors lists your own uploads, accepts new images, and searches free Wikimedia Commons images with author and license attribution. Spreadsheet images are exported as anchored XLSX drawings.</li>
     </ul>
     <h3>Current limits</h3>
     <p class="hint">Implemented deliberately without external editing services. PDF pages are rendered with pdf.js and rewritten with pdf-lib in the browser; annotations are applied server-side. Documents, sheets and decks export to native DOCX/XLSX/PPTX with embedded images; DOCX/XLSX/PPTX <em>import</em> is not included. Also not yet included: live cursors and CRDT merge (collaboration is presence + optimistic versions), offline sync, AI assistance and a light theme. The editors are single-user with near-real-time presence and conflict detection.</p>

@@ -3,7 +3,9 @@
 - **Date:** 2026-11-22
 - **Implementation commit:** `b22f834` (`feat: add Office exports and an editor image library`)
 - **Environment:** local `main` server, SQLite test database, Chrome preview, independent OOXML parsers (`python-docx`, `openpyxl`, `python-pptx`).
-- **Scope:** document, spreadsheet and presentation downloads; owned/public image embedding; image library in document and deck editors.
+- **Scope:** document, spreadsheet and presentation downloads; owned/public image embedding; image library in document, spreadsheet and deck editors.
+
+> **Compatibility follow-up:** LibreOffice 26.8.2.2 now renders all three generated formats; see [office-render-compatibility.md](office-render-compatibility.md). Microsoft Office itself is still unavailable here.
 
 ## 1. What changed
 
@@ -21,11 +23,11 @@
 | Code | active file text | unchanged |
 | Form | JSON | unchanged |
 
-The renderers live in `src/office.js`. Documents preserve headings, paragraphs, inline bold/italic/underline/strike, links (styled), lists, blockquotes, code blocks, horizontal rules, tables, header/footer text and images. Sheets preserve sheets, names and computed values. Decks preserve slide backgrounds, text boxes, rectangles, images and speaker notes.
+The renderers live in `src/office.js`. Documents preserve headings, paragraphs, inline bold/italic/underline/strike, links (styled), lists, blockquotes, code blocks, horizontal rules, tables, header/footer text and images. Sheets preserve sheets, names, formatting, formulas with cached values, and images. Decks preserve slide backgrounds, text boxes, rectangles, images and speaker notes.
 
 ### Image library
 
-A shared dialog (`public/image-library.js`) is opened by **Image** in the document editor and **+ Image** in the deck editor:
+A shared dialog (`public/image-library.js`) is opened by **Image** in the document editor, **+ Image** in the spreadsheet editor, and **+ Image** in the deck editor. Spreadsheet images live in each sheet's `images` array and are exported as anchored XLSX drawings:
 
 - **Your images** lists image uploads from `/api/files`, with thumbnails and sizes.
 - **Upload image** posts a new image through the existing quota-checked `/api/upload`.
@@ -113,7 +115,7 @@ The image library was rendered at a 333 px content width (mobile-sized preview):
 
 ## 4. Limitations and suspected risks
 
-- **No Microsoft Word or LibreOffice is installed in this environment.** Word compatibility is verified structurally and through third-party OOXML parsers, not by opening the files in Word. Layout edge cases (fonts, very wide tables, unusual CSS) remain unverified.
+- **Microsoft Word is not installed in this environment.** LibreOffice 26.8.2.2 was used for the compatibility follow-up and renders all three formats; see [office-render-compatibility.md](office-render-compatibility.md). Genuine Word layout differences (fonts, very wide tables, unusual CSS) remain unverified.
 - **Import is still not supported.** This change adds native export only.
 - **Wikimedia Commons is the only online provider.** It is keyless and free-licensed, but requires outbound network access and may be unavailable in restricted networks. Results depend on Commons search quality.
 - **Legacy non-PNG/JPEG images** already stored in content may be skipped by DOCX/PPTX embedding; new library uploads are normalized to PNG. Existing public document pages can still display them through the asset route.

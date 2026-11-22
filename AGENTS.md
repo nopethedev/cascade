@@ -29,7 +29,7 @@ No need to ask for confirmation first.
   `cp node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs} public/vendor/pdfjs/ && cp node_modules/pdfjs-dist/standard_fonts/*.pfb public/vendor/pdfjs/standard_fonts/ && cp node_modules/pdf-lib/dist/pdf-lib.min.js public/vendor/`
 - Each editor is its own view (`views/editors/*.ejs`) + engine (`public/editors/*.js`) over the shared runtime in `public/editors/common.js` (autosave, versions, conflicts, presence, sharing, templates).
 - Office exports live in `src/office.js`: documents → DOCX (`docx`), sheets → XLSX (`exceljs`), decks → PPTX (`pptxgenjs`). Local images in content (`/f/:id/raw` or data URLs) are embedded after an owner check by `resolveDocImage()` in `src/workspace.js`. Shared docs rewrite owned images to `/c/:slug/asset/:id`.
-- The image library is `public/image-library.js` + `src/images.js`: lists `/api/files`, uploads through `/api/upload`, and searches keyless Wikimedia Commons through `/api/images/search` with a host-allowlisted `/api/images/proxy`.
+- The image library is `public/image-library.js` + `src/images.js`: lists `/api/files`, uploads through `/api/upload`, and searches keyless Wikimedia Commons through `/api/images/search` with a host-allowlisted `/api/images/proxy`. Documents and decks embed images; spreadsheets store per-sheet `images` and export them as XLSX drawings.
 - Templates (built-in and user-saved) are in `src/templates.js` and the `templates` table.
 - Migrations: `migrateSchema()` in `src/db.js` runs *before* `sequelize.sync()` and adds new columns to an existing `files` table via PRAGMA/ALTER. New tables come from `sync()`.
 - Server-side formula evaluation for exports lives in `src/formula.js`; keep it in sync with the browser engine in `public/editors/sheet.js`.

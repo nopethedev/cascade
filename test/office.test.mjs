@@ -31,7 +31,7 @@ test('XLSX export preserves values, computed formulas and sheet names', async ()
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
   assert.deepEqual(workbook.worksheets.map((w) => w.name), ['Numbers', 'Second']);
-  assert.equal(workbook.getWorksheet('Numbers').getCell('A3').value, 5);
+  assert.deepEqual(workbook.getWorksheet('Numbers').getCell('A3').value, { formula: 'SUM(A1:A2)', result: 5 });
   assert.equal(workbook.getWorksheet('Second').getCell('A1').value, 'Other');
 });
 
