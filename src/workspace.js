@@ -227,6 +227,9 @@ export function createWorkspaceRouter() {
   r.post('/api/workspace/docs', requireLogin, wrap(async (req, res) => {
     const { kind, templateId, name, folderId, isPublic } = req.body || {};
     if (!KIND_BY_ID.has(kind)) return res.status(400).json({ error: 'unknown kind' });
+    if (isPublic !== undefined && typeof isPublic !== 'boolean') {
+      return res.status(400).json({ error: 'isPublic must be a boolean' });
+    }
 
     let content = null;
     let templateName = null;
@@ -260,7 +263,7 @@ export function createWorkspaceRouter() {
       size: Buffer.byteLength(serialized),
       ownerId: req.user.id,
       ownerName: req.user.username,
-      isPublic: !!isPublic,
+      isPublic: isPublic === true,
       replicas: [],
       content: serialized,
       kind,

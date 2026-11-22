@@ -336,7 +336,8 @@ export function createMainApp() {
   app.post('/api/files/:id/share', requireLogin, wrap(async (req, res) => {
     const file = await FileRecord.findByPk(req.params.id);
     if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
-    const isPublic = !!req.body?.isPublic;
+    const isPublic = req.body?.isPublic;
+    if (typeof isPublic !== 'boolean') return res.status(400).json({ error: 'isPublic must be a boolean' });
     await file.update({ isPublic, slug: file.slug || nanoid(10) });
     if (isPublic) recordEvent(req, 'share', { fileId: file.id });
     res.json({ ok: true, isPublic: !!file.isPublic, slug: file.slug });
