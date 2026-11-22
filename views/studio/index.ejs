@@ -1,0 +1,75 @@
+<%- include('../partials/head', { title: 'Roblox Studio', shellClass: 'shell shell-wide studio-shell' }) %>
+<link rel="stylesheet" href="/public/studio/studio.css" />
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Cascade Studio</div>
+    <h1 class="page-title">Roblox Studio</h1>
+    <p class="lede">A real bridge to Roblox Studio: pair a local plugin, browse the live Explorer, edit properties and Luau, and preview the place in 3D. The plugin applies every change inside Studio.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/create">Back to create</a>
+    <a class="btn btn-ghost" href="/studio/roblox/plugin.rbxmx">Download plugin</a>
+  </div>
+</div>
+
+<div class="studio-index-grid">
+  <section class="panel studio-setup">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Connect Roblox Studio</div>
+        <div class="panel-sub">The plugin is the only thing that writes to your place. Cascade never asks for a Roblox password or cookie.</div>
+      </div>
+      <span class="badge">v1 protocol</span>
+    </div>
+    <div class="panel-body">
+      <ol class="studio-steps">
+        <li><span>1</span><div><strong>Download the plugin</strong><p>Save <code>CascadePlugin.rbxmx</code> and place it in your Roblox Studio <em>Plugins</em> folder. Restart Studio if it does not appear.</p><a class="btn btn-sm" href="/studio/roblox/plugin.rbxmx">Download CascadePlugin.rbxmx</a></div></li>
+        <li><span>2</span><div><strong>Enable HTTP requests</strong><p>In Studio: <em>Home → Game Settings → Security → Allow HTTP Requests</em>. This is required for the plugin to reach this server.</p></div></li>
+        <li><span>3</span><div><strong>Open a Cascade project</strong><p>Create a place below (or choose an existing one), then click <em>Connect Studio</em> to get a one-time URL and pairing code.</p></div></li>
+        <li><span>4</span><div><strong>Pair from the plugin</strong><p>Open the Cascade toolbar button in Studio, paste the URL and pairing code, and click Connect. The session appears here within a few seconds.</p></div></li>
+      </ol>
+      <div class="studio-callout">
+        <strong>What is actually synchronized?</strong>
+        <p>Explorer hierarchy, supported properties, scripts, GUI instances and scene snapshots. Unsupported properties stay readonly and are reported by the plugin instead of being faked. Studio remains the final authority for applying changes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><div class="panel-title">Your places</div><div class="panel-sub"><%= projects.length %> project<%= projects.length === 1 ? '' : 's' %></div></div>
+      <button class="btn btn-sm" type="button" id="studio-new-open">+ New place</button>
+    </div>
+    <div class="studio-place-list">
+      <% if (!projects.length) { %>
+        <div class="empty"><div class="empty-ico">RBX</div><strong>No places yet</strong><span>Create one and connect the plugin to begin.</span></div>
+      <% } %>
+      <% for (const row of projects) { %>
+        <a class="studio-place" href="/studio/roblox/<%= row.file.id %>">
+          <span class="studio-place-art" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="studio-place-main">
+            <strong><%= row.file.filename %></strong>
+            <small>v<%= row.file.version %> · updated <%= new Date(row.file.updatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) %></small>
+          </span>
+          <span class="studio-status studio-status-<%= row.session.status %>"><i></i><%= row.session.status %></span>
+        </a>
+      <% } %>
+    </div>
+  </section>
+</div>
+
+<dialog class="dlg" id="studio-new-dialog">
+  <form class="dlg-in" method="post" action="/studio/roblox">
+    <h3 class="dlg-title">New Roblox place</h3>
+    <p class="dlg-msg">A starter Workspace, ServerScriptService and ScreenGui are created. You can edit everything remotely after pairing.</p>
+    <div class="field"><label class="label" for="studio-place-name">Place name</label><input id="studio-place-name" name="name" maxlength="120" value="My Roblox place" required autofocus /></div>
+    <div class="dlg-actions"><button class="btn btn-quiet" type="button" data-close>Cancel</button><button class="btn" type="submit">Create place</button></div>
+  </form>
+</dialog>
+
+<script>
+  document.getElementById('studio-new-open')?.addEventListener('click', () => document.getElementById('studio-new-dialog')?.showModal());
+  document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog')?.close()));
+</script>
+<%- include('../partials/foot') %>

@@ -12,6 +12,7 @@ import {
   ShareLink,
   CommentThread,
   CollabRoom,
+  SiteDeployment,
   User,
   AnalyticsEvent,
   sequelize,
@@ -31,6 +32,7 @@ import { templatePreviewDocument } from './templatePreview.js';
 import { issueCollabToken, closeUserSockets, closeShareSockets } from './collab.js';
 import { recordEvent } from './analytics.js';
 import { computeSheet } from './formula.js';
+import { allowFormSubmission } from './formRateLimit.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { readFileWithFallback } from './storage.js';
 import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
@@ -67,6 +69,14 @@ function parseContent(file) {
   } catch {
     return {};
   }
+}
+
+// Capability/public asset URLs must be scoped to images actually referenced by
+// that document. Knowing an unrelated owner's image id is not authorization.
+function contentReferencesImage(content, id) {
+  const raw = String(content || '');
+  const assetId = String(id || '');
+  return !!assetId && (raw.includes(`/f/${assetId}/raw`) || raw.includes(`/asset/${assetId}`));
 }
 
 function defaultName(kind) {
@@ -221,14 +231,17 @@ function validateForm(content, body) {
   for (const f of content.fields || []) {
     const raw = body[f.id];
     if (f.type === 'checkbox') {
-      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const allowed = new Set((f.options || []).map((o) => String(o)));
+      const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => String(v).trim()).filter((v) => allowed.has(v)).slice(0, 50);
       data[f.id] = list;
       if (f.required && !list.length) errors[f.id] = 'Please pick at least one option.';
       continue;
     }
     const val = String(raw ?? '').trim();
-    data[f.id] = val;
-    if (f.required && !val) errors[f.id] = 'This field is required.';
+    const max = f.type === 'email' ? 180 : 4000;
+    data[f.id] = val.slice(0, max);
+    if (val.length > max) errors[f.id] = `Keep this answer under ${max} characters.`;
+    else if (f.required && !val) errors[f.id] = 'This field is required.';
     else if (val && f.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val)) errors[f.id] = 'Enter a valid email address.';
     else if (val && f.type === 'number' && Number.isNaN(Number(val))) errors[f.id] = 'Enter a number.';
     else if (val && (f.type === 'select' || f.type === 'radio') && !(f.options || []).includes(val)) errors[f.id] = 'Pick one of the options.';
@@ -302,6 +315,7 @@ export function createWorkspaceRouter() {
   r.get('/edit/:id', requireLogin, wrap(async (req, res) => {
     const file = await loadDoc(req.params.id, req.user);
     if (!file) return res.status(404).render('error', { message: 'Document not found.', status: 404 });
+    if (file.kind === 'roblox') return res.redirect(`/studio/roblox/${file.id}`);
     if (!KIND_BY_ID.has(file.kind)) return res.status(400).render('error', { message: 'Unknown document type.', status: 400 });
     const content = parseContent(file);
     res.render(`editors/${file.kind}`, {
@@ -364,7 +378,7 @@ export function createWorkspaceRouter() {
     });
     await snapshot(file, req.user.id);
     recordEvent(req, 'create', { fileId: file.id });
-    res.json({ ok: true, id: file.id, url: `/edit/${file.id}` });
+    res.json({ ok: true, id: file.id, url: kind === 'roblox' ? `/studio/roblox/${file.id}` : `/edit/${file.id}` });
   }));
 
   // ---------- Folders ----------
@@ -647,7 +661,7 @@ export function createWorkspaceRouter() {
 
   r.get('/s/:token/asset/:id', wrap(async (req, res) => {
     const hit = await accessByShareToken(req.params.token);
-    if (!hit) return res.status(404).send('not found');
+    if (!hit || !contentReferencesImage(hit.file.content, req.params.id)) return res.status(404).send('not found');
     const img = await FileRecord.findByPk(req.params.id);
     if (!img || img.kind !== 'file' || img.ownerId !== hit.file.ownerId || !String(img.mime || '').startsWith('image/')) {
       return res.status(404).send('not found');
@@ -747,6 +761,15 @@ export function createWorkspaceRouter() {
       siteTitle: String(content?.seo?.title || content?.brand || file.filename).slice(0, 180),
       customDomain: customRaw || null,
     });
+    await SiteDeployment.create({
+      id: uuid(),
+      fileId: file.id,
+      environment: 'production',
+      version: file.version,
+      content: file.content,
+      label: String(body.label || `Production v${file.version}`).slice(0, 160),
+      createdBy: req.user.id,
+    });
     recordEvent(req, 'share', { fileId: file.id });
     res.json({
       ok: true,
@@ -766,7 +789,7 @@ export function createWorkspaceRouter() {
   }));
 
   r.get('/api/workspace/docs/:id/site-stats', requireLogin, wrap(async (req, res) => {
-    const file = await loadDoc(req.params.id, req.user, 'viewer');
+    const file = await loadDoc(req.params.id, req.user, 'editor');
     if (!file || file.kind !== 'site') return res.status(404).json({ error: 'not found' });
     const [views, submissions] = await Promise.all([
       AnalyticsEvent.count({ where: { fileId: file.id, type: 'view' } }),
@@ -973,7 +996,7 @@ export function createWorkspaceRouter() {
   // expose images uploaded by its own owner.
   r.get('/c/:slug/asset/:id', wrap(async (req, res) => {
     const doc = await FileRecord.findOne({ where: { slug: req.params.slug, isPublic: true } });
-    if (!doc || doc.kind === 'file') return res.status(404).send('not found');
+    if (!doc || doc.kind === 'file' || !contentReferencesImage(doc.content, req.params.id)) return res.status(404).send('not found');
     const img = await FileRecord.findByPk(req.params.id);
     if (!img || img.kind !== 'file' || img.ownerId !== doc.ownerId || !String(img.mime || '').startsWith('image/')) {
       return res.status(404).send('not found');
@@ -1033,6 +1056,11 @@ export function createWorkspaceRouter() {
   r.post('/forms/:slug/submit', wrap(async (req, res) => {
     const file = await FileRecord.findOne({ where: { slug: req.params.slug, kind: 'form' } });
     if (!file || !file.isPublic) return res.status(404).render('error', { message: 'This form is not published.', status: 404 });
+    const limit = allowFormSubmission(`workspace-form:${file.id}:${req.socket?.remoteAddress || req.ip || 'unknown'}`);
+    if (!limit.ok) {
+      res.setHeader('Retry-After', String(limit.retryAfter));
+      return res.status(429).render('error', { message: 'Too many submissions. Please try again later.', status: 429 });
+    }
     const content = parseContent(file);
     const { data, errors } = validateForm(content, req.body || {});
     if (Object.keys(errors).length) {

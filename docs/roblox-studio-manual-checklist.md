@@ -1,0 +1,44 @@
+# Roblox Studio manual acceptance checklist
+
+Cascade's relay, plugin model, and browser editor are covered by automated tests, but the plugin can only be proven against a real Roblox Studio install. Run this checklist after downloading `/studio/roblox/plugin.rbxmx`.
+
+## Setup
+
+1. Start Cascade on a reachable origin. For Studio on another machine, use an HTTPS public origin; `localhost` works only when Studio and Cascade run on the same machine.
+2. In Studio, enable **Home → Game Settings → Security → Allow HTTP Requests**.
+3. Place `CascadePlugin.rbxmx` in the Studio local Plugins folder and restart Studio. The **Cascade** toolbar button should appear.
+4. Sign in to Cascade, open a Roblox place at `/studio/roblox/:id`, choose **Connect Studio**, and copy the connection URL and pairing code.
+5. In the plugin, paste both values and click **Connect**. Expected: the Cascade page changes to **Studio connected** with the real place name within one poll cycle (about two seconds).
+6. Confirm the pairing code cannot be reused: disconnect and try the same code again. Expected: an explicit invalid/expired-code error, and no second session.
+
+## Explorer and properties
+
+7. Expand every service in the browser Explorer. Expected: names and classes match Studio's Explorer for Workspace, ReplicatedStorage, ReplicatedFirst, ServerStorage, ServerScriptService, StarterGui, StarterPack, StarterPlayer, Lighting and SoundService.
+8. Create a Part in Cascade. Expected: a real Part appears in Studio Workspace and in the browser tree.
+9. Change the Part's position, size, color, material, anchored and collision properties. Expected: the same properties change in Studio's Properties panel; unsupported properties remain unchanged and are reported in Cascade.
+10. Rename, duplicate, reparent by drag-and-drop, and delete an instance. Expected: each operation changes Studio, and undo/redo in Cascade reverses only the operations Cascade applied.
+11. Select multiple parts and change a shared property. Expected: the plugin applies the property to every supported selected instance.
+12. Reload the Cascade page. Expected: the persisted scene, not an empty workspace, is shown.
+
+## Luau and GUI
+
+13. Insert a Script under ServerScriptService, edit the source in Monaco, and save. Expected: the same source is visible in Studio's script editor.
+14. Create a ScreenGui and a Frame in the GUI designer, move and resize the Frame, and change its background and text. Expected: real ScreenGui/Frame instances with matching properties appear under StarterGui in Studio.
+15. Change the GUI device preview (desktop/tablet/phone). Expected: the browser preview relabels and resizes without modifying the actual instance properties.
+16. In Scene, click **Enable 3D preview**. Expected: the Three.js viewport starts on a hardware-accelerated browser. If the browser only offers software WebGL, Cascade keeps the editor usable and shows a fallback message instead of freezing.
+
+## Resilience and security
+
+17. Stop Studio or disconnect the network. Expected: Cascade shows **stale** after the heartbeat timeout, edits remain queued, and reconnecting with a new pairing resumes delivery without losing the queued commands.
+18. Revoke the session in Cascade. Expected: the plugin receives `401` on its next poll, stops applying commands, and cannot reconnect with the revoked token.
+19. Sign in as a second account that has no access. Expected: `/studio/roblox/:id` and all `/api/studio/projects/:id/*` routes return `404`, and no scene data leaks.
+20. Invite the second account as Viewer. Expected: it can watch live edits but every write/pair command is rejected; as Editor it can edit.
+21. Open the same project in two browser sessions. Expected: scene changes, presence chips and cursors update in both sessions; the plugin remains the final authority on Studio state.
+
+## Known limitations to check honestly
+
+- Terrain sculpting, animation timeline, particle simulation, pathfinding visualization and asset uploads are **not** implemented through the plugin. The browser exposes a material/physics overlay and model/effect helpers, not a fake Studio feature.
+- MeshPart rendering in the Three.js viewport is an approximation (sphere placeholder); the real mesh remains in Studio.
+- The Three.js preview is deliberately opt-in and requires hardware WebGL; it is not started automatically, because a software rasterizer can block the entire editor.
+- The relay uses HTTP polling because Roblox plugins cannot depend on browser WebSockets.
+- If any step fails, capture the browser console, the plugin output, and the exact Studio version, then report the failing step number rather than treating the UI alone as proof.

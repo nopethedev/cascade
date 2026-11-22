@@ -25,6 +25,8 @@ if (DOC) {
   data.theme = data.theme || {};
   data.seo = data.seo || {};
   data.components = Array.isArray(data.components) ? data.components : [];
+  data.cmsPreview = [];
+  let cmsCollections = [];
 
   let selected = data.sections[0]?.id || null;
   let device = 'desktop';
@@ -32,10 +34,11 @@ if (DOC) {
   let history = [];
   let future = [];
   let dragId = null;
-  let paintRaf = null;
+  let paintTimer = null;
 
   const shadow = host.attachShadow({ mode: 'open' });
   const uid = (type) => `${type}-${Math.random().toString(36).slice(2, 8)}`;
+  const esc = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   function snapshot() {
     if (!canEdit) return;
@@ -72,6 +75,10 @@ if (DOC) {
     if (type === 'logos') return { ...base(), title: 'Trusted by', items: ['Acme', 'Northwind', 'Vertex', 'Kepler'], style: { paddingY: 30 } };
     if (type === 'cta') return { ...base(), title: 'Ready when you are.', text: 'A short nudge and a clear next step.', ctaLabel: 'Get in touch', ctaHref: '#contact', style: { paddingY: 72 } };
     if (type === 'contact') return { ...base(), title: 'Get in touch', text: 'Tell us what you are working on.', email: 'hello@example.com', style: { paddingY: 86 } };
+    if (type === 'cms') {
+      const collection = cmsCollections[0];
+      return { ...base(), eyebrow: 'From the journal', title: collection?.name || 'Latest posts', text: 'Published items are loaded from the site CMS.', collectionId: collection?.id || '', collectionSlug: collection?.slug || '', limit: 6, style: { paddingY: 88 } };
+    }
     if (type === 'custom') return { ...base(), title: 'Custom embed', html: '<h2>Your custom content</h2><p>Edit the HTML, CSS and JS in the inspector.</p>', css: '', js: '', style: { paddingY: 40 } };
     return { ...base(), title: SECTION_LABELS[type] || type, style: { paddingY: 60 } };
   }
@@ -86,9 +93,11 @@ if (DOC) {
 
   // ---------------- canvas ----------------
   function paint() {
-    if (paintRaf) cancelAnimationFrame(paintRaf);
-    paintRaf = requestAnimationFrame(() => {
-      paintRaf = null;
+    // Timers, not requestAnimationFrame: embedded previews and background tabs
+    // can pause rAF indefinitely, which would leave the canvas blank.
+    if (paintTimer) clearTimeout(paintTimer);
+    paintTimer = setTimeout(() => {
+      paintTimer = null;
       const max = device === 'mobile' ? 390 : device === 'tablet' ? 834 : Math.max(900, Number(data.theme.maxWidth) || 1120);
       host.style.width = device === 'desktop' ? `${max}px` : `${max}px`;
       host.style.maxWidth = '100%';
@@ -105,7 +114,7 @@ if (DOC) {
         [data-section-id].is-dragging { opacity:.42; }
         [data-section-id].is-drop-target { outline:2px dashed var(--cs-accent); }
         .cs-form input, .cs-form textarea { pointer-events:none; }
-      </style>${renderSiteBody(data, { preview: true })}`;
+      </style>${renderSiteBody(data, { preview: true, cmsItems: data.cmsPreview })}`;
 
       for (const section of shadow.querySelectorAll('[data-section-id]')) {
         if (section.dataset.sectionId === selected) section.classList.add('is-selected');
@@ -499,6 +508,21 @@ if (DOC) {
           prop('Text', textInput(section.text, (v) => { section.text = v; })),
           prop('Links', linksEditor(section.links || (section.links = []), () => paint())),
         );
+      } else if (section.type === 'cms') {
+        const collectionOptions = Object.fromEntries(cmsCollections.map((c) => [c.id, c.name]));
+        contentWrap.append(
+          prop('Collection', select(section.collectionId || '', { '': 'Choose a collection…', ...collectionOptions }, (v) => {
+            const collection = cmsCollections.find((c) => c.id === v);
+            section.collectionId = v;
+            section.collectionSlug = collection?.slug || '';
+            section.title = collection?.name || section.title;
+          })),
+          prop('Eyebrow', textInput(section.eyebrow, (v) => { section.eyebrow = v; }, 'Small label')),
+          prop('Title', textInput(section.title, (v) => { section.title = v; })),
+          prop('Intro', areaInput(section.text, (v) => { section.text = v; }, 2)),
+          prop('Items to show', numberInput(section.limit ?? 6, (v) => { section.limit = Math.max(1, Math.min(24, v)); }, { min: 1, max: 24 })),
+          row(button('Manage CMS content', openCms, 'btn btn-ghost btn-sm')),
+        );
       } else if (section.type === 'custom') {
         contentWrap.append(
           prop('HTML', areaInput(section.html, (v) => { section.html = v; }, 6)),
@@ -587,6 +611,18 @@ if (DOC) {
     return bar;
   }
 
+  async function loadCms() {
+    try {
+      const r = await fetch(`/api/workspace/docs/${DOC.id}/cms`);
+      if (!r.ok) return;
+      const j = await r.json();
+      cmsCollections = j.collections || [];
+      data.cmsPreview = cmsCollections.flatMap((c) => (c.items || []).filter((i) => i.status === 'published').map((i) => ({ ...i, collectionSlug: c.slug })));
+      if (selectedSection()?.type === 'cms') renderProps();
+      paint();
+    } catch { /* CMS is optional for an offline preview */ }
+  }
+
   function chooseImage(onPick) {
     return () => {
       window.CascadeImages?.open({
@@ -611,6 +647,134 @@ if (DOC) {
     window.Workspace.schedule();
     window.cascadeToast?.('Component saved — add it from the section menu');
   }
+
+  // ---------------- CMS and deployments ----------------
+  async function cmsJson(url, options = {}) {
+    const r = await fetch(url, { headers: { 'content-type': 'application/json' }, ...options });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || 'Request failed');
+    return body;
+  }
+
+  function cmsDialog() {
+    let dlg = document.getElementById('site-cms-dialog');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'site-cms-dialog';
+      dlg.className = 'dlg dlg-wide';
+      dlg.innerHTML = `<div class="dlg-in"><div class="row-between"><div><h3 class="dlg-title">CMS collections</h3><p class="dlg-msg">Content is stored in SQLite and rendered through the same site renderer. Publish an item to make it visible.</p></div><button class="btn btn-quiet btn-sm" type="button" data-close>Close</button></div><div id="site-cms-body"></div><form id="site-cms-new" class="site-cms-new"><input name="name" placeholder="Collection name, e.g. Journal" maxlength="80" required /><button class="btn btn-sm" type="submit">Create collection</button></form></div>`;
+      document.body.append(dlg);
+      dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+      dlg.querySelector('#site-cms-new').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = new FormData(e.target).get('name');
+        try {
+          await cmsJson(`/api/workspace/docs/${DOC.id}/cms/collections`, { method: 'POST', body: JSON.stringify({ name, fields: [{ id: 'title', label: 'Title', type: 'text' }, { id: 'excerpt', label: 'Excerpt', type: 'text' }, { id: 'body', label: 'Body', type: 'richtext' }, { id: 'image', label: 'Image', type: 'image' }] }) });
+          e.target.reset();
+          await openCms();
+        } catch (err) { window.cascadeToast?.(err.message, true); }
+      });
+    }
+    return dlg;
+  }
+
+  async function openCms() {
+    const dlg = cmsDialog();
+    if (!dlg.open) dlg.showModal();
+    const body = dlg.querySelector('#site-cms-body');
+    body.textContent = 'Loading…';
+    try {
+      const { collections } = await cmsJson(`/api/workspace/docs/${DOC.id}/cms`);
+      cmsCollections = collections;
+      body.textContent = '';
+      if (!collections.length) {
+        body.innerHTML = '<p class="hint">No collections yet. Create one to start publishing dynamic pages.</p>';
+        return;
+      }
+      for (const collection of collections) {
+        const card = document.createElement('section');
+        card.className = 'site-cms-collection';
+        card.innerHTML = `<div class="row-between"><div><strong>${esc(collection.name)}</strong><small class="hint">/c/${esc(collection.slug)} · ${collection.items.length} items</small></div><button class="btn btn-ghost btn-sm" type="button" data-add-item="${collection.id}">+ Add item</button></div><div class="site-cms-items">${collection.items.map((item) => `<div class="site-cms-item"><span><strong>${esc(item.data.title || item.data.name || item.slug)}</strong><small>${esc(item.slug)} · ${esc(item.status)}</small></span><span class="row"><button class="btn btn-quiet btn-sm" type="button" data-toggle-item="${collection.id}:${item.id}">${item.status === 'published' ? 'Unpublish' : 'Publish'}</button><button class="btn btn-danger btn-sm" type="button" data-delete-item="${collection.id}:${item.id}">×</button></span></div>`).join('') || '<p class="hint">No items yet.</p>'}</div>`;
+        card.querySelector('[data-add-item]').addEventListener('click', async () => {
+          const title = window.prompt('Item title', 'A new story');
+          if (!title) return;
+          try {
+            await cmsJson(`/api/workspace/docs/${DOC.id}/cms/collections/${collection.id}/items`, { method: 'POST', body: JSON.stringify({ data: { title, excerpt: 'A short summary for the card.', body: 'Start writing the story here.\n\nUse a blank line for a new paragraph.' }, status: 'published' }) });
+            await openCms();
+            await loadCms();
+          } catch (err) { window.cascadeToast?.(err.message, true); }
+        });
+        card.querySelectorAll('[data-toggle-item]').forEach((b) => b.addEventListener('click', async () => {
+          const [collectionId, itemId] = b.dataset.toggleItem.split(':');
+          const item = collection.items.find((i) => i.id === itemId);
+          try {
+            await cmsJson(`/api/workspace/docs/${DOC.id}/cms/collections/${collectionId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ status: item.status === 'published' ? 'draft' : 'published' }) });
+            await openCms();
+            await loadCms();
+          } catch (err) { window.cascadeToast?.(err.message, true); }
+        }));
+        card.querySelectorAll('[data-delete-item]').forEach((b) => b.addEventListener('click', async () => {
+          if (!window.confirm('Delete this CMS item?')) return;
+          const [collectionId, itemId] = b.dataset.deleteItem.split(':');
+          try {
+            await cmsJson(`/api/workspace/docs/${DOC.id}/cms/collections/${collectionId}/items/${itemId}`, { method: 'DELETE' });
+            await openCms();
+            await loadCms();
+          } catch (err) { window.cascadeToast?.(err.message, true); }
+        }));
+        body.append(card);
+      }
+      if (selectedSection()?.type === 'cms') renderProps();
+    } catch (err) {
+      body.textContent = err.message;
+    }
+  }
+
+  async function openDeployments() {
+    let dlg = document.getElementById('site-deployments-dialog');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'site-deployments-dialog';
+      dlg.className = 'dlg dlg-wide';
+      dlg.innerHTML = '<div class="dlg-in"><div class="row-between"><div><h3 class="dlg-title">Deployments</h3><p class="dlg-msg">Production publishes and staging previews are immutable snapshots. Restore any version with one click.</p></div><button class="btn btn-quiet btn-sm" type="button" data-close>Close</button></div><div id="site-deployments-body">Loading…</div></div>';
+      document.body.append(dlg);
+      dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+      dlg.addEventListener('click', async (e) => {
+        const rollback = e.target.closest('[data-rollback]');
+        if (!rollback) return;
+        if (!window.confirm('Restore this deployment? The current draft is saved in history first.')) return;
+        try {
+          const out = await cmsJson(`/api/workspace/docs/${DOC.id}/deployments/${rollback.dataset.rollback}/rollback`, { method: 'POST' });
+          window.cascadeToast?.(`Restored v${out.deployment.version}`);
+          location.reload();
+        } catch (err) { window.cascadeToast?.(err.message, true); }
+      });
+    }
+    dlg.showModal();
+    const body = dlg.querySelector('#site-deployments-body');
+    try {
+      const { deployments } = await cmsJson(`/api/workspace/docs/${DOC.id}/deployments`);
+      body.textContent = '';
+      if (!deployments.length) { body.innerHTML = '<p class="hint">No deployments yet. Publish the site to create the first production snapshot.</p>'; return; }
+      for (const d of deployments) {
+        const row = document.createElement('div');
+        row.className = 'site-deployment-row';
+        row.innerHTML = `<span class="badge ${d.environment === 'production' ? 'badge-accent' : ''}">${esc(d.environment)}</span><span><strong>v${d.version}</strong><small>${esc(d.label || '')}</small></span><span class="hint">${new Date(d.createdAt).toLocaleString()}</span><button class="btn btn-ghost btn-sm" type="button" data-rollback="${d.id}">Restore</button>`;
+        body.append(row);
+      }
+    } catch (err) { body.textContent = err.message; }
+  }
+
+  document.getElementById('site-cms-btn')?.addEventListener('click', openCms);
+  document.getElementById('site-deployments-btn')?.addEventListener('click', openDeployments);
+  document.getElementById('site-stage-btn')?.addEventListener('click', async () => {
+    try {
+      await window.Workspace.saveNow(true);
+      const out = await cmsJson(`/api/workspace/docs/${DOC.id}/deployments/staging`, { method: 'POST', body: JSON.stringify({}) });
+      window.open(out.previewUrl, '_blank', 'noopener');
+      window.cascadeToast?.('Staging preview created');
+    } catch (err) { window.cascadeToast?.(err.message, true); }
+  });
 
   // ---------------- publish / exports ----------------
   const publishBtn = document.getElementById('btn-site-publish');
@@ -831,4 +995,5 @@ if (DOC) {
   renderLayers();
   paint();
   renderProps();
+  loadCms();
 }

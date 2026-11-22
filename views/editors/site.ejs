@@ -17,6 +17,7 @@
       <option value="logos">Logo strip</option>
       <option value="cta">Call to action</option>
       <option value="contact">Contact / form</option>
+      <option value="cms">CMS collection</option>
       <option value="custom">Custom embed</option>
     </select>
   </div>
@@ -27,6 +28,9 @@
   </div>
   <span class="tool-spacer"></span>
   <span class="hint" id="site-section-label">Select a section to edit</span>
+  <button class="btn btn-ghost btn-sm" type="button" id="site-cms-btn" data-requires-edit>CMS</button>
+  <button class="btn btn-ghost btn-sm" type="button" id="site-deployments-btn">Deployments</button>
+  <button class="btn btn-ghost btn-sm" type="button" id="site-stage-btn" data-requires-edit>Staging</button>
   <a class="btn btn-ghost btn-sm" id="site-export-html" href="/sites/<%= file.id %>/export.html">Export HTML</a>
   <a class="btn btn-ghost btn-sm" id="site-export-react" href="/sites/<%= file.id %>/export.jsx">Export React</a>
   <a class="btn btn-ghost btn-sm" id="site-visit" href="#" target="_blank" rel="noopener" hidden>Visit ↗</a>

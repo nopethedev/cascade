@@ -66,8 +66,11 @@ export const Folder = sequelize.define(
     id: { type: DataTypes.STRING(36), primaryKey: true },
     name: { type: DataTypes.STRING(80), allowNull: false },
     ownerId: { type: DataTypes.STRING(36), allowNull: false },
+    // null means the owner's root. The server validates that a folder can
+    // never be moved below itself or below one of its descendants.
+    parentId: { type: DataTypes.STRING(36), allowNull: true },
   },
-  { tableName: 'folders', indexes: [{ fields: ['ownerId'] }] },
+  { tableName: 'folders', indexes: [{ fields: ['ownerId'] }, { fields: ['parentId'] }] },
 );
 
 export const DocVersion = sequelize.define(
@@ -158,6 +161,114 @@ export const CollabRoom = sequelize.define(
     updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   },
   { tableName: 'collab_rooms' },
+);
+
+// Roblox Studio relay. Pairing codes and session tokens are one-time secrets:
+// only their SHA-256 hashes are stored. A session belongs to exactly one
+// workspace project; the plugin is the authority that applies commands.
+export const StudioPairing = sequelize.define(
+  'studioPairing',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    codeHash: { type: DataTypes.STRING(64), allowNull: false },
+    expiresAt: { type: DataTypes.DATE, allowNull: false },
+    usedAt: { type: DataTypes.DATE, allowNull: true },
+    sessionId: { type: DataTypes.STRING(36), allowNull: true },
+  },
+  { tableName: 'studio_pairings', indexes: [{ fields: ['fileId'] }, { fields: ['codeHash'] }, { fields: ['expiresAt'] }] },
+);
+
+export const StudioSession = sequelize.define(
+  'studioSession',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    pairingId: { type: DataTypes.STRING(36), allowNull: true },
+    tokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    placeName: { type: DataTypes.STRING(160), allowNull: true },
+    clientVersion: { type: DataTypes.STRING(32), allowNull: true },
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'connected' },
+    lastHeartbeat: { type: DataTypes.DATE, allowNull: true },
+    revokedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'studio_sessions', indexes: [{ fields: ['fileId'] }, { fields: ['userId'] }, { fields: ['tokenHash'] }] },
+);
+
+export const StudioCommand = sequelize.define(
+  'studioCommand',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    sessionId: { type: DataTypes.STRING(36), allowNull: true },
+    kind: { type: DataTypes.STRING(32), allowNull: false },
+    payload: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'queued' },
+    createdBy: { type: DataTypes.STRING(64), allowNull: true },
+    result: { type: DataTypes.JSON, allowNull: true },
+    error: { type: DataTypes.TEXT, allowNull: true },
+    deliveredAt: { type: DataTypes.DATE, allowNull: true },
+    appliedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'studio_commands', indexes: [{ fields: ['fileId'] }, { fields: ['status'] }, { fields: ['sessionId'] }] },
+);
+
+export const StudioSnapshot = sequelize.define(
+  'studioSnapshot',
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    scene: { type: DataTypes.TEXT, allowNull: false },
+    label: { type: DataTypes.STRING(160), allowNull: true },
+    createdBy: { type: DataTypes.STRING(64), allowNull: true },
+  },
+  { tableName: 'studio_snapshots', indexes: [{ fields: ['fileId'] }, { fields: ['createdAt'] }] },
+);
+
+// Published website deployments are immutable content snapshots. They power
+// staging/preview links, production history and one-click rollback.
+export const SiteDeployment = sequelize.define(
+  'siteDeployment',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    environment: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'production' },
+    version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    label: { type: DataTypes.STRING(160), allowNull: true },
+    createdBy: { type: DataTypes.STRING(64), allowNull: true },
+  },
+  { tableName: 'site_deployments', indexes: [{ fields: ['fileId'] }, { fields: ['environment'] }, { fields: ['createdAt'] }] },
+);
+
+// A small CMS that intentionally uses SQLite rows, not a second JSON blob.
+// `fields` is a validated schema array; `data` is keyed by field id.
+export const SiteCollection = sequelize.define(
+  'siteCollection',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    name: { type: DataTypes.STRING(80), allowNull: false },
+    slug: { type: DataTypes.STRING(80), allowNull: false },
+    fields: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  },
+  { tableName: 'site_collections', indexes: [{ fields: ['fileId'] }, { fields: ['fileId', 'slug'], unique: true }] },
+);
+
+export const SiteItem = sequelize.define(
+  'siteItem',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    slug: { type: DataTypes.STRING(140), allowNull: false },
+    data: { type: DataTypes.JSON, allowNull: false, defaultValue: {} },
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'draft' },
+    publishedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'site_items', indexes: [{ fields: ['collectionId'] }, { fields: ['fileId'] }, { fields: ['collectionId', 'slug'], unique: true }] },
 );
 
 export const FormResponse = sequelize.define(
@@ -363,6 +474,12 @@ async function migrateSchema() {
     await add('publishedAt', '`publishedAt` DATETIME');
     await add('customDomain', '`customDomain` VARCHAR(255)');
     await add('siteTitle', '`siteTitle` VARCHAR(180)');
+  }
+  if (tables.includes('folders')) {
+    const columns = await sequelize.query('PRAGMA table_info(`folders`)', { type: QueryTypes.SELECT });
+    if (!columns.some((c) => c.name === 'parentId')) {
+      await sequelize.query('ALTER TABLE `folders` ADD COLUMN `parentId` VARCHAR(36)');
+    }
   }
   if (tables.includes('api_keys')) {
     const columns = await sequelize.query('PRAGMA table_info(`api_keys`)', { type: QueryTypes.SELECT });

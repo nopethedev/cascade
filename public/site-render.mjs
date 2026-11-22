@@ -4,7 +4,7 @@
 export const SECTION_LABELS = {
   nav: 'Navigation', hero: 'Hero', logos: 'Logo strip', features: 'Features', about: 'About',
   gallery: 'Gallery', testimonials: 'Testimonials', cta: 'Call to action', contact: 'Contact',
-  footer: 'Footer', custom: 'Custom embed',
+  footer: 'Footer', custom: 'Custom embed', cms: 'CMS collection',
 };
 
 const esc = (value) =>
@@ -214,15 +214,62 @@ function custom(section, content, opts) {
   </section>`;
 }
 
+function cmsItemHref(section, item, opts) {
+  if (!opts?.slug || !section.collectionSlug || !item.slug) return '#';
+  return `/sites/${encodeURIComponent(opts.slug)}/c/${encodeURIComponent(section.collectionSlug)}/${encodeURIComponent(item.slug)}`;
+}
+
+function cms(section, content, opts) {
+  const items = (opts.cmsItems || []).filter((item) => item.collectionId === section.collectionId || item.collectionSlug === section.collectionSlug).slice(0, Math.max(1, Math.min(24, num(section.limit, 6))));
+  return `<section class="${sectionClass(section)} cs-cms"${sectionAttrs(section, opts)} style="${sectionStyle(section, content.theme)}">
+    <div class="cs-wrap">
+      <div class="cs-section-head">${section.eyebrow ? `<p class="cs-eyebrow">${esc(section.eyebrow)}</p>` : ''}<h2>${esc(section.title || 'Latest posts')}</h2>${section.text ? `<p>${esc(section.text)}</p>` : ''}</div>
+      ${items.length ? `<div class="cs-cms-grid">${items.map((item) => {
+        const data = item.data || {};
+        const title = data.title || data.name || item.slug;
+        const excerpt = data.excerpt || data.description || data.summary || '';
+        const image = imageSrc(data.image, opts);
+        return `<article class="cs-cms-card">${image ? `<img src="${esc(image)}" alt="${esc(data.imageAlt || '')}" loading="lazy" />` : ''}<div class="cs-cms-body"><p class="cs-eyebrow">${esc(data.category || data.date || 'Story')}</p><h3><a href="${esc(cmsItemHref(section, item, opts))}"${opts?.preview ? ' onclick="return false"' : ''}>${esc(title)}</a></h3>${excerpt ? `<p>${esc(String(excerpt).slice(0, 260))}</p>` : ''}<a class="cs-cms-link" href="${esc(cmsItemHref(section, item, opts))}"${opts?.preview ? ' onclick="return false"' : ''}>Read more →</a></div></article>`;
+      }).join('')}</div>` : `<div class="cs-cms-empty">No published items yet. Add content in the CMS panel of the editor.</div>`}
+    </div>
+  </section>`;
+}
+
+export function renderCmsItem(content, collection, item, opts = {}) {
+  const data = item?.data || {};
+  const fields = Array.isArray(collection?.fields) ? collection.fields : [];
+  const title = data.title || data.name || item?.slug || 'Untitled';
+  const bodyFields = fields.filter((f) => f.type === 'richtext' || f.type === 'text' || f.type === 'markdown');
+  return `<article class="cs-cms-item">
+    <p class="cs-eyebrow">${esc(collection?.name || 'Collection')}${data.date ? ` · ${esc(data.date)}` : ''}</p>
+    <h1>${esc(title)}</h1>
+    ${data.excerpt ? `<p class="cs-lede">${esc(data.excerpt)}</p>` : ''}
+    ${imageSrc(data.image, opts) ? `<img class="cs-cms-cover" src="${esc(imageSrc(data.image, opts))}" alt="${esc(data.imageAlt || '')}" />` : ''}
+    <div class="cs-cms-copy">${bodyFields.map((f) => {
+      const value = data[f.id];
+      if (value === undefined || value === null || value === '') return '';
+      if (f.type === 'text') return `<h2>${esc(value)}</h2>`;
+      return String(value).split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
+    }).join('') || '<p>This item has no body yet.</p>'}</div>
+    <a class="cs-btn" href="/sites/${esc(opts.slug || '')}">← Back to ${esc(content?.brand || 'site')}</a>
+  </article>`;
+}
+
 export function renderSection(section, content, opts = {}) {
   if (!section || !section.type) return '';
-  const map = { nav, hero, logos, features, about, gallery, testimonials, cta, contact, footer, custom };
+  const map = { nav, hero, logos, features, about, gallery, testimonials, cta, contact, footer, custom, cms };
   return (map[section.type] || (() => ''))(section, content, opts);
 }
 
 export function renderSiteBody(content, opts = {}) {
   const sections = Array.isArray(content?.sections) ? content.sections : [];
-  return `<div class="cs-site" id="top">${sections.map((s) => renderSection(s, content, opts)).join('\n')}</div>`;
+  let html = `<div class="cs-site" id="top">${sections.map((s) => renderSection(s, content, opts)).join('\n')}</div>`;
+  if (opts.item) {
+    const navEnd = html.indexOf('</header>');
+    const article = renderCmsItem(content, opts.collection, opts.item, opts);
+    html = navEnd >= 0 ? html.slice(0, navEnd + 9) + article + html.slice(navEnd + 9) : article + html;
+  }
+  return html;
 }
 
 export function siteCss(content = {}) {
@@ -260,6 +307,9 @@ export function siteCss(content = {}) {
 .cs-contact-grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(300px,1fr);gap:clamp(30px,6vw,76px);align-items:start}.cs-contact h2{margin-bottom:14px}.cs-contact p{color:var(--cs-muted);max-width:44ch}.cs-mail{display:inline-block;margin-top:18px;color:var(--cs-accent);font-weight:600;font-size:13px}.cs-form{display:grid;gap:12px;padding:22px;border:1px solid var(--cs-line);border-radius:var(--cs-radius);background:var(--cs-surface)}.cs-form label{display:grid;gap:5px;font:600 10px/1 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--cs-muted)}.cs-form input,.cs-form textarea{width:100%;height:38px;border:1px solid var(--cs-line);border-radius:calc(var(--cs-radius)*.45);background:color-mix(in srgb,var(--cs-bg) 70%,var(--cs-surface));color:var(--cs-text);padding:0 11px;font:400 13px/1.4 var(--cs-font);outline:none}.cs-form textarea{height:auto;padding:10px 11px;resize:vertical}.cs-form input:focus,.cs-form textarea:focus{border-color:var(--cs-accent)}.cs-form .cs-btn{margin-top:4px}.cs-hp{display:none!important}.cs-form-ok{color:#34d399;font-size:12px;margin-top:2px}
 .cs-footer{padding:28px 0!important;border-top:1px solid var(--cs-line)}.cs-footer-in{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;color:var(--cs-muted);font-size:12px}.cs-footer-links{display:flex;gap:16px}.cs-footer-links a:hover{color:var(--cs-text)}
 .cs-custom-frame{width:100%;height:380px;border:1px solid var(--cs-line);border-radius:var(--cs-radius);background:var(--cs-surface)}
+.cs-cms-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.cs-cms-card{border:1px solid var(--cs-line);border-radius:var(--cs-radius);overflow:hidden;background:color-mix(in srgb,var(--cs-surface) 70%,transparent);display:flex;flex-direction:column}.cs-cms-card>img{width:100%;aspect-ratio:16/10;object-fit:cover}.cs-cms-body{padding:20px;display:grid;gap:8px;flex:1}.cs-cms-body h3{font-size:19px;line-height:1.2;letter-spacing:-.025em}.cs-cms-body p{color:var(--cs-muted);font-size:13px}.cs-cms-link{margin-top:auto;font-size:12px;color:var(--cs-accent);font-weight:600}.cs-cms-empty{padding:42px;border:1px dashed var(--cs-line);border-radius:var(--cs-radius);color:var(--cs-muted);font-size:13px;text-align:center}.cs-cms-item{max-width:820px;margin:0 auto;padding:clamp(48px,8vw,100px) clamp(20px,5vw,48px)}.cs-cms-item h1{font-size:clamp(40px,7vw,76px);line-height:1;letter-spacing:-.055em;margin:8px 0 20px}.cs-cms-cover{width:100%;max-height:480px;object-fit:cover;border-radius:calc(var(--cs-radius)*1.2);margin:20px 0;border:1px solid var(--cs-line)}.cs-cms-copy p{color:var(--cs-muted);line-height:1.7;margin:14px 0;font-size:16px}.cs-cms-copy h2{font-size:28px;margin:26px 0 8px}.cs-cms-item .cs-btn{margin-top:30px}
+@media (max-width:860px){.cs-cms-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:600px){.cs-cms-grid{grid-template-columns:1fr}}
 .cs-anim{animation:cs-rise .7s cubic-bezier(.22,.8,.2,1) both}@keyframes cs-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @media (max-width:860px){.cs-hero-grid,.cs-about-grid,.cs-contact-grid{grid-template-columns:1fr}.cs-hero-art,.cs-about-art{max-width:560px;width:100%}.cs-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.cs-nav-links{display:none}.cs-mobile-nav{display:block}.cs-reverse .cs-about-grid>div,.cs-reverse .cs-about-art{order:0}}
 @media (max-width:600px){.cs-wrap{padding-left:18px;padding-right:18px}.cs-hero h1{font-size:clamp(38px,13vw,58px)}.cs-feature-grid,.cs-gallery-grid{grid-template-columns:1fr!important}.cs-gallery-1:nth-child(3n+1),.cs-work-card:nth-child(3n+1){grid-column:auto}.cs-cta-box{padding:26px}.cs-actions{flex-direction:column;align-items:stretch}.cs-actions .cs-btn{justify-content:center}.cs-footer-in{align-items:flex-start;flex-direction:column}.cs-nav .cs-btn{display:none}}

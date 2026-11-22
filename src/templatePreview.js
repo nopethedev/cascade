@@ -131,7 +131,23 @@ function codePreview(content) {
   return `<div class="code-preview-wrap"><span class="code-preview-name">${esc(file.name)}</span><pre class="code-preview">${esc(String(file.text || '').slice(0, 2600))}</pre></div>`;
 }
 
+function robloxPreview(content) {
+  const services = Array.isArray(content?.scene?.services) ? content.scene.services : Array.isArray(content?.services) ? content.services : [];
+  const flat = [];
+  const walk = (node, depth = 0) => {
+    if (!node || flat.length >= 28) return;
+    flat.push({ name: node.name || node.className || 'Instance', className: node.className || node.ClassName || 'Instance', depth });
+    for (const child of node.children || []) walk(child, depth + 1);
+  };
+  services.forEach((s) => walk(s));
+  return `<div class="roblox-preview">
+    <div class="rbx-viewport"><div class="rbx-grid"></div><div class="rbx-block b1"></div><div class="rbx-block b2"></div><div class="rbx-block b3"></div><span class="rbx-label">CASCADE STUDIO</span></div>
+    <div class="rbx-tree"><b>${esc(content?.placeName || content?.scene?.placeName || 'Untitled place')}</b>${flat.map((n) => `<span style="padding-left:${8 + n.depth * 9}px"><i>${esc(n.className.slice(0, 3).toUpperCase())}</i>${esc(n.name)}</span>`).join('') || '<em>No instances yet</em>'}</div>
+  </div>`;
+}
+
 export function templatePreviewBody(kind, content) {
+  if (kind === 'roblox') return robloxPreview(content || {});
   if (kind === 'doc') return documentPreview(content || {});
   if (kind === 'sheet') return sheetPreview(content || {});
   if (kind === 'deck') return deckPreview(content || {});
@@ -236,6 +252,19 @@ export function templatePreviewDocument({ kind, content, title, theme }) {
   .sp-grid b { display:block; margin-bottom:6px; }
   .sp-grid em { display:block; height:3px; border-radius:2px; background:rgba(255,255,255,.15); margin-top:4px; }
   .sp-grid em:last-child { width:65%; }
+  .roblox-preview { display:grid; grid-template-columns:1.1fr .9fr; height:100vh; background:#0b0b0e; color:#e8e8ee; font:11px system-ui; overflow:hidden; }
+  .rbx-viewport { position:relative; overflow:hidden; background:radial-gradient(circle at 50% 40%,#26354a,#0b1018 70%); }
+  .rbx-grid { position:absolute; inset:0; background-image:linear-gradient(rgba(125,211,252,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(125,211,252,.12) 1px,transparent 1px); background-size:22px 22px; transform:perspective(420px) rotateX(58deg) scale(1.7); transform-origin:50% 70%; }
+  .rbx-block { position:absolute; border:1px solid rgba(255,255,255,.25); box-shadow:0 12px 30px rgba(0,0,0,.45); }
+  .rbx-block.b1 { width:44%; height:25%; left:28%; top:44%; background:#334155; transform:skewY(-8deg); }
+  .rbx-block.b2 { width:20%; height:13%; left:48%; top:31%; background:#e11d48; transform:skewY(-8deg); }
+  .rbx-block.b3 { width:12%; height:8%; left:63%; top:52%; background:#f59e0b; transform:skewY(-8deg); }
+  .rbx-label { position:absolute; left:12px; bottom:10px; font:700 7px ui-monospace,monospace; letter-spacing:.15em; color:#7dd3fc; }
+  .rbx-tree { padding:12px; border-left:1px solid rgba(255,255,255,.1); overflow:hidden; background:#101015; }
+  .rbx-tree b { display:block; font-size:11px; margin-bottom:8px; color:#fff; }
+  .rbx-tree span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:3px 5px; border-radius:3px; color:#b8b8c5; font-size:9px; }
+  .rbx-tree i { display:inline-block; width:21px; color:#f59e0b; font:700 7px ui-monospace,monospace; font-style:normal; }
+  .rbx-tree em { color:#777; font-size:9px; }
   .unknown { padding:20px; color:#888; font:11px system-ui; }
   @media (max-width:520px) { .doc-preview { padding:18px; } .sp-hero strong { font-size:27px; } }
   @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }

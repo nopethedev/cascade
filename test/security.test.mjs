@@ -7,6 +7,8 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import sqlite3 from 'sqlite3';
+import { WebSocket } from 'ws';
+import * as Y from 'yjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const ADMIN_PASSWORD = 'security-admin-password';
@@ -114,11 +116,58 @@ function queryRows(dbPath, sql, params = []) {
   });
 }
 
+function execDb(dbPath, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (openErr) => {
+      if (openErr) return reject(openErr);
+      db.run(sql, params, function (err) {
+        db.close();
+        if (err) reject(err);
+        else resolve(this);
+      });
+    });
+  });
+}
+
 async function upload(client, filename, contents, type) {
   const data = new FormData();
   data.append('files', new Blob([contents], { type }), filename);
   const res = await client.request('/api/upload', { method: 'POST', body: data });
   return { res, payload: res.status === 200 ? await json(res) : null };
+}
+
+function waitForSocketMessage(ws, predicate = () => true, timeout = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('WebSocket message timeout')); }, timeout);
+    const onMessage = (data, isBinary) => {
+      let parsed = null;
+      if (!isBinary) {
+        try { parsed = JSON.parse(String(data)); } catch { /* binary/plain frame */ }
+      }
+      if (!predicate(parsed, data, isBinary)) return;
+      cleanup();
+      resolve({ data, isBinary, parsed });
+    };
+    const onError = (err) => { cleanup(); reject(err); };
+    const onClose = (code, reason) => { cleanup(); reject(Object.assign(new Error(`WebSocket closed ${code} ${reason}`), { code })); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+      ws.off('close', onClose);
+    };
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+    ws.on('close', onClose);
+  });
+}
+
+function closedSocket(ws, timeout = 3000) {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.CLOSED) return resolve({ code: null });
+    const timer = setTimeout(() => reject(new Error('WebSocket close timeout')), timeout);
+    ws.once('close', (code, reason) => { clearTimeout(timer); resolve({ code, reason: String(reason) }); });
+  });
 }
 
 test('real HTTP security matrix blocks anonymous/cross-user access and hardens uploads and API keys', { timeout: 60000 }, async (t) => {
@@ -242,6 +291,12 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await owner.request(`/api/files/${publicFileId}/share`, { method: 'POST', json: { isPublic: true } })).status, 200);
     const publicInfo = await json(await owner.request(`/api/workspace/docs/${publicDocId}`));
     const publicSlug = publicInfo.slug;
+    // A public document may expose its embedded images, but not arbitrary
+    // images that happen to belong to the same owner.
+    assert.equal((await putContent(owner, publicDocId, { html: `<h1>${PUBLIC_MARKER}</h1><img src="/f/${imageId}/raw" alt="embedded">` }, publicInfo.version)).status, 200);
+    const unrelatedImage = await upload(owner, 'unrelated-security-image.png', Buffer.from('89504e470d0a1a0a', 'hex'), 'image/png');
+    assert.equal(unrelatedImage.res.status, 200);
+    const unrelatedImageId = unrelatedImage.payload.files[0].id;
     const privateInfo = await json(await owner.request(`/api/workspace/docs/${docId}`));
     const privateSlug = privateInfo.slug;
 
@@ -332,6 +387,172 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     const foreignBytes = Buffer.from(await foreignExport.arrayBuffer());
     assert.doesNotMatch(foreignBytes.toString('latin1'), /\/Subtype\s*\/Image/, 'PDF export must not embed another user\'s image');
 
+    // File/folder hierarchy: nested creation, move persistence, independent
+    // copies, cycle rejection and cross-owner placement all go through HTTP.
+    const createFolder = async (client, name, parentId = null) => {
+      const res = await client.request('/api/folders', { method: 'POST', json: { name, parentId } });
+      assert.equal(res.status, 201, `create folder ${name}`);
+      return (await json(res)).folder;
+    };
+    const folderA = await createFolder(owner, 'QA A');
+    const folderB = await createFolder(owner, 'QA B');
+    const folderC = await createFolder(owner, 'QA C', folderB.id);
+    assert.equal(folderC.parentId, folderB.id);
+    assert.equal((await owner.request('/api/folders', { method: 'POST', json: { name: 'QA C', parentId: folderB.id } })).status, 409);
+    assert.equal((await owner.request(`/api/folders/${folderA.id}/move`, { method: 'POST', json: { parentId: folderC.id } })).status, 200);
+    const moveCycle = await owner.request(`/api/folders/${folderB.id}/move`, { method: 'POST', json: { parentId: folderA.id } });
+    assert.equal(moveCycle.status, 400, 'folder must not move below its own descendant');
+    assert.match(await bodyText(moveCycle), /itself|descendant/i);
+    const selfMove = await owner.request(`/api/folders/${folderB.id}/move`, { method: 'POST', json: { parentId: folderB.id } });
+    assert.equal(selfMove.status, 400, 'folder must not become its own parent');
+    assert.equal((await other.request(`/api/folders/${folderA.id}/rename`, { method: 'POST', json: { name: 'PWN' } })).status, 404);
+    assert.equal((await other.request(`/api/folders/${folderA.id}`, { method: 'DELETE' })).status, 404);
+    assert.equal((await other.request('/api/folders', { method: 'POST', json: { name: 'foreign child', parentId: folderC.id } })).status, 400);
+
+    const moveUpload = await upload(owner, 'move-me.txt', 'MOVE CONTENT', 'text/plain');
+    const moveFileId = moveUpload.payload.files[0].id;
+    const moveRes = await owner.request(`/api/files/${moveFileId}/move`, { method: 'POST', json: { folderId: folderC.id } });
+    assert.equal(moveRes.status, 200);
+    assert.equal((await json(moveRes)).folderId, folderC.id);
+    assert.equal((await json(await owner.request(`/api/files/${moveFileId}`))).file.folderId, folderC.id);
+    assert.ok((await bodyText(await owner.request(`/?folder=${folderC.id}`))).includes('move-me.txt'), 'moved file must appear after reload');
+    assert.equal((await other.request(`/api/files/${moveFileId}/move`, { method: 'POST', json: { folderId: folderC.id } })).status, 404);
+    const badTarget = await owner.request(`/api/files/${moveFileId}/move`, { method: 'POST', json: { folderId: '../../etc/passwd' } });
+    assert.equal(badTarget.status, 400);
+    assert.equal((await json(await owner.request(`/api/files/${moveFileId}`))).file.folderId, folderC.id, 'failed move must not orphan the file');
+
+    const copy1 = await owner.request(`/api/files/${moveFileId}/copy`, { method: 'POST', json: { folderId: folderC.id } });
+    assert.equal(copy1.status, 201);
+    const copyId1 = (await json(copy1)).id;
+    const copy2 = await owner.request(`/api/files/${moveFileId}/copy`, { method: 'POST', json: { folderId: folderC.id } });
+    assert.equal(copy2.status, 201);
+    const copyId2 = (await json(copy2)).id;
+    const copiedNames = [(await json(await owner.request(`/api/files/${copyId1}`))).file.filename, (await json(await owner.request(`/api/files/${copyId2}`))).file.filename];
+    assert.deepEqual(copiedNames, ['move-me copy.txt', 'move-me copy 2.txt'], 'copies must not reuse a sibling basename');
+    assert.equal((await json(await owner.request(`/api/files/${copyId1}`))).file.folderId, folderC.id);
+    const copiedDoc = await createDoc(owner, 'doc', 'Copy independence');
+    const copyDocRes = await owner.request(`/api/files/${copiedDoc}/copy`, { method: 'POST', json: { folderId: folderC.id } });
+    assert.equal(copyDocRes.status, 201);
+    const copiedDocId = (await json(copyDocRes)).id;
+    const originalInfo = await json(await owner.request(`/api/workspace/docs/${copiedDoc}`));
+    const copyInfo = await json(await owner.request(`/api/workspace/docs/${copiedDocId}`));
+    assert.equal((await putContent(owner, copiedDoc, { html: '<p>ORIGINAL CHANGED</p>' }, originalInfo.version)).status, 200);
+    assert.ok(!(await bodyText(await owner.request(`/api/workspace/docs/${copiedDocId}`))).includes('ORIGINAL CHANGED'), 'copied document must be independent');
+    assert.equal(copyInfo.content.html, originalInfo.content.html);
+
+    const conflictUpload = await upload(owner, 'conflict.txt', 'ROOT', 'text/plain');
+    const conflictId = conflictUpload.payload.files[0].id;
+    const nestedData = new FormData();
+    nestedData.append('files', new Blob(['NESTED'], { type: 'text/plain' }), 'conflict.txt');
+    nestedData.append('folderId', folderC.id);
+    const nestedUpload = await owner.request('/api/upload', { method: 'POST', body: nestedData });
+    assert.equal(nestedUpload.status, 200);
+    const moveConflict = await owner.request(`/api/files/${conflictId}/move`, { method: 'POST', json: { folderId: folderC.id } });
+    assert.equal(moveConflict.status, 409, 'move must not create duplicate sibling basenames');
+    assert.equal((await json(await owner.request(`/api/files/${conflictId}`))).file.folderId, null, 'rejected move must leave file in place');
+
+    // Delete the parent folder: its child folder moves up one level and its
+    // files stay reachable, not inside an orphaned/deleted parent.
+    assert.equal((await owner.request(`/api/folders/${folderB.id}`, { method: 'DELETE' })).status, 200);
+    const childRows = await queryRows(dbPath, 'select "parentId" from folders where id = ?', [folderC.id]);
+    assert.equal(childRows.length, 1);
+    assert.equal(childRows[0].parentId, null, 'child folder must be reparented to root, not orphaned');
+    assert.equal((await json(await owner.request(`/api/files/${moveFileId}`))).file.folderId, folderC.id);
+    assert.ok((await bodyText(await owner.request(`/?folder=${folderC.id}`))).includes('move-me.txt'));
+
+    // Capability links: read-only writes must fail through the API, revocation
+    // must close live sockets, and expiry/unknown tokens must fail closed.
+    const shareDoc = await createDoc(owner, 'doc', 'Capability doc');
+    const shareInfo = await json(await owner.request(`/api/workspace/docs/${shareDoc}`));
+    assert.equal((await putContent(owner, shareDoc, { html: `<h1>CAPABILITY MARKER</h1>` }, shareInfo.version)).status, 200);
+    const linkRes = await owner.request(`/api/files/${shareDoc}/share-links`, { method: 'POST', json: { role: 'viewer', expiresInHours: 1 } });
+    assert.equal(linkRes.status, 201);
+    const capLink = (await json(linkRes)).link;
+    const sharePage = await createClient(base).request(`/s/${capLink.token}`);
+    assert.equal(sharePage.status, 200);
+    const shareHtml = await bodyText(sharePage);
+    assert.match(shareHtml, /CAPABILITY MARKER/);
+    const guestToken = /window\.__COLLAB_SHARE_TOKEN__ = "([^"]+)"/.exec(shareHtml)?.[1];
+    assert.ok(guestToken, 'share page must issue a collaboration token');
+    assert.equal((await other.request(`/api/workspace/docs/${shareDoc}`, { method: 'PUT', json: { content: { html: 'LINK WRITE PWN' }, version: 2 } })).status, 404);
+    assert.equal((await createClient(base).request(`/api/workspace/docs/${shareDoc}`)).status, 401);
+    assert.equal((await owner.request(`/api/workspace/docs/${shareDoc}`)).status, 200);
+    assert.ok(!(await bodyText(await owner.request(`/api/workspace/docs/${shareDoc}`))).includes('LINK WRITE PWN'));
+    assert.equal((await createClient(base).request(`/s/${capLink.token}/asset/${imageId}`)).status, 404, 'capability asset route must not expose unrelated files');
+
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/collab?token=${encodeURIComponent(guestToken)}`);
+    const initPromise = waitForSocketMessage(socket, (m) => m?.type === 'init');
+    await new Promise((resolve, reject) => {
+      socket.once('open', resolve);
+      socket.once('error', reject);
+    });
+    const init = await initPromise;
+    assert.equal(init.parsed.canWrite, false, 'viewer link must join read-only');
+    const viewerDoc = new Y.Doc();
+    viewerDoc.getMap('document').set('content', { html: 'VIEWER PWN' });
+    socket.send(Y.encodeStateAsUpdate(viewerDoc));
+    const viewerError = await waitForSocketMessage(socket, (m) => m?.type === 'error');
+    assert.match(viewerError.parsed.error, /read-only/i);
+    const closePromise = closedSocket(socket);
+    assert.equal((await owner.request(`/api/files/${shareDoc}/share-links/${capLink.id}`, { method: 'DELETE' })).status, 200);
+    const closed = await closePromise;
+    assert.equal(closed.code, 4001, 'revocation must close the live viewer socket');
+    assert.equal((await createClient(base).request(`/s/${capLink.token}`)).status, 404);
+    assert.equal((await createClient(base).request('/s/unknown-capability-token')).status, 404);
+    const expiredRes = await owner.request(`/api/files/${shareDoc}/share-links`, { method: 'POST', json: { role: 'viewer', expiresInHours: 1 } });
+    const expiredLink = (await json(expiredRes)).link;
+    const expiredUpdate = await execDb(dbPath, "update share_links set expiresAt = datetime('now', '-1 hour') where id = ?", [expiredLink.id]);
+    assert.equal(expiredUpdate.changes, 1, 'expired test link must be updated');
+    const expiredRows = await queryRows(dbPath, 'select expiresAt from share_links where id = ?', [expiredLink.id]);
+    assert.ok(new Date(expiredRows[0].expiresAt).getTime() < Date.now(), 'expired test link must have a past expiry');
+    assert.equal((await createClient(base).request(`/s/${expiredLink.token}`)).status, 404, 'expired token must fail closed');
+    assert.equal((await other.request(`/api/workspace/docs/${shareDoc}/collab-token`)).status, 404);
+    const forged = new WebSocket(`ws://127.0.0.1:${port}/collab?token=${encodeURIComponent(guestToken.slice(0, -2) + 'xx')}`);
+    const forgedClose = await new Promise((resolve) => forged.once('close', (code) => resolve(code)));
+    assert.equal(forgedClose, 4003, 'forged collaboration token must be rejected');
+
+    // Public forms: validation, stored-XSS-safe rendering, and a bounded rate limit.
+    const formId = await createDoc(owner, 'form', 'Security public form', true);
+    const formInfo = await json(await owner.request(`/api/workspace/docs/${formId}`));
+    await putContent(owner, formId, {
+      title: 'Security public form',
+      fields: [{ id: 'f1', label: 'Name', type: 'text', required: true }],
+    }, formInfo.version);
+    const badForm = await createClient(base).request(`/forms/${formInfo.slug}/submit`, { method: 'POST', form: form({ f1: 'x', extra: 'ignored' }) });
+    assert.equal(badForm.status, 302);
+    const xssPayload = '<img src=x onerror=alert(1)>';
+    const okForm = await createClient(base).request(`/forms/${formInfo.slug}/submit`, { method: 'POST', form: form({ f1: xssPayload }) });
+    assert.equal(okForm.status, 302);
+    const responsesHtml = await bodyText(await owner.request(`/responses/${formId}`));
+    assert.ok(!responsesHtml.includes('<img src=x onerror=alert(1)>'), 'stored form value must be HTML-escaped');
+    assert.match(responsesHtml, /&lt;img/);
+    let lastFormStatus = 0;
+    for (let i = 0; i < 10; i += 1) {
+      lastFormStatus = (await createClient(base).request(`/forms/${formInfo.slug}/submit`, { method: 'POST', form: form({ f1: `burst-${i}` }) })).status;
+    }
+    assert.equal(lastFormStatus, 429, 'public workspace form must rate-limit repeated submissions');
+
+    const siteId = await createDoc(owner, 'site', 'Security site');
+    const siteInfo = await json(await owner.request(`/api/workspace/docs/${siteId}`));
+    await putContent(owner, siteId, {
+      brand: 'Security site',
+      theme: { accent: '#e11d48', bg: '#0b0b10', text: '#f7f7f8' },
+      seo: { title: 'Security site' },
+      sections: [{ id: 'contact-1', type: 'contact', title: 'Contact' }],
+    }, siteInfo.version);
+    assert.equal((await owner.request(`/api/workspace/docs/${siteId}/publish`, { method: 'POST', json: { customDomain: null } })).status, 200);
+    const siteAfter = await json(await owner.request(`/api/workspace/docs/${siteId}`));
+    let siteStatus = 0;
+    for (let i = 0; i < 11; i += 1) {
+      siteStatus = (await createClient(base).request(`/sites/${siteAfter.slug}/submit`, {
+        method: 'POST', form: form({ name: 'QA', email: 'qa@example.test', message: `site-burst-${i}` }),
+      })).status;
+    }
+    assert.equal(siteStatus, 429, 'published site form must rate-limit repeated submissions');
+    assert.equal((await createClient(base).request(`/sites/${siteAfter.slug}/submit`, {
+      method: 'POST', form: form({ name: 'QA', email: 'not-an-email', message: 'bad' }),
+    })).status, 429);
+
     // Public sharing is intentional; private and random slugs remain non-disclosing.
     assert.equal((await createClient(base).request(`/c/${publicSlug}`)).status, 200);
     assert.equal((await createClient(base).request(`/c/${publicSlug}/export`)).status, 200);
@@ -340,6 +561,7 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await createClient(base).request('/c/does-not-exist')).status, 404);
     assert.equal((await createClient(base).request(`/raw/${privateSlug}`)).status, 404);
     assert.equal((await createClient(base).request(`/c/${publicSlug}/asset/${imageId}`)).status, 200);
+    assert.equal((await createClient(base).request(`/c/${publicSlug}/asset/${unrelatedImageId}`)).status, 404, 'unrelated same-owner image must not be exposed');
     assert.equal((await createClient(base).request(`/c/${publicSlug}/asset/${otherImageId}`)).status, 404);
     const boardInfo = await json(await owner.request(`/api/workspace/docs/${boardId}`));
     const boardSvg = await createClient(base).request(`/c/${boardInfo.slug}/export`);
@@ -435,6 +657,7 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     const otherDownload = await fetch(`${base}/download/${docId}`, { headers: { 'x-api-key': otherKey } });
     assert.equal(otherDownload.status, 404);
 
+    assert.ok(!logs.join('').includes(readKey), 'raw API key must not appear in server logs');
     const keyRows = await queryRows(dbPath, 'select * from api_keys where name = ?', ['security read key']);
     assert.equal(keyRows.length, 1);
     const stored = keyRows[0];

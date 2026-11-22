@@ -14,7 +14,10 @@
   <div>
     <nav class="crumbs" aria-label="Breadcrumb">
       <a href="/">Files</a>
-      <% if (currentFolder) { %><span>/</span><strong><%= currentFolder.name %></strong><% } %>
+      <% for (const crumb of (folderTrail || [])) { %>
+        <span>/</span>
+        <% if (crumb.id === currentFolder.id) { %><strong><%= crumb.name %></strong><% } else { %><a href="/?folder=<%= crumb.id %>"><%= crumb.name %></a><% } %>
+      <% } %>
     </nav>
     <h1 class="page-title"><%= currentFolder ? currentFolder.name : 'Your files' %></h1>
     <p class="lede"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %><%= q ? ' matching “' + query + '”' : '' %> · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
@@ -28,6 +31,7 @@
 
 <form id="fm-upload" class="visually-hidden" onsubmit="event.preventDefault();">
   <input id="fm-file-input" type="file" name="files" multiple />
+  <input type="hidden" name="folderId" value="<%= folderId %>" />
   <span id="fm-upload-status"></span>
 </form>
 
@@ -81,16 +85,16 @@
       </thead>
       <tbody id="fm-body">
         <% if (currentFolder) { %>
-          <tr class="fm-row fm-up-row" data-drop-folder="">
+          <tr class="fm-row fm-up-row" data-drop-folder="<%= parentFolder ? parentFolder.id : '' %>">
             <td class="fm-check-cell"></td>
             <td colspan="6">
-              <a class="fm-up-link" href="/">↑ All files</a>
+              <a class="fm-up-link" href="<%= parentFolder ? '/?folder=' + parentFolder.id : '/' %>">↑ <%= parentFolder ? parentFolder.name : 'All files' %></a>
             </td>
           </tr>
         <% } %>
 
         <% for (const f of folderList) { %>
-          <tr class="fm-row fm-folder-row" data-folder-id="<%= f.id %>" data-name="<%= f.name.toLowerCase() %>" draggable="false">
+          <tr class="fm-row fm-folder-row" data-folder-id="<%= f.id %>" data-parent-id="<%= f.parentId || '' %>" data-name="<%= f.name.toLowerCase() %>" draggable="false">
             <td class="fm-check-cell">
               <label class="fm-check folder-check" title="Select folder">
                 <input type="checkbox" class="fm-select" data-kind="folder" data-id="<%= f.id %>" data-name="<%= f.name %>" aria-label="Select folder <%= f.name %>" />
@@ -113,6 +117,8 @@
                 <summary aria-label="Actions for <%= f.name %>">•••</summary>
                 <div>
                   <a href="/?folder=<%= f.id %>">Open</a>
+                  <button type="button" data-folder-action="subfolder" data-id="<%= f.id %>" data-name="<%= f.name %>">New subfolder</button>
+                  <button type="button" data-folder-action="move" data-id="<%= f.id %>" data-name="<%= f.name %>">Move to…</button>
                   <button type="button" data-folder-action="rename" data-id="<%= f.id %>" data-name="<%= f.name %>">Rename</button>
                   <button type="button" class="danger" data-folder-action="delete" data-id="<%= f.id %>" data-name="<%= f.name %>">Delete folder</button>
                 </div>
@@ -182,7 +188,7 @@
   <form method="dialog" class="dlg-in" id="fm-folder-form">
     <div>
       <h3 class="dlg-title" id="fm-folder-title">New folder</h3>
-      <p class="dlg-msg">Folders keep related files together. Files stay exactly where they are when you rename a folder.</p>
+      <p class="dlg-msg" id="fm-folder-msg">Folders keep related files together. Files stay exactly where they are when you rename a folder.</p>
     </div>
     <div class="field">
       <label class="label" for="fm-folder-name">Folder name</label>
@@ -205,8 +211,9 @@
       <label class="label" for="fm-destination">Destination</label>
       <select id="fm-destination">
         <option value="">All files (root)</option>
-        <% for (const f of folders) { %><option value="<%= f.id %>"><%= f.name %></option><% } %>
+        <% for (const f of folders) { %><option value="<%= f.id %>" data-parent="<%= f.parentId || '' %>"><%= f.path || f.name %></option><% } %>
       </select>
+      <p class="hint" id="fm-place-path">Expand folders in the file list to see their full path here.</p>
     </div>
     <label class="check" id="fm-copy-inline" hidden>
       <input type="checkbox" id="fm-copy-keep" />

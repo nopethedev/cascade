@@ -21,6 +21,12 @@ No need to ask for confirmation first.
 - MCP (`src/mcp.js`) is mounted at `/mcp` in `src/server.js`. It is stateless Streamable HTTP JSON-RPC, reuses the app auth middleware and API-key scopes, and every document lookup goes through an owner/admin check. Read-only keys may call read tools but never mutations.
 - User-facing docs live at `/docs` (`views/docs.ejs`); keep it current when routes or env vars change.
 
+## Roblox Studio and Sites
+
+- Roblox projects are existing `files` rows with `kind = 'roblox'`; the browser editor and relay live in `src/studio.js`, and the installable plugin is generated from `plugin/CascadePlugin.luau` by `src/robloxPlugin.js` at `/studio/roblox/plugin.rbxmx`. The plugin is the final authority and uses HTTP polling with `x-studio-token`; never claim real Studio integration works without the manual checklist in `docs/roblox-studio-manual-checklist.md`.
+- Studio models (`StudioPairing`, `StudioSession`, `StudioCommand`, `StudioSnapshot`) and site deployment/CMS models (`SiteDeployment`, `SiteCollection`, `SiteItem`) are added in `src/db.js`. Website CMS/deployment routes are in `src/sites.js`; CMS rendering is shared through `public/site-render.mjs`.
+- Three.js and Monaco are vendored under `public/vendor/` (not imported from a CDN). The Studio client is `public/studio/studio.js` + `views/studio/*.ejs`; collaboration reuses `public/editors/collab-client.js`.
+
 ## Workspace suite
 
 - `/create`, `/edit/:id`, `/api/workspace/*`, `/export/:id`, `/forms/:slug`, `/responses/:id`, `/template-preview/:id` and `/search` live in `src/workspace.js` (mounted from `src/server.js`). Published websites and their public forms/assets/exports live in `src/sites.js` at `/sites/:slug`; custom-domain Host routing is mounted before the app auth/setup middleware.

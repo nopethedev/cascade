@@ -12,6 +12,7 @@
   const folderForm = document.getElementById('fm-folder-form');
   const folderName = document.getElementById('fm-folder-name');
   const folderTitle = document.getElementById('fm-folder-title');
+  const folderMsg = document.getElementById('fm-folder-msg');
   const folderSave = document.getElementById('fm-folder-save');
   const placeDialog = document.getElementById('fm-place-dialog');
   const placeForm = document.getElementById('fm-place-form');
@@ -25,9 +26,11 @@
   const dragHint = document.getElementById('fm-drop-hint');
   let folderMode = 'create';
   let folderEditId = null;
+  let folderParentId = root.dataset.folder || null;
   let placeMode = 'move';
   let placeIds = [];
   let draggingIds = [];
+  const currentFolderId = root.dataset.folder || null;
 
   const selectedItems = () =>
     [...document.querySelectorAll('.fm-select:checked')].map((input) => ({
@@ -106,14 +109,37 @@
     });
   });
 
+  function descendantsOf(id) {
+    const ids = new Set([id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      destination.querySelectorAll('option[data-parent]').forEach((option) => {
+        if (ids.has(option.dataset.parent) && !ids.has(option.value)) {
+          ids.add(option.value);
+          changed = true;
+        }
+      });
+    }
+    return ids;
+  }
+
   function openPlaceDialog(mode, ids) {
     placeMode = mode;
     placeIds = ids;
-    placeTitle.textContent = mode === 'copy' ? 'Copy files' : 'Move files';
-    placeMsg.textContent = mode === 'copy'
-      ? 'Choose where the copies should go. The originals stay where they are.'
-      : 'Choose a destination folder. You can also drag files onto a folder in the list.';
-    placeSave.textContent = mode === 'copy' ? 'Copy here' : 'Move here';
+    const folderMove = mode === 'folder-move';
+    placeTitle.textContent = folderMove ? 'Move folder' : mode === 'copy' ? 'Copy files' : 'Move files';
+    placeMsg.textContent = folderMove
+      ? 'Choose a new parent folder. A folder cannot be moved inside itself or one of its descendants.'
+      : mode === 'copy'
+        ? 'Choose where the copies should go. The originals stay where they are.'
+        : 'Choose a destination folder. You can also drag files onto a folder in the list.';
+    placeSave.textContent = folderMove ? 'Move folder here' : mode === 'copy' ? 'Copy here' : 'Move here';
+    const blocked = folderMove ? descendantsOf(ids[0]) : new Set();
+    destination.querySelectorAll('option[data-parent]').forEach((option) => {
+      option.disabled = blocked.has(option.value);
+    });
+    if (folderMove) destination.value = '';
     placeDialog.showModal();
   }
 
@@ -122,29 +148,41 @@
     placeSave.disabled = true;
     const folderId = destination.value || null;
     let failed = 0;
+    let lastError = '';
     try {
       for (const id of placeIds) {
         try {
-          await api(`/api/files/${id}/${placeMode === 'copy' ? 'copy' : 'move'}`, {
-            method: 'POST',
-            body: JSON.stringify({ folderId, ...(placeMode === 'copy' ? { keepFolder: false } : {}) }),
-          });
-        } catch {
+          if (placeMode === 'folder-move') {
+            await api(`/api/folders/${id}/move`, { method: 'POST', body: JSON.stringify({ parentId: folderId }) });
+          } else {
+            await api(`/api/files/${id}/${placeMode === 'copy' ? 'copy' : 'move'}`, {
+              method: 'POST',
+              body: JSON.stringify({ folderId, ...(placeMode === 'copy' ? { keepFolder: false } : {}) }),
+            });
+          }
+        } catch (err) {
           failed += 1;
+          lastError = err.message || lastError;
         }
       }
       placeDialog.close();
-      window.cascadeToast?.(failed ? `${failed} item(s) failed` : placeMode === 'copy' ? 'Copied' : 'Moved', failed > 0);
+      window.cascadeToast?.(failed ? lastError || `${failed} item(s) failed` : placeMode === 'folder-move' ? 'Folder moved' : placeMode === 'copy' ? 'Copied' : 'Moved', failed > 0);
       if (!failed) setTimeout(() => location.reload(), 300);
     } finally {
       placeSave.disabled = false;
     }
   });
 
-  function openFolderDialog(mode, folder) {
+  function openFolderDialog(mode, folder, parentId = currentFolderId) {
     folderMode = mode;
     folderEditId = folder?.id || null;
-    folderTitle.textContent = mode === 'rename' ? 'Rename folder' : 'New folder';
+    folderParentId = parentId || null;
+    folderTitle.textContent = mode === 'rename' ? 'Rename folder' : parentId ? 'New subfolder' : 'New folder';
+    folderMsg.textContent = mode === 'rename'
+      ? 'Files stay exactly where they are when you rename a folder.'
+      : parentId
+        ? 'This folder is created inside the current location. Names must be unique among siblings.'
+        : 'Folders keep related files together. You can create subfolders inside a folder.';
     folderSave.textContent = mode === 'rename' ? 'Save name' : 'Create folder';
     folderName.value = folder?.name || '';
     folderDialog.showModal();
@@ -167,7 +205,7 @@
       if (folderMode === 'rename') {
         await api(`/api/folders/${folderEditId}/rename`, { method: 'POST', body: JSON.stringify({ name }) });
       } else {
-        await api('/api/folders', { method: 'POST', body: JSON.stringify({ name }) });
+        await api('/api/folders', { method: 'POST', body: JSON.stringify({ name, parentId: folderParentId }) });
       }
       folderDialog.close();
       window.cascadeToast?.(folderMode === 'rename' ? 'Folder renamed' : 'Folder created');
@@ -188,19 +226,21 @@
     if (folderAction) {
       e.preventDefault();
       const { action, id, name } = folderAction.dataset;
-      if (action === 'rename') return openFolderDialog('rename', { id, name });
+      if (action === 'rename') return openFolderDialog('rename', { id, name }, null);
+      if (action === 'subfolder') return openFolderDialog('create', null, id);
+      if (action === 'move') return openPlaceDialog('folder-move', [id]);
       if (action === 'delete') {
         const ok = await ask({
           title: `Delete “${name}”?`,
-          message: 'The folder is removed. Any files inside return to All files — they are not deleted.',
+          message: 'The folder is removed. Child folders and files move up one level — they are not deleted.',
           confirm: 'Delete folder',
           danger: true,
         });
         if (!ok) return;
         try {
           await api(`/api/folders/${id}`, { method: 'DELETE' });
-          window.cascadeToast?.('Folder deleted — files moved to All files');
-          setTimeout(() => { location.href = '/'; }, 300);
+          window.cascadeToast?.('Folder deleted — contents moved up one level');
+          setTimeout(() => { location.reload(); }, 300);
         } catch (err) {
           window.cascadeToast?.(err.message, true);
         }

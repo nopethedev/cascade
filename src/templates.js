@@ -10,10 +10,11 @@ export const KINDS = [
   { id: 'board', label: 'Whiteboard', tag: 'Infinite canvas', icon: 'WBD' },
   { id: 'form', label: 'Form', tag: 'Collect answers', icon: 'FRM' },
   { id: 'code', label: 'Code file', tag: 'Editor + files', icon: 'CODE' },
-  { id: 'site', label: 'Website', tag: 'Landing page builder', icon: 'WEB' },
+  { id: 'site', label: 'Website', tag: 'Visual site builder', icon: 'WEB' },
+  { id: 'roblox', label: 'Roblox place', tag: 'Studio relay + 3D', icon: 'RBX' },
 ];
 
-export const CATEGORIES = ['blank', 'business', 'education', 'personal', 'custom'];
+export const CATEGORIES = ['blank', 'business', 'education', 'personal', 'blog', 'ecommerce', 'game', 'custom'];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const doc = (html, extra = {}) => ({ html, header: extra.header || '', footer: extra.footer || '' });
@@ -68,6 +69,33 @@ const site = (brand, sections, theme = {}, seo = {}) => ({
   customCss: '',
 });
 const siteSection = (type, fields) => ({ id: `${type}-${Math.random().toString(36).slice(2, 7)}`, type, ...fields });
+const roblox = (placeName, blank = false) => {
+  const id = () => Math.random().toString(36).slice(2, 12);
+  const workspace = { id: id(), className: 'Workspace', name: 'Workspace', props: { ClassName: 'Workspace' }, children: [] };
+  if (!blank) {
+    workspace.children.push(
+      { id: id(), className: 'Part', name: 'Baseplate', props: { ClassName: 'Part', Anchored: true, Size: { x: 120, y: 1, z: 120 }, Position: { x: 0, y: 0, z: 0 }, Color: '#27272a', CanCollide: true }, children: [] },
+      { id: id(), className: 'SpawnLocation', name: 'SpawnLocation', props: { ClassName: 'SpawnLocation', Anchored: true, Size: { x: 12, y: 1, z: 12 }, Position: { x: 0, y: 0.5, z: 0 }, Color: '#f59e0b', CanCollide: true }, children: [] },
+    );
+  }
+  return {
+    placeName,
+    services: [
+      workspace,
+      { id: id(), className: 'ReplicatedStorage', name: 'ReplicatedStorage', props: { ClassName: 'ReplicatedStorage' }, children: [] },
+      { id: id(), className: 'ServerScriptService', name: 'ServerScriptService', props: { ClassName: 'ServerScriptService' }, children: blank ? [] : [
+        { id: id(), className: 'Script', name: 'GameLoop', props: { ClassName: 'Script', Source: '-- Cascade starter script\nlocal Players = game:GetService("Players")\n\nPlayers.PlayerAdded:Connect(function(player)\n\tprint("Welcome", player.Name)\nend)\n' }, children: [] },
+      ] },
+      { id: id(), className: 'StarterGui', name: 'StarterGui', props: { ClassName: 'StarterGui' }, children: blank ? [] : [
+        { id: id(), className: 'ScreenGui', name: 'HUD', props: { ClassName: 'ScreenGui', Enabled: true }, children: [
+          { id: id(), className: 'TextLabel', name: 'Title', props: { ClassName: 'TextLabel', Text: 'YOUR GAME', TextSize: 28, Position: { xs: 0, xo: 24, ys: 0, yo: 24 }, Size: { xs: 0, xo: 260, ys: 0, yo: 48 }, TextColor3: '#ffffff', BackgroundTransparency: 1 }, children: [] },
+        ] },
+      ] },
+    ],
+    pluginVersion: null,
+    capturedAt: null,
+  };
+};
 
 export const TEMPLATES = [
   // ---------------- documents ----------------
@@ -367,6 +395,71 @@ export const TEMPLATES = [
       siteSection('contact', { title: 'Register interest', text: 'Leave your email and we will send the ticket link first.', email: 'hello@example.com' }),
       siteSection('footer', { text: 'Field Notes is an independent event.', links: [{ label: 'Code of conduct', href: '#' }, { label: 'Accessibility', href: '#' }] }),
     ], { accent: '#facc15', bg: '#0b0b0c', surface: '#171719', text: '#fafafa', muted: '#a1a1aa', font: 'Inter', radius: 18 }, { title: 'Field Notes — A small conference', description: 'Three days for people who make things. Lisbon, June 12–14.' }),
+  },
+  {
+    id: 'site-blog', name: 'Editorial blog', kind: 'site', category: 'blog',
+    description: 'A journal-style landing page with article cards and newsletter CTA.',
+    build: () => site('The Long Form', [
+      siteSection('nav', { brand: 'The Long Form', links: [{ label: 'Journal', href: '#work' }, { label: 'About', href: '#about' }, { label: 'Subscribe', href: '#contact' }], ctaLabel: 'Subscribe', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'Notes on making things', title: 'Slow thoughts for fast times.', text: 'Essays, field notes and conversations about craft, tools and the work behind the work.', ctaLabel: 'Read the latest', ctaHref: '#work', align: 'left', style: { paddingY: 112, bg: 'gradient' } }),
+      siteSection('features', { title: 'Latest stories', text: 'A living archive, updated when there is something worth saying.', items: [
+        { title: 'The case for unfinished work', text: 'Why a rough draft can be more useful than a polished answer.' },
+        { title: 'A studio with no walls', text: 'What changes when the place you work is a set of habits, not a room.' },
+        { title: 'Tools that disappear', text: 'Good software gets out of the way. A few notes on designing for flow.' },
+      ], style: { paddingY: 88 } }),
+      siteSection('about', { title: 'About the journal', text: 'The Long Form is an independent publication about the practice of making things. New issues arrive twice a month, never more.', image: '', style: { paddingY: 78 } }),
+      siteSection('cta', { title: 'A letter, twice a month.', text: 'No algorithms, no growth hacks. Just the next good idea.', ctaLabel: 'Subscribe', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Subscribe', text: 'Leave your email and we will add you to the next issue.', email: 'letters@example.com' }),
+      siteSection('footer', { text: '© The Long Form.', links: [{ label: 'Archive', href: '#work' }, { label: 'RSS', href: '#' }] }),
+    ], { accent: '#f59e0b', bg: '#0c0b0a', surface: '#191612', text: '#faf7ef', muted: '#b8ad9a', font: 'Georgia', radius: 6 }, { title: 'The Long Form — Slow thoughts for fast times', description: 'An independent journal about craft, tools and the work behind the work.' }),
+  },
+  {
+    id: 'site-commerce', name: 'Commerce launch', kind: 'site', category: 'ecommerce',
+    description: 'Product launch page with benefits, gallery and conversion flow.',
+    build: () => site('Field Supply', [
+      siteSection('nav', { brand: 'Field Supply', links: [{ label: 'Shop', href: '#work' }, { label: 'Story', href: '#about' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Shop the drop', ctaHref: '#work' }),
+      siteSection('hero', { eyebrow: 'Small batch · Made to last', title: 'Tools for the long way around.', text: 'Everyday objects designed with fewer parts, better materials and a repair-first mindset.', ctaLabel: 'Shop the collection', ctaHref: '#work', secondaryLabel: 'Our story', secondaryHref: '#about', align: 'left', image: '', style: { paddingY: 116, bg: 'gradient' } }),
+      siteSection('logos', { title: 'As seen in', items: ['Field Journal', 'Good Goods', 'The Makers', 'Slow Daily'] }),
+      siteSection('features', { title: 'Built to be used', text: 'Three principles behind every object we make.', items: [
+        { title: 'Repairable by design', text: 'Fasteners, not glue. Replacement parts available for every product.' },
+        { title: 'Honest materials', text: 'Solid brass, oiled canvas and responsibly sourced timber. Nothing pretending.' },
+        { title: 'Made in small runs', text: 'We produce what we can stand behind, then make it again when it is right.' },
+      ], style: { paddingY: 90 } }),
+      siteSection('gallery', { title: 'The collection', text: 'A first look at the objects in this release.', images: [], style: { paddingY: 84 } }),
+      siteSection('testimonials', { title: 'From the workshop', items: [{ quote: 'The kind of object you notice every day because it keeps working.', name: 'Rae Kim', role: 'Field Supply customer' }] }),
+      siteSection('cta', { title: 'The next drop is small.', text: 'Join the list for first access and occasional notes from the workshop.', ctaLabel: 'Join the list', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Get first access', text: 'Leave your email and we will send the next release notes.', email: 'hello@example.com' }),
+      siteSection('footer', { text: '© Field Supply.', links: [{ label: 'Shipping', href: '#' }, { label: 'Repairs', href: '#' }] }),
+    ], { accent: '#65a30d', bg: '#0a0d09', surface: '#151b14', text: '#f4f8ef', muted: '#a9b5a1', font: 'Inter', radius: 2 }, { title: 'Field Supply — Tools for the long way around', description: 'Small-batch, repairable everyday objects.' }),
+  },
+  {
+    id: 'site-business', name: 'Service business', kind: 'site', category: 'business',
+    description: 'Clear offer, proof, process and contact flow for a service firm.',
+    build: () => site('Northline', [
+      siteSection('nav', { brand: 'Northline', links: [{ label: 'Services', href: '#features' }, { label: 'Process', href: '#about' }, { label: 'Contact', href: '#contact' }], ctaLabel: 'Book a call', ctaHref: '#contact' }),
+      siteSection('hero', { eyebrow: 'Operations, untangled', title: 'Make the work flow.', text: 'Northline helps growing teams simplify the systems behind their service delivery — without a six-month transformation project.', ctaLabel: 'Book a discovery call', ctaHref: '#contact', secondaryLabel: 'How we work', secondaryHref: '#about', align: 'left', style: { paddingY: 108, bg: 'gradient' } }),
+      siteSection('logos', { title: 'Trusted by operators at', items: ['Aperture', 'Monogram', 'Fieldwork', 'Hearth'] }),
+      siteSection('features', { title: 'A calmer operating system', text: 'We find the bottleneck, design the fix and stay until it sticks.', items: [
+        { title: 'Diagnose', text: 'A short, focused review of the handoffs, tools and decisions slowing the team down.' },
+        { title: 'Design', text: 'A practical operating model your team can run without a consultant in the room.' },
+        { title: 'Embed', text: 'We work alongside your leads to ship the change and leave the muscle behind.' },
+      ], style: { paddingY: 88 } }),
+      siteSection('about', { title: 'Small team. Senior attention.', text: 'Northline is a two-person practice with a network of specialists. Every engagement is led by the people who do the work — no handoffs, no junior slide decks.', image: '', reverse: false, style: { paddingY: 82 } }),
+      siteSection('testimonials', { title: 'What leaders say', items: [{ quote: 'We stopped firefighting in a month. The team finally has room to think.', name: 'Priya Shah', role: 'COO, Hearth' }] }),
+      siteSection('cta', { title: 'Ready for a calmer quarter?', text: 'Tell us where the friction is. We will reply with a short, honest read.', ctaLabel: 'Start a conversation', ctaHref: '#contact' }),
+      siteSection('contact', { title: 'Book a discovery call', text: 'A 30-minute conversation, no pitch deck required.', email: 'hello@example.com' }),
+      siteSection('footer', { text: '© Northline.', links: [{ label: 'Privacy', href: '#' }, { label: 'Terms', href: '#' }] }),
+    ], { accent: '#0ea5e9', bg: '#080b0f', surface: '#121a22', text: '#f1f7fb', muted: '#93a8b8', font: 'Inter', radius: 12 }, { title: 'Northline — Make the work flow', description: 'Operations consulting for growing service teams.' }),
+  },
+  {
+    id: 'roblox-starter', name: 'Roblox place', kind: 'roblox', category: 'game',
+    description: 'Starter place with Workspace, scripts and a ScreenGui HUD.',
+    build: () => roblox('Untitled Roblox place'),
+  },
+  {
+    id: 'roblox-blank', name: 'Blank Roblox place', kind: 'roblox', category: 'blank',
+    description: 'An empty place ready for the Studio relay.',
+    build: () => roblox('Blank Roblox place', true),
   },
   {
     id: 'site-blank', name: 'Blank website', kind: 'site', category: 'blank',

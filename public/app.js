@@ -77,6 +77,7 @@ async function cascadeUpload(form, statusEl) {
   }
   const fd = new FormData();
   for (const file of files) fd.append('files', file);
+  for (const hidden of form.querySelectorAll('input[type="hidden"][name]')) fd.append(hidden.name, hidden.value);
   setStatus(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`);
 
   try {

@@ -1,7 +1,8 @@
 import express from 'express';
 import { nanoid } from 'nanoid';
 import { Op } from 'sequelize';
-import { FileRecord, DocVersion, Folder, Template, FormResponse, sequelize } from './db.js';
+import { FileRecord, DocVersion, Folder, Template, FormResponse, StudioCommand, StudioSnapshot, sequelize } from './db.js';
+import { validateCommand, applyCommandToContent } from './studio.js';
 import { KIND_BY_ID, TEMPLATES, buildContent } from './templates.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { recordEvent } from './analytics.js';
@@ -21,6 +22,9 @@ const READ_TOOLS = new Set([
   'list_templates',
   'search_documents',
   'list_form_responses',
+  'studio_list_projects',
+  'studio_get_scene',
+  'studio_list_commands',
 ]);
 
 class ToolError extends Error {}
@@ -326,6 +330,42 @@ const tools = [
       additionalProperties: false,
       properties: { kind: { type: 'string', enum: [...KIND_BY_ID.keys()] } },
     },
+  },
+  {
+    name: 'studio_list_projects',
+    description: 'List owned Roblox Studio projects with relay/session metadata. Use the returned id with studio_get_scene.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT } } },
+  },
+  {
+    name: 'studio_get_scene',
+    description: 'Read the current normalized scene snapshot of an owned Roblox project. The Studio plugin remains the authority for applying changes.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'studio_list_commands',
+    description: 'List recent audited Studio commands for an owned project, including queued, applied and failed states.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 }, limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT } }, required: ['id'] },
+  },
+  {
+    name: 'studio_queue_command',
+    description: 'Queue one supported Roblox change for the connected Studio plugin. Returns a preview when dry_run. Deletes require confirm:true. No arbitrary Luau is executed by the relay.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        kind: { type: 'string', enum: ['create', 'update', 'rename', 'reparent', 'delete', 'script', 'gui'] },
+        payload: { type: 'object' },
+        dry_run: { type: 'boolean' },
+        confirm: { type: 'boolean' },
+      },
+      required: ['id', 'kind', 'payload'],
+    },
+  },
+  {
+    name: 'studio_create_snapshot',
+    description: 'Create a labeled backup snapshot of an owned Roblox project before a batch of changes.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 }, label: { type: 'string', maxLength: 160 } }, required: ['id'] },
   },
   {
     name: 'list_form_responses',
@@ -721,6 +761,73 @@ async function callTool(name, args, ctx) {
           })),
         ],
       });
+    }
+
+    if (name === 'studio_list_projects') {
+      const rows = await FileRecord.findAll({
+        where: { ownerId: ctx.user.id, kind: 'roblox' },
+        order: [['updatedAt', 'DESC']],
+        limit: clampLimit(input.limit),
+        attributes: ['id', 'filename', 'version', 'updatedAt', 'createdAt'],
+      });
+      return textResult({ projects: rows.map((row) => ({ ...docMeta(row), studioUrl: `/studio/roblox/${row.id}` })) });
+    }
+
+    if (name === 'studio_get_scene') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'roblox') return errorResult('not a Roblox project');
+      const content = parseContent(file);
+      return textResult({ project: docMeta(file), scene: content.scene || content, placeName: content.placeName || null });
+    }
+
+    if (name === 'studio_list_commands') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'roblox') return errorResult('not a Roblox project');
+      const commands = await StudioCommand.findAll({
+        where: { fileId: file.id },
+        order: [['createdAt', 'DESC']],
+        limit: clampLimit(input.limit),
+        attributes: ['id', 'kind', 'status', 'createdBy', 'error', 'createdAt', 'deliveredAt', 'appliedAt'],
+      });
+      return textResult({ commands });
+    }
+
+    if (name === 'studio_queue_command') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'roblox') return errorResult('not a Roblox project');
+      if (input.kind === 'delete' && !input.confirm) {
+        return errorResult('delete requires confirm:true; call again with confirm when the deletion is intended');
+      }
+      let payload;
+      try { payload = validateCommand(input.kind, input.payload); } catch (err) { return errorResult(err.message); }
+      const preview = { kind: input.kind, payload, targetProject: file.filename };
+      if (input.dry_run) return textResult({ dryRun: true, preview, queued: false });
+      const command = await StudioCommand.create({
+        id: nanoid(36),
+        fileId: file.id,
+        sessionId: null,
+        kind: input.kind,
+        payload,
+        status: 'queued',
+        createdBy: ctx.apiKey ? `mcp:${ctx.apiKey.id}` : `mcp:${ctx.user.id}`,
+      });
+      // Persist the previewed edit so it survives a reload before a plugin
+      // connects; the next Studio snapshot remains authoritative.
+      const current = parseContent(file);
+      const before = JSON.stringify(current);
+      const next = applyCommandToContent(current, command.kind, payload);
+      const serialized = JSON.stringify(next);
+      if (serialized !== before) {
+        await file.update({ content: serialized, size: Buffer.byteLength(serialized), version: file.version + 1, updatedAt: new Date() });
+      }
+      return textResult({ queued: true, command: { id: command.id, kind: command.kind, status: command.status }, version: file.version, audit: 'The plugin is the final authority; watch studio_list_commands for apply/failure.' });
+    }
+
+    if (name === 'studio_create_snapshot') {
+      const file = await loadDoc(input.id, ctx.user);
+      if (file.kind !== 'roblox') return errorResult('not a Roblox project');
+      const snap = await StudioSnapshot.create({ fileId: file.id, scene: file.content, label: String(input.label || 'MCP snapshot').slice(0, 160), createdBy: `mcp:${ctx.user.id}` });
+      return textResult({ created: true, snapshotId: snap.id });
     }
 
     if (name === 'list_form_responses') {

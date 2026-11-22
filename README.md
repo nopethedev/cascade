@@ -19,9 +19,20 @@ Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard s
 | **Whiteboard** | infinite pan/zoom canvas, pen, rectangle, ellipse, arrow, text, sticky notes, eraser, undo/redo, SVG export |
 | **Form** | 8 field types, visual builder, publish link, server-side validation, stored responses, per-question analytics, CSV export |
 | **Code** | multi-file project, tabs, syntax highlighting, rename/delete, export |
-| **Website** | visual section builder, layers/reorder, responsive previews, theme + SEO, sandboxed custom code, publishing with forms/analytics/sitemap, custom domains, HTML/React export |
+| **Website** | visual section builder, layers/reorder, responsive previews, theme + SEO, sandboxed custom code, SQLite CMS collections and dynamic pages, staging/production deployments with rollback, publishing with forms/analytics/sitemap, custom domains, HTML/React export |
+| **Roblox Studio** | installable Luau plugin, one-time pairing, live Explorer, properties, Luau/Monaco scripts, GUI designer, Three.js approximation viewport, snapshots, MCP tools and live collaboration |
 
 Shared behaviour: Yjs/WebSocket live collaboration with cursors, selections, presence and reconnect recovery; offline draft merge; debounced autosave; version history (last 25 snapshots, restorable); server-enforced Owner/Editor/Commenter/Viewer roles; expiring capability links; threaded comments with @mentions; "save as template"; a global `/search` across file names and document contents; and an image library for documents, spreadsheets, decks and websites. Template cards render the actual template content, not placeholders.
+
+### Roblox Studio bridge
+
+`/studio/roblox` is a real remote editor for an installed Roblox Studio plugin, not a simulation. Create a place, click **Connect Studio**, and hand the one-time URL + pairing code to the plugin. The relay uses authenticated HTTP polling (Roblox plugins cannot depend on WebSockets), never asks for a Roblox password or cookie, hashes session tokens, supports heartbeat/reconnect/revocation, and keeps the plugin as the final authority for supported changes.
+
+Explorer, property editing, Luau scripts (Monaco), GUI instances, Three.js viewport transforms and scene snapshots are implemented. The 3D preview is opt-in via **Enable 3D preview** because remote desktops and embedded browsers can expose a software WebGL rasterizer that blocks the editor; it requires hardware WebGL, while the Explorer, properties, scripts and GUI designer continue to work without it. Every edit is schema-validated and queued; unsupported properties and unavailable Studio APIs are reported rather than faked. Terrain sculpting, animation timelines, particle simulation, pathfinding visualization and asset uploads remain Studio-side workflows. See [`docs/roblox-studio-manual-checklist.md`](docs/roblox-studio-manual-checklist.md) for the acceptance checklist that must be run with a real Studio install.
+
+### Cascade Sites CMS and deployments
+
+The website editor's **CMS** panel stores collections and items in SQLite and renders real dynamic `/c/:collection` and `/c/:collection/:slug` pages. **Deployments** keeps immutable staging and production snapshots, and **Staging** previews the next build without touching production. Publishing remains available at `/sites/:slug` with sitemap/robots, SEO, forms, analytics and custom-domain routing; HTML and React exports are self-contained.
 
 Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx`, `.pptx`) with embedded local images, so they open in Word, Excel and PowerPoint rather than being renamed HTML/CSV files. Presentation exports include native OOXML slide transitions added after pptxgenjs writes the package. Shared-document pages expose only images owned by that document. PDFs are stored as their real PDF bytes (base64 inside the document JSON). Pages are edited in the browser with **pdf-lib** and rendered with **pdf.js**, both served from `public/vendor/`; annotations are burned into the export on the server. DOCX/XLSX/PPTX **import**, AI assistance and a light theme are not included. Add `pdfjs-dist` and `pdf-lib` static builds again with the copy step in `AGENTS.md` if you upgrade them.
 

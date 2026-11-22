@@ -1,0 +1,186 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-full studio-shell' }) %>
+<link rel="stylesheet" href="/public/studio/studio.css" />
+<div class="studio-app" id="studio-app" data-project-id="<%= file.id %>" data-can-edit="<%= canEdit ? '1' : '0' %>">
+  <header class="studio-topbar">
+    <a class="studio-brand" href="/studio/roblox" aria-label="Back to Roblox Studio projects"><span>C</span><b>Studio</b></a>
+    <div class="studio-title-wrap">
+      <strong><%= file.filename %></strong>
+      <small id="studio-place-meta">v<%= file.version %> · <span id="studio-save-state">saved</span></small>
+    </div>
+    <div class="studio-connection" id="studio-connection">
+      <span class="studio-pulse"></span>
+      <span id="studio-connection-label"><%= session.status %></span>
+      <% if (session.placeName) { %><small id="studio-session-place"><%= session.placeName %></small><% } %>
+    </div>
+    <div class="studio-live" id="studio-live" hidden title="Live collaborators">
+      <span class="studio-pulse"></span><span id="studio-live-label">Live</span><span class="studio-presence" id="studio-presence"></span>
+    </div>
+    <div class="studio-top-actions">
+      <button class="btn btn-ghost btn-sm" type="button" id="studio-undo" title="Undo (Ctrl/Cmd+Z)" disabled>↶</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="studio-redo" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="studio-snapshot-btn">Snapshots</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="studio-history-btn">History</button>
+      <button class="btn btn-sm" type="button" id="studio-connect-btn"><%= session.status === 'connected' ? 'Reconnect Studio' : 'Connect Studio' %></button>
+      <button class="btn btn-danger btn-sm" type="button" id="studio-disconnect-btn" <%= session.id ? '' : 'hidden' %>>Revoke</button>
+    </div>
+  </header>
+
+  <nav class="studio-tabs" aria-label="Studio modes">
+    <button type="button" class="is-active" data-studio-tab="scene">Scene</button>
+    <button type="button" data-studio-tab="scripts">Scripts</button>
+    <button type="button" data-studio-tab="gui">GUI</button>
+    <button type="button" data-studio-tab="tools">Game tools</button>
+    <button type="button" data-studio-tab="logs">Activity</button>
+    <span class="studio-tab-spacer"></span>
+    <a class="studio-download-link" href="/studio/roblox/plugin.rbxmx">Plugin .rbxmx</a>
+  </nav>
+
+  <main class="studio-workspace">
+    <aside class="studio-panel studio-explorer">
+      <div class="studio-panel-head"><strong>Explorer</strong><button class="studio-icon-btn" type="button" id="studio-explorer-refresh" title="Refresh">↻</button></div>
+      <div class="studio-search"><input id="studio-explorer-search" type="search" placeholder="Search instances…" aria-label="Search instances" /><kbd>⌘K</kbd></div>
+      <div class="studio-explorer-tree" id="studio-tree" role="tree"></div>
+      <div class="studio-explorer-foot">
+        <button class="studio-add-btn" type="button" id="studio-new-instance">+ Part</button>
+        <select id="studio-instance-class" aria-label="New instance class">
+          <option value="Part">Part</option>
+          <option value="MeshPart">MeshPart</option>
+          <option value="Model">Model</option>
+          <option value="Folder">Folder</option>
+          <option value="Script">Script</option>
+          <option value="LocalScript">LocalScript</option>
+          <option value="ModuleScript">ModuleScript</option>
+          <option value="ScreenGui">ScreenGui</option>
+          <option value="Frame">Frame</option>
+          <option value="TextLabel">TextLabel</option>
+          <option value="TextButton">TextButton</option>
+          <option value="ImageLabel">ImageLabel</option>
+          <option value="ScrollingFrame">ScrollingFrame</option>
+          <option value="WedgePart">WedgePart</option>
+        </select>
+      </div>
+    </aside>
+
+    <section class="studio-stage-col">
+      <div class="studio-view" data-studio-view="scene">
+        <div class="studio-stage-toolbar">
+          <div class="studio-seg" role="group" aria-label="Transform tool">
+            <button type="button" class="is-active" data-studio-tool="select" title="Select (1)">↖</button>
+            <button type="button" data-studio-tool="move" title="Move (2)">✥</button>
+            <button type="button" data-studio-tool="rotate" title="Rotate (3)">⟳</button>
+            <button type="button" data-studio-tool="scale" title="Scale (4)">⤢</button>
+          </div>
+          <select id="studio-transform-space" aria-label="Transform space"><option value="world">World</option><option value="local">Local</option></select>
+          <label class="studio-check"><input type="checkbox" id="studio-snap" checked /> Snap</label>
+          <select id="studio-snap-size" aria-label="Grid snap size"><option value="0.5">0.5</option><option value="1" selected>1</option><option value="2">2</option><option value="4">4</option></select>
+          <span class="studio-toolbar-spacer"></span>
+          <button class="studio-tool-btn" type="button" id="studio-camera-reset">Reset camera</button>
+          <button class="studio-tool-btn" type="button" id="studio-ortho-toggle">Orthographic</button>
+          <button class="studio-tool-btn" type="button" id="studio-fit-selection">Focus</button>
+        </div>
+        <div class="studio-viewport-wrap">
+          <canvas id="studio-viewport" aria-label="3D scene viewport"></canvas>
+          <div class="studio-view-hud" id="studio-view-hud">LMB orbit · RMB pan · wheel zoom · click to select</div>
+          <button class="studio-viewport-start" id="studio-start-viewport" type="button">Enable 3D preview</button>
+          <div class="studio-empty-connect" id="studio-empty-connect">
+            <div class="studio-empty-icon">RBX</div>
+            <div class="studio-empty-copy">
+              <strong>This place is not connected</strong>
+              <span>Edits are queued and applied when the Studio plugin connects. You can build and inspect here now.</span>
+            </div>
+            <button class="btn btn-sm" type="button" data-open-pair>Connect Studio</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="studio-view" data-studio-view="scripts" hidden>
+        <div class="studio-script-bar">
+          <div class="studio-script-tabs" id="studio-script-tabs"></div>
+          <button class="studio-icon-btn" type="button" id="studio-script-new" title="New script">+</button>
+          <span class="studio-toolbar-spacer"></span>
+          <button class="studio-tool-btn" type="button" id="studio-script-template">Template</button>
+          <button class="studio-tool-btn" type="button" id="studio-script-diff">Diff</button>
+          <button class="studio-tool-btn" type="button" id="studio-script-format">Format</button>
+          <button class="studio-tool-btn" type="button" id="studio-script-save">Save script</button>
+        </div>
+        <div class="studio-monaco-wrap"><div id="studio-monaco"></div><div class="studio-monaco-fallback" id="studio-monaco-fallback" hidden><textarea spellcheck="false" aria-label="Luau source"></textarea></div></div>
+        <div class="studio-diagnostics" id="studio-diagnostics">Luau diagnostics appear here. Studio remains the compiler of record.</div>
+      </div>
+
+      <div class="studio-view" data-studio-view="gui" hidden>
+        <div class="studio-gui-bar">
+          <div class="studio-gui-palette" id="studio-gui-palette">
+            <button type="button" data-gui-add="Frame">Frame</button>
+            <button type="button" data-gui-add="TextLabel">TextLabel</button>
+            <button type="button" data-gui-add="TextButton">TextButton</button>
+            <button type="button" data-gui-add="ImageLabel">ImageLabel</button>
+            <button type="button" data-gui-add="ScrollingFrame">ScrollingFrame</button>
+            <button type="button" data-gui-add="UIListLayout">UIListLayout</button>
+            <button type="button" data-gui-add="UIPadding">UIPadding</button>
+            <button type="button" data-gui-add="UICorner">UICorner</button>
+            <button type="button" data-gui-add="UIStroke">UIStroke</button>
+          </div>
+          <span class="studio-toolbar-spacer"></span>
+          <select id="studio-device-preview" aria-label="GUI device preview"><option value="desktop">Desktop 1280×720</option><option value="tablet">Tablet 1024×768</option><option value="phone">Phone 390×844</option></select>
+          <button class="studio-tool-btn" type="button" id="studio-gui-refresh">Refresh</button>
+        </div>
+        <div class="studio-gui-stage-wrap">
+          <div class="studio-gui-stage" id="studio-gui-stage">
+            <div class="studio-gui-device" id="studio-gui-device">
+              <div class="studio-gui-canvas" id="studio-gui-canvas"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="studio-view" data-studio-view="tools" hidden>
+        <div class="studio-tools-grid">
+          <section class="studio-tool-card"><h3>Model library</h3><p>Insert supported template models into Workspace. They become real Instances in Studio.</p><div class="studio-chip-row" id="studio-model-library">
+            <button type="button" data-model="checkpoint">Checkpoint</button><button type="button" data-model="platform">Platform</button><button type="button" data-model="spawn">Spawn pad</button><button type="button" data-model="obstacle">Obstacle</button><button type="button" data-model="coin">Coin</button>
+          </div></section>
+          <section class="studio-tool-card"><h3>Lighting</h3><div id="studio-lighting-controls"></div></section>
+          <section class="studio-tool-card"><h3>Materials & physics</h3><div id="studio-material-controls"><label class="studio-check"><input type="checkbox" id="studio-physics-debug" /> Collision and body-type overlay</label><p class="studio-hint">Collision visualization is a viewport approximation; the plugin remains the physics authority.</p></div></section>
+          <section class="studio-tool-card"><h3>Animation & effects</h3><div class="studio-chip-row" id="studio-effects-library"><button type="button" data-effect="spin">Spinner</button><button type="button" data-effect="float">Floating coin</button><button type="button" data-effect="pulse">Pulse light</button><button type="button" data-effect="particles">Particle emitter</button></div></section>
+          <section class="studio-tool-card"><h3>Performance & diagnostics</h3><div id="studio-perf"><span>Instances</span><strong id="studio-perf-nodes">—</strong><span>Scripts</span><strong id="studio-perf-scripts">—</strong><span>Queued</span><strong id="studio-perf-queue">—</strong></div><p class="studio-hint">Counts are from the last Studio snapshot; no full workspace upload happens on every edit.</p></section>
+          <section class="studio-tool-card"><h3>MCP access</h3><p>Authorized AI agents can read the scene and queue approved batches through Cascade's MCP endpoint. Every command is audited and owner-scoped.</p><a class="btn btn-ghost btn-sm" href="/docs#mcp">MCP documentation</a></section>
+        </div>
+      </div>
+
+      <div class="studio-view" data-studio-view="logs" hidden>
+        <div class="studio-log" id="studio-log"></div>
+      </div>
+    </section>
+
+    <aside class="studio-panel studio-properties">
+      <div class="studio-panel-head"><strong id="studio-props-title">Properties</strong><span class="studio-selection-count" id="studio-selection-count">No selection</span></div>
+      <div class="studio-props-body" id="studio-props"></div>
+    </aside>
+  </main>
+</div>
+
+<dialog class="dlg studio-pair-dialog" id="studio-pair-dialog">
+  <div class="dlg-in">
+    <h3 class="dlg-title">Connect Roblox Studio</h3>
+    <p class="dlg-msg">Paste this one-time URL and pairing code into the Cascade plugin. The code expires in 15 minutes and can only be used once.</p>
+    <div class="studio-pair-grid">
+      <div class="field"><label class="label" for="studio-pair-url">Connection URL</label><div class="copyrow"><input id="studio-pair-url" readonly /><button class="btn btn-ghost btn-sm" type="button" data-copy="studio-pair-url">Copy</button></div></div>
+      <div class="field"><label class="label" for="studio-pair-code">Pairing code</label><div class="copyrow"><input id="studio-pair-code" readonly class="studio-pair-code" /><button class="btn btn-sm" type="button" data-copy="studio-pair-code">Copy</button></div></div>
+    </div>
+    <p class="hint" id="studio-pair-expiry"></p>
+    <div class="studio-pair-status" id="studio-pair-status">Waiting for the plugin…</div>
+    <div class="dlg-actions"><button class="btn btn-quiet" type="button" data-close>Close</button><a class="btn btn-ghost" href="/studio/roblox/plugin.rbxmx">Download plugin</a></div>
+  </div>
+</dialog>
+
+<dialog class="dlg" id="studio-snapshots-dialog">
+  <div class="dlg-in"><div class="row-between"><h3 class="dlg-title">Scene snapshots</h3><button class="btn btn-sm" type="button" id="studio-snapshot-create">Create snapshot</button></div><div id="studio-snapshot-list" class="studio-snapshot-list">Loading…</div><div class="dlg-actions"><button class="btn btn-quiet" type="button" data-close>Close</button></div></div>
+</dialog>
+
+<dialog class="dlg" id="studio-history-dialog">
+  <div class="dlg-in"><h3 class="dlg-title">Document history</h3><p class="dlg-msg">Every Studio snapshot is also a document version. Restoring here updates the browser scene; the next plugin snapshot reconciles Studio.</p><div id="studio-history-list" class="studio-snapshot-list">Loading…</div><div class="dlg-actions"><button class="btn btn-quiet" type="button" data-close>Close</button></div></div>
+</dialog>
+
+<script type="application/json" id="studio-bootstrap"><%- projectJson %></script>
+<script type="module" src="/public/editors/collab-client.js"></script>
+<script type="module" src="/public/studio/studio.js"></script>
+<%- include('../partials/foot') %>

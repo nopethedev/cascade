@@ -22,6 +22,7 @@ import { KIND_BY_ID, KINDS } from './templates.js';
 import { computeSheet } from './formula.js';
 import { startCollabServer } from './collab.js';
 import { createSitesRouter, customDomainSiteMiddleware } from './sites.js';
+import { createStudioRouter } from './studio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -116,6 +117,98 @@ function safeFile(f) {
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
   };
+}
+
+const nameKey = (value) => String(value || '').trim().toLocaleLowerCase();
+
+function splitFilename(filename) {
+  const raw = String(filename || 'File').trim() || 'File';
+  const dot = raw.lastIndexOf('.');
+  if (dot > 0 && dot < raw.length - 1) return { base: raw.slice(0, dot), ext: raw.slice(dot) };
+  return { base: raw, ext: '' };
+}
+
+// A copy never silently overwrites a sibling and never reuses its basename:
+// `Report.docx` → `Report copy.docx`, then `Report copy 2.docx`.
+function nextCopyName(filename, takenNames) {
+  const { base, ext } = splitFilename(filename);
+  const taken = new Set([...takenNames].map(nameKey));
+  const stem = base.slice(0, Math.max(1, 235 - ext.length));
+  let candidate = `${stem} copy${ext}`;
+  let n = 2;
+  while (taken.has(nameKey(candidate))) {
+    candidate = `${stem} copy ${n}${ext}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+function uniqueNameForFolder(name, takenNames) {
+  const taken = new Set([...takenNames].map(nameKey));
+  const base = String(name || 'Folder').trim().slice(0, 80) || 'Folder';
+  if (!taken.has(nameKey(base))) return base;
+  let n = 2;
+  while (taken.has(nameKey(`${base} ${n}`.slice(0, 80)))) n += 1;
+  return `${base} ${n}`.slice(0, 80);
+}
+
+function uniqueFileName(filename, takenNames) {
+  const taken = new Set([...takenNames].map(nameKey));
+  const raw = String(filename || 'File').trim() || 'File';
+  if (!taken.has(nameKey(raw))) return raw;
+  const { base, ext } = splitFilename(raw);
+  let n = 2;
+  let candidate = `${base} ${n}${ext}`;
+  while (taken.has(nameKey(candidate))) {
+    n += 1;
+    candidate = `${base} ${n}${ext}`;
+  }
+  return candidate.slice(0, 240);
+}
+
+function folderTrail(folderRows, folder) {
+  const byId = new Map(folderRows.map((f) => [f.id, f]));
+  const trail = [];
+  const seen = new Set();
+  let cursor = folder || null;
+  while (cursor && !seen.has(cursor.id) && trail.length < 100) {
+    seen.add(cursor.id);
+    trail.unshift(cursor);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : null;
+  }
+  return trail;
+}
+
+function folderViews(folderRows) {
+  const byId = new Map(folderRows.map((f) => [f.id, f]));
+  return folderRows.map((f) => {
+    const trail = folderTrail(folderRows, byId.get(f.id));
+    return {
+      id: f.id,
+      name: f.name,
+      parentId: f.parentId || null,
+      updatedAt: f.updatedAt,
+      path: trail.map((p) => p.name).join(' / '),
+    };
+  });
+}
+
+async function siblingFileNames(ownerId, folderId, excludeId = null) {
+  const rows = await FileRecord.findAll({
+    where: { ownerId, folderId: folderId || null },
+    attributes: ['id', 'filename'],
+  });
+  return rows.filter((r) => r.id !== excludeId).map((r) => r.filename);
+}
+
+async function siblingFolderRows(ownerId, parentId, excludeId = null) {
+  const rows = await Folder.findAll({ where: { ownerId, parentId: parentId || null } });
+  return rows.filter((r) => r.id !== excludeId);
+}
+
+async function validFolderForOwner(folderId, ownerId) {
+  if (!folderId) return null;
+  return Folder.findOne({ where: { id: String(folderId), ownerId } });
 }
 
 export function createMainApp() {
@@ -284,11 +377,14 @@ export function createMainApp() {
   // ---------- Dashboard ----------
   app.get('/', requireLogin, wrap(async (req, res) => {
     const folderId = String(req.query.folder || '');
-    const [folders, me] = await Promise.all([
+    const [folderRows, me] = await Promise.all([
       Folder.findAll({ where: { ownerId: req.user.id }, order: [['name', 'ASC']] }),
       User.findByPk(req.user.id),
     ]);
+    const folders = folderViews(folderRows);
     const currentFolder = folderId ? folders.find((f) => f.id === folderId) || null : null;
+    const trail = currentFolder ? folderTrail(folders, currentFolder) : [];
+    const parentFolder = trail.length > 1 ? trail[trail.length - 2] : null;
     const files = await FileRecord.findAll({
       where: { ownerId: req.user.id, folderId: currentFolder ? currentFolder.id : null },
       order: [['updatedAt', 'DESC']],
@@ -298,8 +394,10 @@ export function createMainApp() {
     res.render('dashboard', {
       files,
       folders,
-      childFolders: currentFolder ? [] : folders,
+      childFolders: folders.filter((f) => (f.parentId || null) === (currentFolder?.id || null)),
       currentFolder,
+      parentFolder,
+      folderTrail: trail,
       folderId: currentFolder?.id || '',
       kinds: KINDS,
       used,
@@ -312,11 +410,15 @@ export function createMainApp() {
   app.post('/api/upload', requireLogin, upload.array('files', 20), wrap(async (req, res) => {
     const me = await User.findByPk(req.user.id);
     if (!me) return res.status(401).json({ error: 'unknown user' });
+    const folderId = req.body?.folderId ? String(req.body.folderId) : null;
+    const folder = folderId ? await validFolderForOwner(folderId, me.id) : null;
+    if (folderId && !folder) return res.status(400).json({ error: 'folder not found' });
     const targets = await resolveTargets();
     if (!targets.length) return res.status(500).json({ error: 'no storage nodes configured' });
 
     const existing = await FileRecord.findAll({ where: { ownerId: me.id } });
     let used = existing.reduce((s, f) => s + (Number(f.size) || 0), 0);
+    const takenNames = await siblingFileNames(me.id, folderId);
 
     const results = [];
     let uploadedBytes = 0;
@@ -327,11 +429,13 @@ export function createMainApp() {
       }
       const id = nanoid(12);
       const slug = nanoid(10);
+      const filename = uniqueFileName(f.originalname, takenNames);
+      takenNames.push(filename);
       const stored = [];
       let firstErr = null;
       for (const t of targets) {
         try {
-          await storeToNode(t, id, f.buffer, { filename: f.originalname, mime: f.mimetype });
+          await storeToNode(t, id, f.buffer, { filename, mime: f.mimetype });
           stored.push(t.id);
         } catch (e) {
           firstErr = e;
@@ -344,18 +448,19 @@ export function createMainApp() {
       await FileRecord.create({
         id,
         slug,
-        filename: f.originalname,
-        mime: uploadMime(f.originalname, f.mimetype),
+        filename,
+        mime: uploadMime(filename, f.mimetype),
         size: f.size,
         ownerId: me.id,
         ownerName: me.username,
         isPublic: false,
         replicas: stored,
         primaryNode: stored[0],
+        folderId: folder?.id || null,
       });
       used += f.size;
       uploadedBytes += f.size;
-      results.push({ filename: f.originalname, id, slug, replicas: stored });
+      results.push({ filename, id, slug, replicas: stored, folderId: folder?.id || null });
     }
     if (uploadedBytes) recordEvent(req, 'upload', { bytes: uploadedBytes });
     res.json({ ok: true, files: results, targets: targets.map((t) => t.id) });
@@ -443,6 +548,10 @@ export function createMainApp() {
     if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
     const name = String(req.body?.filename || '').trim().slice(0, 200);
     if (!name) return res.status(400).json({ error: 'name required' });
+    const taken = await siblingFileNames(file.ownerId, file.folderId, file.id);
+    if (taken.some((n) => nameKey(n) === nameKey(name))) {
+      return res.status(409).json({ error: 'an item with that name already exists in this folder' });
+    }
     const mt = mime.lookup(name);
     await file.update({ filename: name, ...(mt ? { mime: mt } : {}) });
     res.json({ ok: true, file: safeFile(file) });
@@ -454,13 +563,18 @@ export function createMainApp() {
     const file = await FileRecord.findByPk(req.params.id);
     if (!file || !canAccess(file, req.user)) return res.status(404).json({ error: 'not found' });
     const raw = req.body?.folderId;
-    let folder = null;
-    if (raw) {
-      folder = await Folder.findOne({ where: { id: String(raw), ownerId: req.user.id } });
-      if (!folder) return res.status(400).json({ error: 'folder not found' });
+    const folder = raw ? await validFolderForOwner(raw, req.user.id) : null;
+    if (raw && !folder) return res.status(400).json({ error: 'folder not found' });
+    const nextFolderId = folder?.id || null;
+    if (nextFolderId === (file.folderId || null)) {
+      return res.json({ ok: true, folderId: nextFolderId, folder: folder ? { id: folder.id, name: folder.name } : null, unchanged: true });
     }
-    await file.update({ folderId: folder?.id || null });
-    res.json({ ok: true, folderId: folder?.id || null, folder: folder ? { id: folder.id, name: folder.name } : null });
+    const taken = await siblingFileNames(file.ownerId, nextFolderId, file.id);
+    if (taken.some((n) => nameKey(n) === nameKey(file.filename))) {
+      return res.status(409).json({ error: 'an item with that name already exists in the destination' });
+    }
+    await file.update({ folderId: nextFolderId });
+    res.json({ ok: true, folderId: nextFolderId, folder: folder ? { id: folder.id, name: folder.name } : null });
   }));
 
   // Copy an editor document in place, or copy an uploaded blob onto the same
@@ -476,7 +590,7 @@ export function createMainApp() {
     }
     let folderId = null;
     if (req.body?.folderId) {
-      const folder = await Folder.findOne({ where: { id: String(req.body.folderId), ownerId: req.user.id } });
+      const folder = await validFolderForOwner(req.body.folderId, req.user.id);
       if (!folder) return res.status(400).json({ error: 'folder not found' });
       folderId = folder.id;
     } else if (req.body?.keepFolder === true) {
@@ -484,9 +598,7 @@ export function createMainApp() {
     }
     const id = nanoid(12);
     const slug = nanoid(10);
-    const base = String(file.filename || 'File').replace(/(\.[^./\\]+)$/, '');
-    const ext = String(file.filename || '').match(/(\.[^./\\]+)$/)?.[1] || '';
-    const filename = `${base} copy${ext}`.slice(0, 240);
+    const filename = nextCopyName(file.filename, await siblingFileNames(req.user.id, folderId));
     let replicas = [];
     let primaryNode = null;
     if (file.kind === 'file') {
@@ -533,25 +645,77 @@ export function createMainApp() {
     if (!folder) return res.status(404).json({ error: 'not found' });
     const name = String(req.body?.name || '').trim().slice(0, 80);
     if (!name) return res.status(400).json({ error: 'name required' });
+    const siblings = await siblingFolderRows(req.user.id, folder.parentId, folder.id);
+    if (siblings.some((f) => nameKey(f.name) === nameKey(name))) {
+      return res.status(409).json({ error: 'a folder with that name already exists here' });
+    }
     await folder.update({ name });
-    res.json({ ok: true, folder: { id: folder.id, name: folder.name } });
+    res.json({ ok: true, folder: { id: folder.id, name: folder.name, parentId: folder.parentId || null } });
   }));
 
-  // Deleting a folder never deletes its files: they return to the root where
-  // the owner can still find them.
+  // Moving a folder is where hierarchy bugs usually happen. Resolve the full
+  // ancestor chain and reject the move if the new parent is the folder itself
+  // or any descendant of it. Names must stay unique among siblings.
+  app.post('/api/folders/:id/move', requireLogin, wrap(async (req, res) => {
+    const folder = await Folder.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
+    if (!folder) return res.status(404).json({ error: 'not found' });
+    const parentId = req.body?.parentId ? String(req.body.parentId) : null;
+    if (parentId === folder.id) return res.status(400).json({ error: 'a folder cannot contain itself' });
+    const parent = parentId ? await validFolderForOwner(parentId, req.user.id) : null;
+    if (parentId && !parent) return res.status(400).json({ error: 'destination folder not found' });
+    if (parent) {
+      const all = await Folder.findAll({ where: { ownerId: req.user.id } });
+      const trail = folderTrail(all, parent);
+      if (trail.some((f) => f.id === folder.id)) {
+        return res.status(400).json({ error: 'a folder cannot be moved into itself or one of its descendants' });
+      }
+    }
+    const siblings = await siblingFolderRows(req.user.id, parentId, folder.id);
+    if (siblings.some((f) => nameKey(f.name) === nameKey(folder.name))) {
+      return res.status(409).json({ error: 'a folder with that name already exists in the destination' });
+    }
+    await folder.update({ parentId: parent?.id || null });
+    res.json({ ok: true, folder: { id: folder.id, name: folder.name, parentId: folder.parentId || null } });
+  }));
+
+  // Deleting a folder never deletes content. Child folders and files move up
+  // one level (to the removed folder's parent); any sibling-name collision is
+  // resolved deterministically instead of leaving duplicates or orphans.
   app.delete('/api/folders/:id', requireLogin, wrap(async (req, res) => {
     const folder = await Folder.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
     if (!folder) return res.status(404).json({ error: 'not found' });
-    await FileRecord.update({ folderId: null }, { where: { ownerId: req.user.id, folderId: folder.id } });
+    const parentId = folder.parentId || null;
+    const children = await Folder.findAll({ where: { ownerId: req.user.id, parentId: folder.id } });
+    const siblingFolders = await siblingFolderRows(req.user.id, parentId, folder.id);
+    const folderNames = siblingFolders.map((f) => f.name);
+    for (const child of children) {
+      const nextName = uniqueNameForFolder(child.name, folderNames);
+      folderNames.push(nextName);
+      await child.update({ parentId, name: nextName });
+    }
+    const files = await FileRecord.findAll({ where: { ownerId: req.user.id, folderId: folder.id } });
+    const fileNames = await siblingFileNames(req.user.id, parentId);
+    for (const file of files) {
+      const nextName = uniqueFileName(file.filename, fileNames);
+      fileNames.push(nextName);
+      await file.update({ folderId: parentId, filename: nextName });
+    }
     await folder.destroy();
-    res.json({ ok: true, folderId: folder.id });
+    res.json({ ok: true, folderId: folder.id, movedFolders: children.length, movedFiles: files.length, parentId });
   }));
 
   app.post('/api/folders', requireLogin, wrap(async (req, res) => {
     const name = String(req.body?.name || '').trim().slice(0, 80);
     if (!name) return res.status(400).json({ error: 'name required' });
-    const folder = await Folder.create({ id: uuid(), name, ownerId: req.user.id });
-    res.status(201).json({ ok: true, folder: { id: folder.id, name: folder.name } });
+    const parentId = req.body?.parentId ? String(req.body.parentId) : null;
+    const parent = parentId ? await validFolderForOwner(parentId, req.user.id) : null;
+    if (parentId && !parent) return res.status(400).json({ error: 'parent folder not found' });
+    const siblings = await siblingFolderRows(req.user.id, parentId);
+    if (siblings.some((f) => nameKey(f.name) === nameKey(name))) {
+      return res.status(409).json({ error: 'a folder with that name already exists here' });
+    }
+    const folder = await Folder.create({ id: uuid(), name, ownerId: req.user.id, parentId: parent?.id || null });
+    res.status(201).json({ ok: true, folder: { id: folder.id, name: folder.name, parentId: folder.parentId || null } });
   }));
 
   app.delete('/api/files/:id', requireLogin, wrap(async (req, res) => {
@@ -848,6 +1012,9 @@ export function createMainApp() {
 
   // MCP: stateless Streamable HTTP JSON-RPC, same auth/owner checks as the app.
   app.use('/mcp', createMcpRouter());
+
+  // Roblox Studio: /studio/roblox, authenticated pairing relay and editor.
+  app.use(createStudioRouter());
 
   // Workspace: /create, /edit/:id, /api/workspace/*, /export/:id, /forms/:slug, /search
   app.use(createWorkspaceRouter());
