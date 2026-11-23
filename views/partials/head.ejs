@@ -16,7 +16,9 @@
     }
   </style>
 </head>
-<body>
+<% const appChrome = (typeof appMode !== 'undefined') && appMode; const appId = (typeof app !== 'undefined') && app ? app : ''; %>
+<body<% if (appChrome) { %> class="app-body" data-app="<%= appId %>"<% } %>>
+<% if (!appChrome) { %>
 <header class="topbar">
   <div class="topbar-in">
     <a class="brand" href="/">
@@ -52,4 +54,5 @@
     </div>
   </div>
 </header>
+<% } %>
 <main class="<%= typeof shellClass !== 'undefined' && shellClass ? shellClass : 'shell' %>">

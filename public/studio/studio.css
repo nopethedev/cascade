@@ -17,8 +17,9 @@
 .studio-shell .site-footer, .studio-shell footer.site-footer { display: none; }
 
 .studio-app {
-  min-height: calc(100vh - 64px);
-  height: calc(100vh - 64px);
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
   display: grid;
   grid-template-rows: 54px 38px minmax(0, 1fr);
   background: var(--studio-bg);
@@ -233,7 +234,7 @@
   .studio-index-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
-  .studio-app { height: auto; min-height: calc(100vh - 64px); grid-template-rows: auto auto auto; overflow-x: hidden; overflow-y: visible; }
+  .studio-app { height: auto; min-height: 0; grid-template-rows: auto auto auto; overflow-x: hidden; overflow-y: visible; }
   .studio-topbar { flex-wrap: wrap; height: auto; padding: 8px 10px; gap: 7px; }
   .studio-title-wrap { order: 2; width: calc(100% - 40px); margin-right: 0; }
   .studio-connection { order: 3; margin-left: auto; }

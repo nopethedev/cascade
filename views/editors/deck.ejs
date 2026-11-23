@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide deck-shell' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-wide deck-shell' }) %>
 <%- include('../partials/editor-bar', { file, kind, accessRole, canEdit }) %>
 
 <div class="ed-toolbar deck-toolbar" id="deck-toolbar" role="toolbar" aria-label="Slide tools">
@@ -86,4 +86,4 @@
 <script src="/public/editors/common.js"></script>
 <script src="/public/image-library.js"></script>
 <script src="/public/editors/deck.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

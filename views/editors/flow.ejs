@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-wide' }) %>
 <link rel="stylesheet" href="/public/flow/flow.css" />
 <%- include('../partials/editor-bar', { file, kind }) %>
 
@@ -191,4 +191,4 @@
 <script src="/public/editor-menu.js"></script>
 <script src="/public/editors/common.js"></script>
 <script type="module" src="/public/editors/flow.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

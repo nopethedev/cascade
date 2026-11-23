@@ -25,6 +25,33 @@
   });
 })();
 
+// Application title bars offer a real full-screen mode, and their compact
+// action menu closes after a command just like a desktop menu.
+(function initAppChrome() {
+  const update = () => {
+    const active = !!document.fullscreenElement;
+    document.querySelectorAll('[data-fullscreen-toggle]').forEach((button) => {
+      button.setAttribute('aria-pressed', String(active));
+      button.setAttribute('title', active ? 'Exit full screen' : 'Toggle full screen');
+      button.setAttribute('aria-label', active ? 'Exit full screen' : 'Toggle full screen');
+    });
+  };
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('summary')) event.target.closest('details.ed-more')?.removeAttribute('open');
+    document.querySelectorAll('details.ed-more[open]').forEach((details) => {
+      if (!details.contains(event.target)) details.removeAttribute('open');
+    });
+    const button = event.target.closest('[data-fullscreen-toggle]');
+    if (!button) return;
+    try {
+      if (document.fullscreenElement) document.exitFullscreen?.();
+      else document.documentElement.requestFullscreen?.();
+    } catch { /* fullscreen may be blocked by the browser */ }
+  });
+  document.addEventListener('fullscreenchange', update);
+  update();
+})();
+
 // Native dialogs close on a backdrop click, but not when the pointer is over
 // their scrollbar. Checking the dialog rectangle makes scrollbar dragging safe
 // and keeps every dialog's close button responsive.

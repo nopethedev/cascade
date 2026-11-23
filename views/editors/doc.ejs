@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-wide' }) %>
 <%- include('../partials/editor-bar', { file, kind, showPanel: true }) %>
 
 <div class="ed-toolbar doc-toolbar" id="doc-toolbar" role="toolbar" aria-label="Document formatting">
@@ -129,4 +129,4 @@
 <script src="/public/editors/common.js"></script>
 <script src="/public/image-library.js"></script>
 <script src="/public/editors/doc.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

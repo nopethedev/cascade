@@ -1,6 +1,27 @@
 <%
   const myRole = (typeof accessRole !== 'undefined' && accessRole) || file.accessRole || 'owner';
   const editable = typeof canEdit !== 'undefined' ? canEdit : myRole === 'owner' || myRole === 'editor';
+  const appKey = (typeof kind !== 'undefined' && kind && kind.id) || 'doc';
+  const APP_META = {
+    doc:   { name: 'Docs',            mark: 'DOC',  accent: 'var(--accent)' },
+    sheet: { name: 'Sheets',          mark: 'XLS',  accent: '#16a34a' },
+    deck:  { name: 'Slides',          mark: 'PPT',  accent: '#f59e0b' },
+    pdf:   { name: 'PDF Studio',      mark: 'PDF',  accent: '#ef4444' },
+    board: { name: 'Whiteboard',      mark: 'WBD',  accent: '#8b5cf6' },
+    form:  { name: 'Forms',           mark: 'FRM',  accent: '#0891b2' },
+    code:  { name: 'Code',            mark: 'CODE', accent: '#3b82f6' },
+    site:  { name: 'Website Builder', mark: 'WEB',  accent: '#a855f7' },
+    flow:  { name: 'Flow',            mark: 'FLOW', accent: '#ec4899' },
+    game:  { name: 'Game Studio',     mark: 'GAME', accent: '#f43f5e' },
+    photo: { name: 'Photos',          mark: 'IMG',  accent: '#0ea5e9' },
+    roblox:{ name: 'Roblox Studio',   mark: 'RBX',  accent: '#22c55e' }
+  };
+  const app = APP_META[appKey] || {
+    name: (typeof kind !== 'undefined' && kind && kind.label) || 'Workspace',
+    mark: (typeof kind !== 'undefined' && kind && kind.icon) || 'APP',
+    accent: 'var(--accent)'
+  };
+  const backHref = typeof shareMode !== 'undefined' && shareMode ? '/login' : '/';
 %>
 <script>
   window.__ACCESS__ = <%- JSON.stringify({ role: myRole, canEdit: !!editable, shareMode: typeof shareMode !== 'undefined' && !!shareMode }).replace(/</g, '\\u003c') %>;
@@ -8,49 +29,62 @@
   <% if (typeof shareToken !== 'undefined' && shareToken) { %>window.__SHARE_TOKEN__ = <%- JSON.stringify(shareToken).replace(/</g, '\\u003c') %>;<% } %>
 </script>
 <script type="module" src="/public/editors/collab-client.js"></script>
-<header class="ed-bar">
-  <div class="ed-left">
-    <a class="ed-back" href="<%= typeof shareMode !== 'undefined' && shareMode ? '/login' : '/' %>" title="Back to files">←</a>
-    <span class="kind-ico"><%= kind.icon %></span>
-    <div class="ed-name">
-      <strong><%= file.filename %></strong>
-      <span class="file-meta">
-        <%= kind.label %><%= file.isPublic ? ' · public' : '' %>
-        <% if (myRole !== 'owner') { %> · <%= myRole %><% } %>
-      </span>
+<header class="ed-appbar" style="--app-accent: <%= app.accent %>">
+  <div class="ed-app-id">
+    <a class="ed-app-back" href="<%= backHref %>" title="Back to files" aria-label="Back to files">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </a>
+    <span class="ed-app-mark" aria-hidden="true"><%= app.mark %></span>
+    <div class="ed-app-titles">
+      <span class="ed-app-name"><%= app.name %></span>
+      <strong class="ed-app-file" title="<%= file.filename %>"><%= file.filename %></strong>
+    </div>
+    <div class="ed-app-meta">
+      <span class="ed-app-chip"><%= kind.label %></span>
+      <% if (file.isPublic) { %><span class="ed-app-chip is-public">Published</span><% } %>
+      <% if (myRole !== 'owner') { %><span class="ed-app-chip"><%= myRole %></span><% } %>
     </div>
   </div>
-  <div class="ed-right">
+  <div class="ed-app-status">
     <span id="live-status" class="live-status" title="Live collaboration" hidden><span class="dot"></span><span id="live-label">Live</span></span>
     <span id="presence" class="presence"></span>
     <span id="save-status" class="badge">Saved</span>
-    <button id="btn-save" class="btn btn-ghost btn-sm" type="button" data-requires-edit>Save</button>
+  </div>
+  <div class="ed-app-actions">
     <% if (typeof showPanel !== 'undefined' && showPanel) { %>
-      <button id="btn-editor-panel" class="btn btn-ghost btn-sm" type="button" aria-expanded="true" aria-controls="editor-side">Panel</button>
+      <button id="btn-editor-panel" class="btn btn-ghost btn-sm ed-app-opt" type="button" aria-expanded="true" aria-controls="editor-side">Panel</button>
     <% } %>
-    <button id="btn-comments" class="btn btn-ghost btn-sm" type="button">Comments<span id="comment-count" class="comment-count" hidden>0</span></button>
-    <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
-    <button id="btn-versions" class="btn btn-ghost btn-sm" type="button">History</button>
-    <button id="btn-save-template" class="btn btn-quiet btn-sm" type="button" data-requires-edit>Save as template</button>
+    <button id="btn-comments" class="btn btn-ghost btn-sm ed-app-opt" type="button">Comments<span id="comment-count" class="comment-count" hidden>0</span></button>
+    <button id="btn-versions" class="btn btn-ghost btn-sm ed-app-opt" type="button">History</button>
     <% if (typeof kind !== 'undefined' && kind.id === 'site') { %>
-      <button id="btn-site-publish" class="btn btn-ghost btn-sm" type="button" data-requires-edit>Publish</button>
+      <button id="btn-site-publish" class="btn btn-ghost btn-sm ed-app-opt" type="button" data-requires-edit>Publish</button>
     <% } %>
-    <a class="btn btn-ghost btn-sm" href="/download/<%= file.id %>">Export</a>
+    <a class="btn btn-ghost btn-sm ed-app-opt" href="/download/<%= file.id %>">Export</a>
+    <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
+    <button id="btn-save" class="btn btn-sm ed-app-save" type="button" data-requires-edit>Save</button>
+    <button id="btn-fullscreen" class="ed-app-iconbtn" type="button" title="Toggle full screen" aria-label="Toggle full screen" data-fullscreen-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
+    </button>
     <details class="ed-more">
-      <summary class="btn btn-quiet btn-sm" aria-label="More editor actions">•••</summary>
+      <summary class="ed-app-iconbtn" aria-label="More editor actions" title="More actions">•••</summary>
       <div>
         <% if (typeof showPanel !== 'undefined' && showPanel) { %>
           <button id="btn-editor-panel-mobile" type="button">Page settings</button>
         <% } %>
         <button id="btn-save-mobile" type="button" data-requires-edit>Save now</button>
         <button id="btn-comments-mobile" type="button">Comments</button>
-        <button id="btn-share-mobile" type="button">Share</button>
+        <button id="btn-share-mobile" type="button">Share…</button>
         <button id="btn-versions-mobile" type="button">Version history</button>
-        <button id="btn-template-mobile" type="button" data-requires-edit>Save as template</button>
+        <button id="btn-save-template" type="button" data-requires-edit>Save as template</button>
         <% if (typeof kind !== 'undefined' && kind.id === 'site') { %>
           <button id="btn-site-publish-mobile" type="button" data-requires-edit>Publish website</button>
         <% } %>
-        <a href="/download/<%= file.id %>">Export</a>
+        <a href="/download/<%= file.id %>">Export file</a>
+        <div class="ed-menu-sep"></div>
+        <button type="button" data-theme-toggle>Light / dark theme</button>
+        <button type="button" data-fullscreen-toggle>Full screen</button>
+        <a href="/settings">Account settings</a>
+        <a href="/">Back to files</a>
       </div>
     </details>
   </div>

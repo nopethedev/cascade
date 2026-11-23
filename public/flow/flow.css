@@ -13,8 +13,9 @@
   --flow-green: #4ade80;
   --flow-amber: #fbbf24;
   position: relative;
-  height: calc(100vh - 58px);
-  min-height: 480px;
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -307,7 +308,6 @@
   .flow-bottom { flex-basis: 185px; }
 }
 @media (max-width: 840px) {
-  .flow-shell { height: calc(100vh - 50px); }
   .flow-explorer { width: 178px; flex-basis: 178px; }
   .flow-inspector { width: 230px; flex-basis: 230px; }
   .flow-topbar .ft-brand small, .flow-topbar .flow-btn .btn-label { display: none; }

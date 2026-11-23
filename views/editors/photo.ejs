@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-photo' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-photo' }) %>
 <link rel="stylesheet" href="/public/photo/photo.css" />
 <%- include('../partials/editor-bar', { file, kind }) %>
 
@@ -305,4 +305,4 @@
 <script src="/public/photo/psd.js"></script>
 <script src="/public/editors/common.js"></script>
 <script type="module" src="/public/editors/photo.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

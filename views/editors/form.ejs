@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-wide' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-wide' }) %>
 <%- include('../partials/editor-bar', { file, kind }) %>
 
 <div class="ed-toolbar">
@@ -76,4 +76,4 @@
 </script>
 <script src="/public/editors/common.js"></script>
 <script src="/public/editors/form.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

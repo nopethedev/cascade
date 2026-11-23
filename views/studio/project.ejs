@@ -1,4 +1,4 @@
-<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-full studio-shell' }) %>
+<%- include('../partials/head', { title: file.filename, appMode: true, app: 'roblox', shellClass: 'shell shell-full studio-shell' }) %>
 <link rel="stylesheet" href="/public/studio/studio.css" />
 <div class="studio-app" id="studio-app" data-project-id="<%= file.id %>" data-can-edit="<%= canEdit ? '1' : '0' %>">
   <header class="studio-topbar">
@@ -183,4 +183,4 @@
 <script type="application/json" id="studio-bootstrap"><%- projectJson %></script>
 <script type="module" src="/public/editors/collab-client.js"></script>
 <script type="module" src="/public/studio/studio.js"></script>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { appMode: true }) %>

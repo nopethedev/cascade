@@ -1,4 +1,5 @@
 </main>
+<% if (!(typeof appMode !== 'undefined' && appMode)) { %>
 <footer class="foot">
   <div class="foot-in">
     <span><%= theme.siteName %> — self-hosted files</span>
@@ -8,6 +9,7 @@
     </span>
   </div>
 </footer>
+<% } %>
 <script src="/public/app.js"></script>
 </body>
 </html>
