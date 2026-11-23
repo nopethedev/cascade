@@ -63,7 +63,7 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 - **Analytics** — views, downloads, uploads, unique visitors, traffic chart, top files and recent events, all stored in SQLite (no third-party scripts)
 - **API keys** — SHA-256-hashed, revocable keys with read-only, read/write or full-owner scopes; create/revoke in the admin panel
 - **MCP server** — stateless Streamable HTTP at `/mcp` with owner-scoped document CRUD, folders, search, versions/restore, starring/sharing, templates, form responses, and resources, using the same API keys and permissions as the app; atomic version concurrency and adversarial isolation tests are verified with the official SDK and documented against MCP 2025-11-25 in `docs/mcp-server.md`
-- **Documentation** — `/docs` in the app (API reference, nodes, config, backups)
+- **Documentation** — `/docs` in the app (API reference, nodes, config, backups), plus step-by-step tutorials for the [Game Studio](/docs/game) and [Cascade Flow Discord bots](/docs/flow)
 - First-run setup wizard creates the admin user
 - `SERVER_MODE=main | node`
 - Replication modes: **all / select / single (1 only) / default (1 default node) / n copies with auto-heal**

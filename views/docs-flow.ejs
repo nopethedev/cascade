@@ -1,0 +1,243 @@
+<%- include('partials/head', { title: 'Cascade Flow documentation' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Documentation · Cascade Flow</div>
+    <h1 class="page-title">Build a real Discord bot visually</h1>
+    <p class="lede">Flow is a node IDE for Discord.js. Graphs compile to runnable JavaScript, the simulator traces them without a token, and exports are real Node projects you can host.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/create?kind=flow">New bot</a>
+    <a class="btn btn-quiet" href="/docs/game">Game Studio docs</a>
+  </div>
+</div>
+
+<nav class="doc-nav" style="margin-bottom:18px">
+  <a href="#start">Quick start</a>
+  <a href="#tour">Editor tour</a>
+  <a href="#scripts">Scripts</a>
+  <a href="#connect">Connecting nodes</a>
+  <a href="#values">Typed values</a>
+  <a href="#menus">Right-click menus</a>
+  <a href="#compile">Compile &amp; simulate</a>
+  <a href="#secrets">Secrets &amp; safety</a>
+  <a href="#export">Export &amp; host</a>
+  <a href="#custom">Custom nodes</a>
+  <a href="#tutorial">Tutorial: /ping and a button</a>
+  <a href="#shortcuts">Shortcuts</a>
+  <a href="#troubleshooting">Troubleshooting</a>
+</nav>
+
+<div class="doc">
+
+<section class="panel" id="start">
+  <div class="panel-head"><div class="panel-title">Quick start</div></div>
+  <div class="panel-body doc">
+    <p>Create a <strong>Discord bot (Flow)</strong> document from <a href="/create?kind=flow">Create</a>. A new project starts with a <em>Main</em> script and an <strong>On Bot Ready</strong> entry node.</p>
+    <ol>
+      <li>Create a bot application in the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> and copy its token.</li>
+      <li>Add scripts in the project explorer: a command, an event handler, a module or a main script.</li>
+      <li>Build the graph, then press <strong>Compile</strong> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>). The Problems tab links errors to the exact node.</li>
+      <li>Use <strong>Test</strong> to simulate routing and payloads without connecting to Discord.</li>
+      <li>Export a single-file or modular project and run it with Node.js 20+. Put the token in <span class="code">.env</span>, never in the graph.</li>
+    </ol>
+    <div class="fi-note">A graph is the source of truth. Generated JavaScript is an output; editing it by hand is overwritten on the next compile/export.</div>
+  </div>
+</section>
+
+<section class="panel" id="tour">
+  <div class="panel-head"><div class="panel-title">Editor tour</div></div>
+  <div class="panel-body doc">
+    <table class="table">
+      <tr><th>Area</th><th>What it does</th></tr>
+      <tr><td>Project explorer</td><td>Scripts and folders, filtering, enable/disable toggles and right-click actions (rename, duplicate, delete).</td></tr>
+      <tr><td>Canvas</td><td>Pan by dragging empty space (or middle-drag), zoom with the wheel, fit with <kbd>F</kbd>. The minimap shows the graph and viewport.</td></tr>
+      <tr><td>Inspector</td><td><strong>Node</strong> (typed inputs, configuration, connections), <strong>Script</strong> (command/event metadata, exports, imports) and <strong>Project</strong> (intents, prefix, database, Lavalink, custom nodes).</td></tr>
+      <tr><td>Bottom panel</td><td>Generated JavaScript, Problems, Console, and Inspector (variables/trace from the last simulation).</td></tr>
+      <tr><td>Toolbar</td><td>Add node (<kbd>A</kbd>), Compile, Test, undo/redo, fit, auto layout, bookmark, status and Export.</td></tr>
+    </table>
+    <p>On narrow screens the explorer and inspector become slide-over panels; the project button (☰) and Inspector tab open them.</p>
+  </div>
+</section>
+
+<section class="panel" id="scripts">
+  <div class="panel-head"><div class="panel-title">Scripts</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li><strong>Command</strong> — a slash, prefix, user or message command. Set the name, description, type, options (Discord JSON), guild/DM restrictions, cooldown and default permissions in the Script tab.</li>
+      <li><strong>Event</strong> — runs on a gateway event (messageCreate, guildMemberAdd, interactionCreate, …). Pick the event key in the Script tab.</li>
+      <li><strong>Module</strong> — reusable variables/functions imported by other scripts. Exports are comma-separated lists.</li>
+      <li><strong>Main</strong> — runs once after the client is ready, for presence, timers, webhooks and shared setup.</li>
+    </ul>
+    <p>Every script has its own graph and entry node. Disable a script without deleting it with the ✓ toggle in the explorer.</p>
+  </div>
+</section>
+
+<section class="panel" id="connect">
+  <div class="panel-head"><div class="panel-title">Connecting nodes</div></div>
+  <div class="panel-body doc">
+    <p>Pins are typed. <strong>Exec</strong> pins (diamond) control the order of actions; <strong>data</strong> pins carry values.</p>
+    <ul>
+      <li><strong>Drag</strong> from any output pin to an input pin, or from an input back to an output.</li>
+      <li>Drop anywhere on the target node body and Flow picks its nearest compatible input — you do not have to hit the small dot.</li>
+      <li><strong>Click-to-connect:</strong> click the first pin, then click the second. A pending connection stays armed until you press <kbd>Esc</kbd>, click empty canvas or connect it.</li>
+      <li>An input accepts one connection. Connecting a second edge replaces the old one; execution outputs can fan out to many inputs.</li>
+      <li>Click a wire to inspect it, or right-click it for delete/select actions. <kbd>Delete</kbd> removes the selected wire or node.</li>
+    </ul>
+    <p>Exec only connects to exec; data types must match, or one side must be <span class="code">any</span>/<span class="code">json</span>. Numbers and strings can be connected directly; other mismatches need a Convert Type node. The toast tells you exactly why a connection was refused.</p>
+  </div>
+</section>
+
+<section class="panel" id="values">
+  <div class="panel-head"><div class="panel-title">Typed input values: type or connect</div></div>
+  <div class="panel-body doc">
+    <p>Every data input in the Node Inspector shows a type badge and either a <strong>value</strong> field or a <strong>connected</strong> source. This lets you build and tune a graph before wiring every value node.</p>
+    <ul>
+      <li><strong>number</strong> — numeric field, stored as a number.</li>
+      <li><strong>string</strong> — text field, stored as a string.</li>
+      <li><strong>boolean</strong> — checkbox.</li>
+      <li><strong>json/any</strong> — text field that accepts JSON; valid JSON is parsed, other text stays a string.</li>
+      <li>When a pin is connected, the field is disabled and the source node is shown. Press <strong>Disconnect</strong> to remove the wire and type a literal instead.</li>
+      <li>The compiler and runtime use the connected value first, then the typed value, then the pin default.</li>
+    </ul>
+    <p>Configuration fields (separate from pins) live under <strong>Configuration</strong> and are always editable. If a pin mirrors a configuration field, the Inspector points you there instead of duplicating the control.</p>
+  </div>
+</section>
+
+<section class="panel" id="menus">
+  <div class="panel-head"><div class="panel-title">Right-click menus</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li><strong>Canvas</strong> — add node, add comment, add group, paste, fit, auto layout.</li>
+      <li><strong>Node</strong> — duplicate, copy, disconnect inputs/outputs, delete.</li>
+      <li><strong>Wire</strong> — select source/target node, delete connection.</li>
+      <li><strong>Pin</strong> — disconnect that input/output or start a connection from it.</li>
+      <li><strong>Script row</strong> — rename, duplicate, delete.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel" id="compile">
+  <div class="panel-head"><div class="panel-title">Compile &amp; simulate</div></div>
+  <div class="panel-body doc">
+    <p><strong>Compile</strong> validates the entire project and emits async JavaScript. Diagnostics carry script and node ids, so clicking a problem selects the node that caused it.</p>
+    <p><strong>Test</strong> runs a script against a mock interaction/message payload. It traces routing, branches, loops, variables, replies and breakpoints locally. Network calls, custom JavaScript and real Discord APIs are not executed in the simulator.</p>
+    <pre class="snippet">{
+  "user": { "id": "123", "username": "tester" },
+  "options": { "query": "hello" },
+  "env": { "DISCORD_TOKEN": "not-used-in-simulation" }
+}</pre>
+    <p>The Inspector tab shows the variables and the execution trace after a run. Use it to verify branch conditions before deploying.</p>
+  </div>
+</section>
+
+<section class="panel" id="secrets">
+  <div class="panel-head"><div class="panel-title">Secrets &amp; safety</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li>Credentials are <strong>never stored in the graph</strong>. Token, client id, guild id, database and Lavalink values are environment-variable names. Flow rejects raw secret-shaped fields on save, collaboration and compile.</li>
+      <li>The exported <span class="code">.env.example</span> lists the names to set. Keep <span class="code">.env</span> out of version control.</li>
+      <li>Custom JavaScript, Define Function and webhook handlers execute with the bot's server privileges. Review every such node before deploying.</li>
+      <li>Webhook nodes start a real HTTP listener on <span class="code">FLOW_WEBHOOK_HOST</span>/<span class="code">FLOW_WEBHOOK_PORT</span>. Configure <span class="code">secretEnv</span> so requests need <span class="code">x-webhook-secret</span> or an HMAC <span class="code">x-flow-signature</span>; missing configuration fails closed.</li>
+      <li>Share a bot as Viewer to let someone read the graph without editing it; Viewer capability links are read-only in the canvas and the API.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel" id="export">
+  <div class="panel-head"><div class="panel-title">Export &amp; host</div></div>
+  <div class="panel-body doc">
+    <p>Compiler errors block exports. Both modes produce a normal Node.js 20+ project:</p>
+    <ul>
+      <li><strong>Single-file bot</strong> — <span class="code">bot.js</span> with every script, plus <span class="code">package.json</span>, <span class="code">.env.example</span> and a README.</li>
+      <li><strong>Modular project</strong> — <span class="code">main.js</span>, <span class="code">client.js</span>, <span class="code">commands/</span>, <span class="code">events/</span>, <span class="code">modules/</span>, <span class="code">runtime.js</span> and database model metadata.</li>
+    </ul>
+    <pre class="snippet">unzip cascade-flow-bot-single.zip -d my-bot
+cd my-bot
+cp .env.example .env    <span class="cmt"># add DISCORD_TOKEN and ids</span>
+npm install
+npm start</pre>
+    <p>Enable the intents listed in the Project inspector in the Discord Developer Portal. Privileged intents (Message Content, Guild Members, Presence) may need Discord approval. Lavalink playback needs a reachable Lavalink server; AI nodes need an OpenAI-compatible endpoint and key.</p>
+  </div>
+</section>
+
+<section class="panel" id="custom">
+  <div class="panel-head"><div class="panel-title">Custom nodes</div></div>
+  <div class="panel-body doc">
+    <p>A custom node package aliases a supported built-in operation under a versioned <span class="code">custom:</span> type. It appears in the <strong>Custom</strong> library category and compiles to that operation.</p>
+    <pre class="snippet">[
+  {
+    "type": "custom:double",
+    "title": "Double",
+    "base": "math-op",
+    "version": "1.0.0",
+    "enabled": true
+  }
+]</pre>
+    <p>Packages that alias <span class="code">script.custom</span> need the <span class="code">unsafe-code</span> permission; HTTP aliases need <span class="code">network</span>, database aliases <span class="code">database</span>, AI aliases <span class="code">ai</span> and music aliases <span class="code">voice</span>. Wrong or missing permissions are rejected rather than silently granted.</p>
+  </div>
+</section>
+
+<section class="panel" id="tutorial">
+  <div class="panel-head"><div class="panel-title">Tutorial: a /ping command and a button</div></div>
+  <div class="panel-body doc">
+    <h3>1. Create the command</h3>
+    <ol>
+      <li>In the explorer choose <strong>＋ Script</strong>, name it <em>Ping</em> and type <span class="code">command</span>.</li>
+      <li>Open the <strong>Script</strong> inspector: command name <span class="code">ping</span>, description “Check the bot latency”, type <span class="code">slash</span>.</li>
+      <li>Select the <strong>Slash / Command Entry</strong> node already in the graph.</li>
+    </ol>
+    <h3>2. Reply to the interaction</h3>
+    <ol>
+      <li>Press <kbd>A</kbd> and add <strong>Reply to Interaction</strong> (<span class="code">command-respond</span>).</li>
+      <li>Drag the entry's <strong>next</strong> exec output to the reply's <strong>exec</strong> input.</li>
+      <li>In the Inspector, either type <span class="code">Pong!</span> into the Content input or add a <strong>Text</strong> node and connect its value output to Content. Typed values are perfect for a static reply; a Text node is useful when the message is reused.</li>
+      <li>Compile. Problems should be empty; the JavaScript tab shows a real <span class="code">interaction.reply</span> call.</li>
+      <li>Press <strong>Test</strong>. The mock interaction produces one reply and the trace shows entry → reply.</li>
+    </ol>
+    <h3>3. Add a button row</h3>
+    <ol>
+      <li>Add a <strong>Button</strong> node and set its label and custom id in Configuration.</li>
+      <li>Add a <strong>Component Row</strong>, connect the button's component output to the row's Components input.</li>
+      <li>Connect the row output to the reply's Components input.</li>
+      <li>Add an <strong>Interaction Create</strong> event script and a <strong>Button Interaction</strong>/component node to handle the custom id and reply or update.</li>
+      <li>Compile and export. The generated bot registers components through discord.js builders; test in a real test guild before production.</li>
+    </ol>
+    <div class="fi-note">The simulator does not contact Discord. Real gateway behaviour, permissions and rate limits need a bot token and a test guild.</div>
+  </div>
+</section>
+
+<section class="panel" id="shortcuts">
+  <div class="panel-head"><div class="panel-title">Keyboard shortcuts</div></div>
+  <div class="panel-body doc">
+    <table class="table">
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>A</kbd> / <kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open the node library</td></tr>
+      <tr><td><kbd>F</kbd></td><td>Fit the graph</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Compile</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save now</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> / <kbd>D</kbd></td><td>Copy / paste / duplicate node</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Delete the selected node or wire</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Cancel a pending connection or close a context menu</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="troubleshooting">
+  <div class="panel-head"><div class="panel-title">Troubleshooting</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li><strong>A wire will not attach</strong> — you are mixing exec and data pins, or the types differ. Use a Convert Type node, or type a value into the input instead. Dropping on the node body chooses the nearest valid input.</li>
+      <li><strong>Compile errors</strong> — click the problem to jump to the node. An entry node is required in every script.</li>
+      <li><strong>Token missing at runtime</strong> — exports only contain variable names. Copy <span class="code">.env.example</span> to <span class="code">.env</span> and set the token; do not put it in the graph.</li>
+      <li><strong>Slash commands do not appear</strong> — enable the listed intents, invite the bot with the <span class="code">applications.commands</span> scope, and wait for command registration on ready (or set a test guild id for instant registration).</li>
+      <li><strong>Music nodes fail</strong> — Lavalink must be reachable and its password set in the named environment variable.</li>
+      <li><strong>Preview a shared bot</strong> — open the share link. Viewer links are read-only; the canvas refuses drags, connections and inspector edits, and the save API rejects writes.</li>
+    </ul>
+    <p class="hint">A shared project never stores or exposes raw credentials. If a paste contains something secret-shaped, Flow asks you to move it to an environment variable.</p>
+  </div>
+</section>
+
+</div>
+<%- include('partials/foot') %>

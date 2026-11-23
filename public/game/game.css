@@ -37,7 +37,7 @@ main.shell-game .ed-bar { margin: 0; padding: 7px 12px; top: 0; position: relati
 .gs-toolgroup { display: flex; align-items: center; gap: 3px; border-left: 1px solid var(--gs-line-soft); padding-left: 8px; white-space: nowrap; }
 .gs-toolgroup:first-of-type { border-left: 0; padding-left: 0; }
 .gs-tool-label, .gs-select-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--gs-dim); }
-.gs-btn, .gs-mini { appearance: none; border: 1px solid var(--gs-line); background: #141821; color: #cbd2df; border-radius: 5px; padding: 6px 9px; font: inherit; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; transition: .12s background, .12s border-color, .12s color; }
+.gs-btn, .gs-mini { appearance: none; border: 1px solid var(--gs-line); background: #141821; color: #cbd2df; border-radius: 5px; padding: 6px 9px; font: inherit; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; transition: .12s background, .12s border-color, .12s color; text-decoration: none; }
 .gs-btn:hover, .gs-mini:hover { background: #1b202b; border-color: #353b4a; color: #fff; }
 .gs-btn:disabled { opacity: .35; cursor: default; }
 .gs-btn.gs-primary { background: #c81e3e; border-color: #e11d48; color: #fff; font-weight: 700; }
@@ -278,3 +278,26 @@ main.shell-game .ed-bar { margin: 0; padding: 7px 12px; top: 0; position: relati
   .gs-dialog-head p { display: none; }
   .gs-library-toolbar { padding: 7px 10px; }
 }
+
+/* Right-click context menus */
+.gs-context-menu { position: fixed; z-index: 400; min-width: 198px; background: #10141c; border: 1px solid #2a3344; border-radius: 6px; padding: 4px; box-shadow: 0 20px 48px rgba(0,0,0,.62); font-family: Inter, system-ui, sans-serif; }
+.gs-cm-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; border: 0; background: transparent; color: #d7dce6; font: 10px/1 Inter, system-ui, sans-serif; padding: 8px 9px; border-radius: 3px; cursor: pointer; text-align: left; }
+.gs-cm-item:hover:not(:disabled) { background: #1b2230; color: #fff; }
+.gs-cm-item:disabled { opacity: .38; cursor: not-allowed; }
+.gs-cm-item.danger { color: #fb7185; }
+.gs-cm-item kbd { color: #68707f; font: 8px ui-monospace, monospace; }
+.gs-cm-sep { height: 1px; background: #212938; margin: 4px 3px; }
+
+/* Typed graph-pin values in the inspector */
+.gs-pin-row { border: 1px solid #222a39; border-radius: 5px; padding: 7px 8px; margin-bottom: 7px; background: #0c1016; }
+.gs-pin-row.is-connected { border-color: rgba(52,211,153,.28); background: rgba(6,78,59,.16); }
+.gs-pin-rowhead { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.gs-pin-rowhead > span:first-child { flex: 1; color: #cbd5e1; font-size: 10px; }
+.gs-pin-rowhead em { color: #64748b; font: 8px ui-monospace, monospace; font-style: normal; text-transform: uppercase; }
+.gs-pin-rowhead b { border-radius: 3px; padding: 2px 4px; font: 700 7px ui-monospace, monospace; text-transform: uppercase; background: rgba(244,63,94,.14); color: #fda4af; }
+.gs-pin-rowhead b.on { background: rgba(52,211,153,.16); color: #6ee7b7; }
+.gs-pin-source { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #8695ab; font-size: 9px; margin-bottom: 4px; }
+.gs-pin-source strong { color: #cbd5e1; font-weight: 600; }
+.gs-pin-source .gs-mini { margin-left: auto; }
+.gs-pin-row .gs-insp-note { margin-top: 3px; }
+.gs-pin-row .gs-check { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #cbd5e1; }

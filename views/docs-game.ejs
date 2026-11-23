@@ -1,0 +1,224 @@
+<%- include('partials/head', { title: 'Game Studio documentation' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Documentation · Game Studio</div>
+    <h1 class="page-title">Build, test and publish 2D/3D games</h1>
+    <p class="lede">Game Studio is a real editor over two independent runtimes: Canvas2D + Matter.js for 2D, Three.js + Cannon-es for 3D. Play mode, exported HTML and published games run exactly the same runtime.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-ghost" href="/create?kind=game">New game</a>
+    <a class="btn btn-quiet" href="/docs/flow">Discord bot docs</a>
+  </div>
+</div>
+
+<nav class="doc-nav" style="margin-bottom:18px">
+  <a href="#start">Quick start</a>
+  <a href="#tour">Editor tour</a>
+  <a href="#objects">Objects &amp; components</a>
+  <a href="#assets">Assets &amp; models</a>
+  <a href="#graph">Visual scripting</a>
+  <a href="#values">Typed values</a>
+  <a href="#code">JavaScript scripts</a>
+  <a href="#play">Playtesting</a>
+  <a href="#publish">Export &amp; publish</a>
+  <a href="#shortcuts">Shortcuts</a>
+  <a href="#tutorial-2d">Tutorial: 2D platformer</a>
+  <a href="#tutorial-3d">Tutorial: 3D first-person</a>
+  <a href="#troubleshooting">Troubleshooting</a>
+</nav>
+
+<div class="doc">
+
+<section class="panel" id="start">
+  <div class="panel-head"><div class="panel-title">Quick start</div></div>
+  <div class="panel-body doc">
+    <p>Open <a href="/create?kind=game">Create → Game Studio</a> and choose a template. Templates are complete, editable projects — a platformer really moves, a 3D scene really renders, and a physics sandbox really simulates.</p>
+    <ol>
+      <li>Pick <strong>2D Project</strong> or <strong>3D Project</strong>. The badge in the toolbar shows the active mode.</li>
+      <li>Press <strong>▶ Play</strong> (or <kbd>P</kbd>) to test immediately. Use <strong>Pause</strong>, <strong>Step</strong> and <strong>Stop</strong> while playtesting.</li>
+      <li>Edit objects, components and scripts. Everything autosaves; the header shows the save state and version history is available from the editor bar.</li>
+      <li>Press <strong>Compile</strong> (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to validate the project, then <strong>Export</strong> to download a standalone game or publish it.</li>
+    </ol>
+    <p>Both modes share the project manager, assets, scripts, collaboration, input map, audio and export pipeline. They never share a runtime: switching a project from 2D to 3D changes the renderer and physics engine together.</p>
+  </div>
+</section>
+
+<section class="panel" id="tour">
+  <div class="panel-head"><div class="panel-title">Editor tour</div></div>
+  <div class="panel-body doc">
+    <table class="table">
+      <tr><th>Area</th><th>What it does</th></tr>
+      <tr><td>Toolbar</td><td>Play controls, scene selector, Add object, gizmo mode (move/rotate/scale), undo/redo, duplicate, group, delete, view presets, snap/grid, compile and export. On narrow screens the toolbar wraps and the Hierarchy/Inspector become slide-over panels.</td></tr>
+      <tr><td>Hierarchy</td><td>Every object in the active scene, including children. Drag a row onto another to parent it. Eye toggles visibility, padlock toggles locking.</td></tr>
+      <tr><td>Assets</td><td>Imported models, textures and audio. Drop files here or use <strong>＋ Import</strong>. Double-click or right-click to assign an asset to the selected object.</td></tr>
+      <tr><td>Viewport</td><td>2D: drag objects, pan with right-drag, zoom with the wheel. 3D: drag empty space to orbit, right-drag to pan, WASD/QE to fly, wheel to zoom, <kbd>F</kbd> to focus.</td></tr>
+      <tr><td>Inspector</td><td>Object fields, transform, components and object actions. The <strong>Object / Project</strong> button switches to project, rendering, environment, scene and input settings.</td></tr>
+      <tr><td>Bottom tabs</td><td><strong>Visual Script</strong>, <strong>Code</strong>, <strong>Console</strong>, <strong>Problems</strong> and <strong>Profiler</strong>.</td></tr>
+    </table>
+    <p><strong>Right-click menus</strong> are available in the Hierarchy, viewport, Assets and Scripts lists. Hierarchy and viewport menus cover focus, duplicate, rename, lock, hide, add child and delete; the viewport menu also creates primitives, and the Assets/Scripts menus assign assets or manage scripts.</p>
+    <div class="fi-note">Locked and hidden objects are ignored by viewport clicks, so they cannot be selected or dragged by accident. Select them from the Hierarchy to inspect or unlock them.</div>
+  </div>
+</section>
+
+<section class="panel" id="objects">
+  <div class="panel-head"><div class="panel-title">Objects &amp; components</div></div>
+  <div class="panel-body doc">
+    <p>An object is a transform plus optional components. Add objects from the toolbar or the viewport right-click menu. Components are real runtime systems, not labels:</p>
+    <ul>
+      <li><strong>Rendering</strong> — SpriteRenderer (2D), MeshRenderer with PBR material, Light2D/Light3D, Camera2D/Camera3D, ParticleEmitter, UIElement.</li>
+      <li><strong>Physics</strong> — Rigidbody2D/3D, Collider2D/3D, CharacterController3D, joints. The 3D world runs a fixed timestep; the 2D world is Matter.js.</li>
+      <li><strong>World</strong> — TerrainComponent, AudioSource2D/3D, prefab references.</li>
+      <li><strong>Scripts</strong> — attach a visual or JavaScript script to an object; lifecycle nodes can use the object as <em>Self</em>.</li>
+    </ul>
+    <p>Transform fields are in world units. In 3D, position uses X/Y/Z and scale uses W/H/D. Snap and grid options are in the toolbar; gizmo mode is <kbd>W</kbd>/<kbd>E</kbd>/<kbd>R</kbd>.</p>
+  </div>
+</section>
+
+<section class="panel" id="assets">
+  <div class="panel-head"><div class="panel-title">Assets &amp; models</div></div>
+  <div class="panel-body doc">
+    <p>Game Studio imports <strong>GLB, glTF, OBJ, FBX and STL</strong> models, images/textures (PNG, JPEG, WebP, GIF, AVIF), HDR/EXR environment maps and audio (MP3, WAV, OGG, M4A, AAC). The loaders are vendored, so imports and exports work offline.</p>
+    <ul>
+      <li>Drop files onto Assets or choose <strong>＋ Import</strong>. Up to 20 files are uploaded at once.</li>
+      <li>Select an object with a MeshRenderer, then double-click or right-click an asset and choose <strong>Assign to selection</strong>.</li>
+      <li>Textures can be assigned from the MeshRenderer material fields; audio from an AudioSource component or a script.</li>
+      <li>Imported models appear as mesh assets. Model animation clips are not played by the runtime yet (see <a href="#troubleshooting">limits</a>).</li>
+    </ul>
+    <p>Exports inline assets as data URLs. Very large models make the standalone HTML large; ZIP export keeps the runtime source and extracted assets separate.</p>
+  </div>
+</section>
+
+<section class="panel" id="graph">
+  <div class="panel-head"><div class="panel-title">Visual scripting</div></div>
+  <div class="panel-body doc">
+    <p>Visual scripts are typed graphs compiled into runtime programs. Select a script in the bottom tab, then use <strong>＋ Node</strong> to open the node library.</p>
+    <ul>
+      <li><strong>Lifecycle nodes</strong> start a flow: On Game Start, On Update, On Fixed Update, collision enter/exit, key pressed, UI click, animation finished.</li>
+      <li><strong>Execution pins</strong> (the diamond/arrow pins) run actions in order. One output can fan out to several inputs; an input accepts one connection at a time.</li>
+      <li><strong>Data pins</strong> carry numbers, strings, booleans, entities and other typed values. Connect them to typed inputs, or type a literal value directly into the input.</li>
+      <li>Connect by clicking an output pin and then an input pin (or drag between them). Click a connection line to delete it. Dropping on a node body picks its nearest compatible input.</li>
+    </ul>
+    <p>Open the Inspector with a node selected to see its configuration and every input. The Problems tab reports type mismatches and missing entry nodes before you play.</p>
+  </div>
+</section>
+
+<section class="panel" id="values">
+  <div class="panel-head"><div class="panel-title">Typed values: type or connect</div></div>
+  <div class="panel-body doc">
+    <p>Every data input in the Inspector has a type badge and either a <strong>value</strong> editor or a <strong>connected</strong> source. Values are stored in the node and used only while that input has no connection.</p>
+    <ul>
+      <li><strong>number</strong> — numeric field; invalid input becomes <span class="code">0</span>.</li>
+      <li><strong>string</strong> — text field; plain text stays text.</li>
+      <li><strong>boolean</strong> — checkbox, shown as true/false.</li>
+      <li><strong>any/json</strong> — text field that accepts JSON; valid JSON becomes an object/array/number/boolean, otherwise it stays a string.</li>
+      <li>Connect an output to override the typed value. Press <strong>Disconnect</strong> in the Inspector to keep the connection's value and edit a literal instead.</li>
+    </ul>
+    <p>This is the same rule the runtime uses: a connected pin wins, an unconnected pin reads <span class="code">node.config[pinId]</span>, then its default. Use it for quick tuning (speed, damage, text) without adding a separate value node.</p>
+  </div>
+</section>
+
+<section class="panel" id="code">
+  <div class="panel-head"><div class="panel-title">JavaScript scripts</div></div>
+  <div class="panel-body doc">
+    <p>Add a <strong>Code</strong> script for logic that is easier to write directly. Code scripts run in a sandbox inside the same runtime and receive the game context; they cannot access the page or the editor.</p>
+    <ul>
+      <li>Select a script and switch to the <strong>Code</strong> tab. Monaco is used when available, with a plain textarea fallback.</li>
+      <li>Use <span class="code">entity</span>, <span class="code">scene</span>, <span class="code">input</span>, <span class="code">time</span>, <span class="code">log</span> and the lifecycle callbacks documented in the script template.</li>
+      <li>Errors appear in Console/Problems during Compile or Play. A failing script is isolated; it does not stop the editor.</li>
+      <li>Choose the trigger (start/update/etc.) in the script row. Visual and code scripts can coexist on one object.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel" id="play">
+  <div class="panel-head"><div class="panel-title">Playtesting</div></div>
+  <div class="panel-body doc">
+    <p><strong>Play</strong> mounts the real runtime in an iframe over the viewport. The bar shows the mode and a live status, with Pause/Resume, Restart and Stop. <kbd>P</kbd> starts, <kbd>Esc</kbd> stops when playing.</p>
+    <ul>
+      <li><strong>Pause</strong> freezes the simulation; <strong>Step</strong> advances exactly one frame.</li>
+      <li><strong>Console</strong> receives runtime logs and errors. <strong>Profiler</strong> shows renderer, physics/script and build information.</li>
+      <li>Play mode uses the same compiled project and assets as export. A bug in Play is a bug in the exported game.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel" id="publish">
+  <div class="panel-head"><div class="panel-title">Export &amp; publish</div></div>
+  <div class="panel-body doc">
+    <p>Compile first; export is blocked while the Problems tab has errors.</p>
+    <ul>
+      <li><strong>Standalone HTML5</strong> — one self-contained <span class="code">.html</span> with engine, runtime, project and data-URL assets. Open it from disk; no Cascade account or network is required.</li>
+      <li><strong>ZIP + source</strong> — the playable build plus <span class="code">runtime.js</span>/<span class="code">runtime3d.js</span>, <span class="code">game.json</span>, extracted assets and a README. Unzip and open <span class="code">index.html</span>.</li>
+      <li><strong>Publish</strong> — serves the same build at a public <span class="code">/games/:slug</span> URL. Publishing is per document; unpublished projects stay private.</li>
+    </ul>
+    <p>Exported HTML uses a restrictive Content Security Policy and never includes editor code.</p>
+  </div>
+</section>
+
+<section class="panel" id="shortcuts">
+  <div class="panel-head"><div class="panel-title">Keyboard shortcuts</div></div>
+  <div class="panel-body doc">
+    <table class="table">
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>P</kbd> / <kbd>Esc</kbd></td><td>Play / stop play mode</td></tr>
+      <tr><td><kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>Move / rotate / scale gizmo</td></tr>
+      <tr><td><kbd>F</kbd></td><td>Focus the selected object</td></tr>
+      <tr><td><kbd>Delete</kbd></td><td>Delete the selected node or object</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Duplicate selection</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Compile and validate</td></tr>
+      <tr><td>3D: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Q</kbd>/<kbd>E</kbd>, <kbd>Shift</kbd></td><td>Fly the editor camera (hold the pointer over the viewport)</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="panel" id="tutorial-2d">
+  <div class="panel-head"><div class="panel-title">Tutorial: a playable 2D platformer</div></div>
+  <div class="panel-body doc">
+    <p>The fastest route is the <strong>2D Platformer</strong> template. Build one from scratch with these steps:</p>
+    <ol>
+      <li>Create a 2D game. Select the starter scene and delete extra objects, keeping a ground object.</li>
+      <li>Add <strong>Sprite</strong> objects for the player and platforms. Give the player a SpriteRenderer, Rigidbody2D (dynamic) and Collider2D. Platforms get a static Rigidbody2D and a Collider2D.</li>
+      <li>Add a <strong>Camera2D</strong>. In the Inspector set follow/target to the player if the component exposes it, or move the camera with a script.</li>
+      <li>Create a visual script named <em>Player</em>. Add an <strong>On Update</strong> node and an <strong>Input Axis</strong> node with action <span class="code">horizontal</span>.</li>
+      <li>Add a <strong>Set Velocity</strong> action for the player. Connect On Update → Set Velocity, then Input Axis.value → Set Velocity.x. Type a speed value (for example <span class="code">180</span>) into the remaining input.</li>
+      <li>Add <strong>Key Pressed</strong> for <span class="code">Space</span>, a branch, and an <strong>Apply Impulse</strong> action. Connect the jump branch to the impulse and set the Y impulse.</li>
+      <li>Press <strong>Play</strong>. Tune gravity in Project settings and the impulse value in the node Inspector; changes autosave.</li>
+      <li>Compile, fix any Problems, then export standalone HTML or publish.</li>
+    </ol>
+    <p class="hint">Exact node names come from the node library; use the search box and read each node's description before connecting.</p>
+  </div>
+</section>
+
+<section class="panel" id="tutorial-3d">
+  <div class="panel-head"><div class="panel-title">Tutorial: a 3D first-person scene</div></div>
+  <div class="panel-body doc">
+    <ol>
+      <li>Create a 3D game or start from <strong>First-Person Vault</strong>. The template includes a character controller, imported crate, door interaction, HUD and win condition.</li>
+      <li>Scene: a ground plane/cube, walls, a light, and a camera at eye height. Set the camera's Camera3D component and attach the character controller to the player object.</li>
+      <li>Move with WASD and look with the mouse in Play mode. Physics uses Cannon-es; collisions need a Collider3D and Rigidbody3D.</li>
+      <li>Interaction: add a visual script with <strong>On Key Pressed</strong> (<span class="code">KeyE</span>), a <strong>Raycast</strong>/proximity check if available, and an action that opens the door or sets a win variable.</li>
+      <li>UI: add UIElement components for a crosshair and objective text, bind them to project variables in the Inspector.</li>
+      <li>Play, then Compile and publish. The exported HTML includes Three.js and Cannon-es, so it runs offline.</li>
+    </ol>
+    <p class="hint">If WebGL is unavailable the 3D viewport may render blank; the 2D editor and exports still work. Use a hardware-accelerated browser for 3D.</p>
+  </div>
+</section>
+
+<section class="panel" id="troubleshooting">
+  <div class="panel-head"><div class="panel-title">Troubleshooting &amp; current limits</div></div>
+  <div class="panel-body doc">
+    <ul>
+      <li><strong>Nothing moves in Play</strong> — check the script trigger (On Update vs On Game Start), the script's attached object, and that the body is dynamic.</li>
+      <li><strong>A node will not connect</strong> — exec pins connect only to exec pins; data types must match or one side must be <span class="code">any</span>/<span class="code">json</span>. Type a literal instead, or add a conversion node.</li>
+      <li><strong>Export says "Build failed"</strong> — open Problems. Compilation must pass; exports never ship a broken graph.</li>
+      <li><strong>An object cannot be clicked</strong> — it is locked or hidden. Select it in the Hierarchy; the padlock/eye buttons toggle both.</li>
+      <li><strong>Large HTML export</strong> — models and audio are inlined. Use ZIP export or smaller assets.</li>
+    </ul>
+    <p><strong>Not implemented yet:</strong> navigation/behavior trees, skeletal animation playback/blending/state machines, networked 3D multiplayer, mesh editing/sculpting, advanced post-processing and terrain sculpting/painting/chunks/LOD. Terrain is a procedural heightfield with a simple collider. Imported animations are not played by the runtime.</p>
+  </div>
+</section>
+
+</div>
+<%- include('partials/foot') %>

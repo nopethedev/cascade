@@ -511,6 +511,15 @@ test('real HTTP security matrix blocks anonymous/cross-user access and hardens u
     assert.equal((await owner.request(`/api/workspace/docs/${shareDoc}`)).status, 200);
     assert.ok(!(await bodyText(await owner.request(`/api/workspace/docs/${shareDoc}`))).includes('LINK WRITE PWN'));
     assert.equal((await createClient(base).request(`/s/${capLink.token}/asset/${imageId}`)).status, 404, 'capability asset route must not expose unrelated files');
+    const viewerSave = await createClient(base).request(`/s/${capLink.token}/content`, { method: 'PUT', json: { content: { html: 'CAPABILITY WRITE PWN' }, version: 2 } });
+    assert.equal(viewerSave.status, 403, 'viewer capability link must not save content');
+    assert.ok(!(await bodyText(await owner.request(`/api/workspace/docs/${shareDoc}`))).includes('CAPABILITY WRITE PWN'));
+    const editorLinkRes = await owner.request(`/api/files/${shareDoc}/share-links`, { method: 'POST', json: { role: 'editor', expiresInHours: 1 } });
+    assert.equal(editorLinkRes.status, 201);
+    const editorLink = (await json(editorLinkRes)).link;
+    const editorSave = await createClient(base).request(`/s/${editorLink.token}/content`, { method: 'PUT', json: { content: { html: '<p>EDITOR LINK OK</p>' }, version: 2 } });
+    assert.equal(editorSave.status, 200, 'editor capability link must be able to save');
+    assert.match(await bodyText(await owner.request(`/api/workspace/docs/${shareDoc}`)), /EDITOR LINK OK/);
 
     const socket = new WebSocket(`ws://127.0.0.1:${port}/collab?token=${encodeURIComponent(guestToken)}`);
     const initPromise = waitForSocketMessage(socket, (m) => m?.type === 'init');

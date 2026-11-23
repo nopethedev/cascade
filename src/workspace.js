@@ -804,23 +804,62 @@ export function createWorkspaceRouter() {
       return res.status(404).render('error', { message: 'This share link is invalid or has expired.', status: 404 });
     }
     const file = hit.file;
-    file.accessRole = hit.role;
+    const shareRole = normalizeRole(hit.role);
+    const canEdit = roleAtLeast(shareRole, 'editor');
+    file.accessRole = shareRole;
     res.render(`editors/${file.kind}`, {
       file,
       content: parseContent(file),
       kinds: KINDS,
       kind: KIND_BY_ID.get(file.kind),
-      accessRole: 'viewer',
-      canEdit: false,
+      accessRole: shareRole,
+      canEdit,
       shareToken: req.params.token,
       shareMode: true,
       collabToken: issueCollabToken({
         fileId: file.id,
-        role: 'viewer',
+        role: shareRole,
         name: 'Guest',
         shareToken: req.params.token,
       }),
     });
+  }));
+
+  // Capability links are the only unauthenticated write path. A viewer link is
+  // rejected here as well as in the UI, so a modified client cannot save.
+  r.put('/s/:token/content', wrap(async (req, res) => {
+    const hit = await accessByShareToken(req.params.token);
+    if (!hit || hit.file.kind === 'file') return res.status(404).json({ error: 'not found' });
+    if (!roleAtLeast(hit.role, 'editor')) return res.status(403).json({ error: 'This link is read-only.' });
+    const file = hit.file;
+    const body = req.body || {};
+    if (file.kind === 'flow') {
+      const findings = scanFlowSecrets(body.content ?? {});
+      if (findings.length) return res.status(422).json({ error: 'Flow projects may not store raw credentials; use an *Env field.', paths: findings.map((finding) => finding.path) });
+    }
+    const serialized = JSON.stringify(body.content ?? {});
+    if (Buffer.byteLength(serialized) > MAX_CONTENT) return res.status(413).json({ error: 'document too large' });
+    const incomingVersion = Number(body.version) || 0;
+    if (!body.force && incomingVersion && incomingVersion !== file.version) {
+      return res.status(409).json({ error: 'conflict', version: file.version, content: parseContent(file), updatedAt: file.updatedAt });
+    }
+    const expectedVersion = incomingVersion || file.version;
+    const [affected] = await FileRecord.update(
+      {
+        content: serialized,
+        size: Buffer.byteLength(serialized),
+        version: sequelize.literal('version + 1'),
+        updatedAt: new Date(),
+      },
+      { where: body.force ? { id: file.id } : { id: file.id, version: expectedVersion } },
+    );
+    if (!affected) {
+      const latest = await FileRecord.findByPk(file.id);
+      return res.status(409).json({ error: 'conflict', version: latest?.version || 0, content: latest ? parseContent(latest) : {} });
+    }
+    await snapshot(file, null);
+    await file.reload();
+    res.json({ ok: true, version: file.version, updatedAt: file.updatedAt });
   }));
 
   r.get('/s/:token/asset/:id', wrap(async (req, res) => {

@@ -590,11 +590,33 @@ function renderEntityInspector(item) {
     </div><div class="gs-insp-note">Changes autosave. Locked objects are ignored by viewport clicks; select them from the Hierarchy instead.</div></div>`;
 }
 
+function graphPinControl(node, pin, disabled) {
+  const value = node.config?.[pin.id];
+  const attrs = `data-graph-pin="${esc(pin.id)}" data-pin-type="${esc(pin.type || 'any')}" ${disabled ? 'disabled' : ''}`;
+  if (pin.type === 'boolean') return `<label class="gs-check"><input type="checkbox" ${attrs} ${value ? 'checked' : ''} /> ${value ? 'true' : 'false'}</label>`;
+  if (pin.type === 'number') return `<input type="number" step="any" ${attrs} value="${round(value)}" placeholder="0" />`;
+  return `<input type="text" ${attrs} value="${esc(value === undefined || value === null ? '' : typeof value === 'object' ? JSON.stringify(value) : value)}" placeholder="Type a value…" />`;
+}
+
 function renderNodeInspector(node) {
   const def = gameNodeDef(node.type);
+  const script = activeScript();
+  const graph = script?.type === 'visual' ? script.graph : null;
+  const fieldKeys = new Set((def?.fields || []).map((field) => field.key));
   const fields = (def?.fields || []).map((field) => `<div class="gs-field"><label>${esc(field.label || field.key)}</label>${fieldInput(field.key, field.type, node.config?.[field.key] ?? field.fallback ?? '', field.options || [])}</div>`).join('');
-  const inputs = (def?.inputs || []).map((pin) => `<div class="gs-field"><label>${esc(pin.label || pin.id)}</label><span class="gs-insp-note">${esc(pin.type || pin.kind)} · connect in graph</span></div>`).join('');
-  const outputs = (def?.outputs || []).map((pin) => `<div class="gs-field"><label>${esc(pin.label || pin.id)}</label><span class="gs-insp-note">${esc(pin.type || pin.kind)}</span></div>`).join('');
+  const inputs = (def?.inputs || []).map((pin) => {
+    const edge = graph?.edges?.find((item) => item.to.node === node.id && item.to.pin === pin.id);
+    const source = edge ? graph.nodes.find((item) => item.id === edge.from.node) : null;
+    const sourceDef = source ? gameNodeDef(source.type) : null;
+    const connected = !!edge;
+    const configured = fieldKeys.has(pin.id);
+    return `<div class="gs-pin-row${connected ? ' is-connected' : ''}">
+      <div class="gs-pin-rowhead"><span>${esc(pin.label || pin.id)}</span><em>${esc(pin.type || pin.kind || 'any')}</em><b class="${connected ? 'on' : ''}">${connected ? 'connected' : 'value'}</b></div>
+      ${connected ? `<div class="gs-pin-source">From <strong>${esc(sourceDef?.title || source?.type || edge.from.node)}</strong><button class="gs-mini" type="button" data-disconnect-pin="${esc(pin.id)}">Disconnect</button></div>` : configured ? '<div class="gs-insp-note">Configured above.</div>' : graphPinControl(node, pin, false)}
+      ${!connected && !configured ? '<div class="gs-insp-note">Type a literal value, or click this pin in the graph to connect an output.</div>' : ''}
+    </div>`;
+  }).join('');
+  const outputs = (def?.outputs || []).map((pin) => `<div class="gs-field"><label>${esc(pin.label || pin.id)}</label><span class="gs-insp-note">${esc(pin.type || pin.kind)} · output</span></div>`).join('');
   $('g-inspector').innerHTML = `
     <div class="gs-insp-head"><span class="gs-insp-ico">◇</span><input type="text" value="${esc(def?.title || node.type)}" readonly aria-label="Node title" /></div>
     <div class="gs-insp-section"><h3>Node</h3>
@@ -845,6 +867,15 @@ $('g-inspector')?.addEventListener('click', (event) => {
     return;
   }
   if (event.target.closest('[data-node-action="delete"]')) { deleteSelectedNode(); }
+  const disconnectPin = event.target.closest('[data-disconnect-pin]')?.dataset.disconnectPin;
+  if (disconnectPin) {
+    const script = activeScript();
+    if (!script?.graph || !selectedNodeId || !editable) return;
+    pushHistory();
+    script.graph.edges = script.graph.edges.filter((edge) => !(edge.to.node === selectedNodeId && edge.to.pin === disconnectPin));
+    changed({ rebuild: false, history: false });
+    toast('Input disconnected — type a value instead');
+  }
 });
 
 $('g-inspector')?.addEventListener('change', (event) => {
@@ -876,6 +907,23 @@ $('g-inspector')?.addEventListener('change', (event) => {
     item[transform] = v;
     changed({ rebuild: true, history: false, inspector: false });
     updateTransformFields(item);
+    return;
+  }
+  const graphPin = target.dataset.graphPin;
+  if (graphPin) {
+    const node = selectedNodeId && activeScript()?.graph?.nodes?.find((entry) => entry.id === selectedNodeId);
+    if (!node || !editable) return;
+    const type = target.dataset.pinType || 'any';
+    let value = target.type === 'checkbox' ? target.checked : target.value;
+    if (type === 'number') value = num(value);
+    else if (type === 'boolean') value = !!value;
+    else if (type !== 'string') {
+      const text = String(value ?? '').trim();
+      if (text) { try { value = JSON.parse(text); } catch { value = text; } }
+    }
+    pushHistory();
+    node.config = { ...(node.config || {}), [graphPin]: value };
+    changed({ rebuild: false, history: false });
     return;
   }
   const prop = target.dataset.prop;
@@ -2145,6 +2193,175 @@ $('g-inspector-mode')?.addEventListener('click', () => {
   inspectorMode = inspectorMode === 'project' ? 'object' : 'project';
   $('g-inspector-mode').textContent = inspectorMode === 'project' ? 'Project' : 'Object';
   renderInspector();
+});
+
+/* ---------------- right-click context menus ---------------- */
+function showGameMenu(items, x, y) {
+  document.querySelector('.gs-context-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.className = 'gs-context-menu';
+  menu.style.left = `${Math.min(x, window.innerWidth - 210)}px`;
+  menu.style.top = `${Math.min(y, Math.max(8, window.innerHeight - items.length * 30 - 12))}px`;
+  for (const item of items) {
+    if (!item || item === '-') {
+      const sep = document.createElement('div');
+      sep.className = 'gs-cm-sep';
+      menu.append(sep);
+      continue;
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `gs-cm-item${item.danger ? ' danger' : ''}`;
+    btn.disabled = !!item.disabled;
+    btn.innerHTML = `<span>${esc(item.label)}</span>${item.shortcut ? `<kbd>${esc(item.shortcut)}</kbd>` : ''}`;
+    btn.addEventListener('click', () => { menu.remove(); item.action?.(); });
+    menu.append(btn);
+  }
+  document.body.append(menu);
+  setTimeout(() => document.addEventListener('pointerdown', (event) => {
+    if (!menu.contains(event.target)) menu.remove();
+  }, { once: true }), 0);
+  return menu;
+}
+
+function renameEntity(item) {
+  if (!editable) return;
+  const name = prompt('Object name', item.name);
+  if (!name?.trim()) return;
+  pushHistory();
+  item.name = name.trim().slice(0, 80);
+  changed({ rebuild: true, history: false });
+}
+
+function entityMenu(item, x, y) {
+  showGameMenu([
+    { label: 'Focus', shortcut: 'F', action: focusSelection },
+    { label: 'Duplicate', shortcut: 'Ctrl+D', action: duplicateSelection, disabled: !editable },
+    { label: 'Rename…', action: () => renameEntity(item), disabled: !editable },
+    '-',
+    { label: item.locked ? 'Unlock object' : 'Lock object', action: () => { pushHistory(); item.locked = !item.locked; changed({ rebuild: false, history: false }); }, disabled: !editable },
+    { label: item.visible === false ? 'Show object' : 'Hide object', action: () => { pushHistory(); item.visible = item.visible === false; changed({ rebuild: true, history: false }); }, disabled: !editable },
+    { label: 'Add empty child', disabled: !editable, action: () => {
+      pushHistory();
+      const child = entity('Child', { id: gid('e'), parentId: item.id, x: item.x, y: item.y, z: item.z || 0, w: 1, h: 1, d: 1 });
+      scene().entities.push(child);
+      selectedId = child.id;
+      changed({ rebuild: true, history: false });
+    } },
+    '-',
+    { label: 'Delete', danger: true, shortcut: 'Del', action: deleteSelection, disabled: !editable },
+  ], x, y);
+}
+
+$('g-hierarchy')?.addEventListener('contextmenu', (event) => {
+  const row = event.target.closest('[data-id]');
+  event.preventDefault();
+  event.stopPropagation();
+  if (!row) return;
+  const item = findEntity(row.dataset.id);
+  if (!item) return;
+  setSelected(item.id);
+  entityMenu(item, event.clientX, event.clientY);
+});
+
+let viewportRight = null;
+$('g-viewport')?.addEventListener('pointerdown', (event) => {
+  if (event.button === 2) viewportRight = { x: event.clientX, y: event.clientY };
+});
+$('g-viewport')?.addEventListener('pointerup', (event) => {
+  if (event.button !== 2 || !viewportRight) return;
+  const moved = Math.hypot(event.clientX - viewportRight.x, event.clientY - viewportRight.y);
+  viewportRight = null;
+  if (moved > 6) return;
+  const canvas = project.mode === '3d' ? $('g-canvas-3d') : $('g-canvas-2d');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  let hit = null;
+  if (project.mode === '3d') hit = pick3D(event)?.entity || null;
+  else hit = hit2d(event.clientX - rect.left, event.clientY - rect.top);
+  if (hit) setSelected(hit.id);
+  const x = event.clientX, y = event.clientY;
+  if (hit) { entityMenu(hit, x, y); return; }
+  showGameMenu([
+    ...(project.mode === '3d'
+      ? [
+        { label: 'Add cube', disabled: !editable, action: () => { $('g-add-type').value = 'box'; addObjectFromToolbar(); } },
+        { label: 'Add sphere', disabled: !editable, action: () => { $('g-add-type').value = 'sphere'; addObjectFromToolbar(); } },
+        { label: 'Add camera', disabled: !editable, action: () => { $('g-add-type').value = 'camera'; addObjectFromToolbar(); } },
+        { label: 'Add light', disabled: !editable, action: () => { $('g-add-type').value = 'light'; addObjectFromToolbar(); } },
+      ]
+      : [
+        { label: 'Add sprite', disabled: !editable, action: () => { $('g-add-type').value = 'sprite'; addObjectFromToolbar(); } },
+        { label: 'Add empty', disabled: !editable, action: () => { $('g-add-type').value = 'empty'; addObjectFromToolbar(); } },
+      ]),
+    '-',
+    { label: 'Focus selected', shortcut: 'F', action: focusSelection, disabled: !selectedId },
+    { label: 'Node library…', action: openNodeLibrary, disabled: !activeScript() || activeScript().type !== 'visual' },
+  ], x, y);
+});
+$('g-viewport')?.addEventListener('contextmenu', (event) => event.preventDefault());
+
+$('g-assets')?.addEventListener('contextmenu', (event) => {
+  const row = event.target.closest('[data-asset]');
+  event.preventDefault();
+  if (!row) return;
+  const asset = project.assets.find((item) => item.id === row.dataset.asset);
+  if (!asset) return;
+  selectedAssetId = asset.id;
+  renderAssets();
+  showGameMenu([
+    { label: 'Assign to selection', disabled: !selectedEntity() || !editable, action: () => assignAsset(asset.id) },
+    { label: 'Copy source URL', disabled: !asset.src, action: () => navigator.clipboard?.writeText(asset.src).then(() => toast('URL copied')).catch(() => {}) },
+    '-',
+    { label: 'Remove asset', danger: true, disabled: !editable, action: () => {
+      pushHistory();
+      project.assets = project.assets.filter((item) => item.id !== asset.id);
+      selectedAssetId = null;
+      changed({ rebuild: true, history: false });
+    } },
+  ], event.clientX, event.clientY);
+});
+
+$('g-scripts')?.addEventListener('contextmenu', (event) => {
+  const row = event.target.closest('[data-script]');
+  event.preventDefault();
+  if (!row) return;
+  const script = project.scripts.find((item) => item.id === row.dataset.script);
+  if (!script) return;
+  selectScript(script.id);
+  showGameMenu([
+    { label: 'Rename…', disabled: !editable, action: () => {
+      const name = prompt('Script name', script.name);
+      if (!name?.trim()) return;
+      pushHistory();
+      script.name = name.trim().slice(0, 80);
+      changed({ rebuild: false, history: false });
+    } },
+    { label: 'Duplicate', disabled: !editable, action: () => {
+      pushHistory();
+      const copy = clone(script);
+      copy.id = gid('s');
+      copy.name = `${script.name} copy`;
+      copy.graph?.nodes?.forEach((node) => { node.id = gid('n'); });
+      copy.graph && (copy.graph.edges = []);
+      project.scripts.push(copy);
+      selectedScriptId = copy.id;
+      changed({ rebuild: false, history: false });
+    } },
+    { label: script.enabled === false ? 'Enable script' : 'Disable script', disabled: !editable, action: () => {
+      pushHistory();
+      script.enabled = script.enabled === false;
+      changed({ rebuild: false, history: false });
+    } },
+    '-',
+    { label: 'Delete script', danger: true, disabled: !editable || project.scripts.length <= 1, action: () => {
+      pushHistory();
+      project.scripts = project.scripts.filter((item) => item.id !== script.id);
+      selectedScriptId = project.scripts[0]?.id || null;
+      selectedNodeId = null;
+      changed({ rebuild: false, history: false });
+    } },
+  ], event.clientX, event.clientY);
 });
 
 

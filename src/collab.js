@@ -264,7 +264,7 @@ export function startCollabServer(httpServer) {
       fileId: room.fileId,
       version: room.version,
       role: auth.role,
-      canWrite: roleAtLeast(auth.role, 'editor') && !auth.shareToken,
+      canWrite: roleAtLeast(auth.role, 'editor'),
       update: Buffer.from(Y.encodeStateAsUpdate(room.doc)).toString('base64'),
       users: participants(room),
     }));
@@ -273,7 +273,7 @@ export function startCollabServer(httpServer) {
     ws.on('message', async (data, isBinary) => {
       try {
         if (isBinary) {
-          if (!roleAtLeast(ws.meta.role, 'editor') || ws.meta.shareToken) {
+          if (!roleAtLeast(ws.meta.role, 'editor')) {
             ws.send(JSON.stringify({ type: 'error', error: 'read-only access' }));
             return;
           }

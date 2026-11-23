@@ -343,7 +343,7 @@ export function createMainApp() {
   app.use(
     wrap(async (req, res, next) => {
       if (!(await needsSetup())) return next();
-      if (['/setup', '/docs'].includes(req.path) || req.path.startsWith('/public/')) return next();
+      if (['/setup', '/docs'].includes(req.path) || req.path.startsWith('/docs/') || req.path.startsWith('/public/')) return next();
       if (req.path.startsWith('/api/') || req.path === '/mcp') return res.status(503).json({ error: 'setup required' });
       return res.redirect('/setup');
     }),
@@ -834,6 +834,8 @@ export function createMainApp() {
 
   // ---------- Docs ----------
   app.get('/docs', (req, res) => res.render('docs'));
+  app.get('/docs/game', (req, res) => res.render('docs-game'));
+  app.get('/docs/flow', (req, res) => res.render('docs-flow'));
 
   // ---------- Admin ----------
   app.get('/admin', requireAdmin, wrap(async (req, res) => {

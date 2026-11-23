@@ -68,7 +68,10 @@
   window.Workspace = {
     create(opts) {
       const api = `/api/workspace/docs/${opts.id}`;
+      const shareToken = window.__SHARE_TOKEN__ || null;
+      const savePath = shareToken ? `/s/${encodeURIComponent(shareToken)}/content` : api;
       const readOnly = opts.canEdit === false || window.__ACCESS__?.canEdit === false;
+      const editorSurface = '.ed-toolbar, .doc-toolbar, .sheet-toolbar, .board-toolbar, .pdf-toolbar, .code-toolbar, .form-toolbar, .deck-toolbar, .site-toolbar, .site-layers, .site-inspector, .doc-page, .sheet-wrap, .board-wrap, .code-editor-wrap, #stage';
       const state = {
         id: opts.id,
         kind: opts.kind,
@@ -113,16 +116,44 @@
 
       if (readOnly) {
         document.body.classList.add('is-readonly');
-        document.querySelectorAll('[data-requires-edit]').forEach((el) => {
-          el.disabled = true;
-          el.hidden = true;
-        });
-        setTimeout(() => {
-          document.querySelectorAll('.doc-page[contenteditable], [contenteditable="true"]').forEach((el) => {
+        document.body.dataset.canEdit = '0';
+        const enforceReadOnly = () => {
+          document.querySelectorAll('[data-requires-edit]').forEach((el) => {
+            el.disabled = true;
+            el.hidden = true;
+          });
+          document.querySelectorAll('[contenteditable]:not([contenteditable="false"])').forEach((el) => {
             el.setAttribute('contenteditable', 'false');
           });
-          document.querySelectorAll('.sheet-grid, .board-wrap, #stage').forEach((el) => el.classList.add('is-view-only'));
-        }, 30);
+          document.querySelectorAll('.sheet-grid, .board-wrap, #stage, .code-editor-wrap').forEach((el) => el.classList.add('is-view-only'));
+        };
+        enforceReadOnly();
+        // Editors rebuild their DOM after load (sheets, boards, live content), so
+        // apply the guard again whenever nodes are added instead of once at boot.
+        new MutationObserver(enforceReadOnly).observe(document.body, { childList: true, subtree: true });
+        // Toolbars may not carry data-requires-edit. Refuse edit gestures at the
+        // surface level so a Viewer link cannot format, type, drop or paste.
+        const blockEdit = (event) => {
+          if (!window.__ACCESS__ || window.__ACCESS__.canEdit !== false) return;
+          if (event.target.closest('#btn-share, #btn-comments, #btn-versions, #btn-editor-panel, .ed-more, a, .versions-panel, .share-dlg, .comment-dlg, .draft-bar')) return;
+          if (event.target.closest(editorSurface)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        };
+        document.addEventListener('beforeinput', blockEdit, true);
+        document.addEventListener('paste', blockEdit, true);
+        document.addEventListener('drop', blockEdit, true);
+        document.addEventListener('click', (event) => {
+          if (!window.__ACCESS__ || window.__ACCESS__.canEdit !== false) return;
+          if (event.target.closest(editorSurface) && !event.target.closest('a, .sheet-tab, .deck-slide, nav')) {
+            const control = event.target.closest('button, input, select, textarea');
+            if (control && !control.closest('#btn-share, #btn-comments, #btn-versions, #btn-editor-panel, .ed-more')) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }
+        }, true);
       }
 
       async function loadMe() {
@@ -274,7 +305,7 @@
         const content = opts.collect();
         status('Saving…', '');
         try {
-          const j = await request(api, {
+          const j = await request(savePath, {
             method: 'PUT',
             body: JSON.stringify({ content, version: state.version, force: !!force }),
           });
@@ -335,7 +366,13 @@
 
       // ---- collaboration ------------------------------------------------
       async function getCollabToken() {
-        if (window.__COLLAB_SHARE_TOKEN__) return { token: window.__COLLAB_SHARE_TOKEN__, canEdit: false, role: 'viewer' };
+        if (window.__COLLAB_SHARE_TOKEN__) {
+          return {
+            token: window.__COLLAB_SHARE_TOKEN__,
+            canEdit: !!window.__ACCESS__?.canEdit,
+            role: window.__ACCESS__?.role || 'viewer',
+          };
+        }
         const j = await request(`${api}/collab-token`);
         return { token: j.token, canEdit: !!j.canEdit, role: j.role };
       }
@@ -548,7 +585,7 @@
           accessData = await request(`/api/files/${opts.id}/access`);
           state.isPublic = !!accessData.isPublic;
           state.role = accessData.role;
-          state.canEdit = !!accessData.canEdit && !shareMode;
+          state.canEdit = !!accessData.canEdit && !readOnly;
           state.canComment = !!accessData.canComment;
         } catch {
           accessData = null;

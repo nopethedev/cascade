@@ -678,6 +678,20 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .is-readonly .sheet-grid, .is-readonly .board-wrap, .is-readonly #stage, .is-readonly .code-editor-wrap { pointer-events: none; }
 .is-readonly .doc-page { user-select: text; }
 .is-readonly .ed-toolbar { opacity: .55; }
+.is-readonly .ed-toolbar,
+.is-readonly .doc-toolbar,
+.is-readonly .sheet-toolbar,
+.is-readonly .board-toolbar,
+.is-readonly .pdf-toolbar,
+.is-readonly .code-toolbar,
+.is-readonly .form-toolbar,
+.is-readonly .deck-toolbar { pointer-events: none; }
+.is-readonly [data-requires-edit] { display: none !important; }
+.is-readonly .doc-page { cursor: default; }
+kbd { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--raise); color: var(--text); font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.is-readonly .ed-toolbar button,
+.is-readonly .ed-toolbar input,
+.is-readonly .ed-toolbar select { cursor: not-allowed; }
 .is-readonly .pdf-toolbar, .is-readonly .pdf-inspector { opacity: .55; }
 .is-readonly .site-toolbar, .is-readonly .site-layers, .is-readonly .site-inspector { opacity: .55; pointer-events: none; }
 .is-readonly .site-canvas { pointer-events: none; }

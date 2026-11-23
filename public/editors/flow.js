@@ -288,6 +288,122 @@ function showScriptMenu(script, x, y) {
 }
 
 /* -------------------------------------------------------------------- nodes */
+function showContextMenu(items, x, y) {
+  document.querySelector('.flow-context-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.className = 'flow-context-menu';
+  menu.style.left = `${Math.min(x, window.innerWidth - 196)}px`;
+  menu.style.top = `${Math.min(y, Math.max(8, window.innerHeight - items.length * 30 - 12))}px`;
+  for (const item of items) {
+    if (!item || item === '-') {
+      const sep = document.createElement('div');
+      sep.className = 'fcm-sep';
+      menu.append(sep);
+      continue;
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `fcm-item${item.danger ? ' danger' : ''}`;
+    btn.disabled = !!item.disabled;
+    btn.innerHTML = `<span>${esc(item.label)}</span>${item.shortcut ? `<kbd>${esc(item.shortcut)}</kbd>` : ''}`;
+    btn.addEventListener('click', () => { menu.remove(); item.action?.(); });
+    menu.append(btn);
+  }
+  document.body.append(menu);
+  setTimeout(() => document.addEventListener('pointerdown', (event) => {
+    if (!menu.contains(event.target)) menu.remove();
+  }, { once: true }), 0);
+  return menu;
+}
+
+function addSpecialNode(type, worldX, worldY) {
+  const script = activeScript();
+  const def = defOf({ type });
+  if (!script || !def || READONLY) return;
+  snapshot();
+  const node = { id: flowId('n'), type, x: Math.round(worldX), y: Math.round(worldY), config: type === 'group' ? { title: 'Group', width: 440, height: 280 } : { text: type === 'comment' ? 'Right-click the canvas to add comments.' : '' } };
+  script.graph.nodes.push(node);
+  selectedNodeId = node.id;
+  selectedEdgeId = null;
+  renderAll();
+  markDirty();
+}
+
+function showCanvasMenu(x, y) {
+  const worldPoint = screenToWorld(x, y);
+  showContextMenu([
+    { label: 'Add node…', shortcut: 'A', action: () => { libraryCategory = 'All'; libraryQuery = ''; if ($('library-search')) $('library-search').value = ''; renderLibrary(); openDialog('flow-library'); } },
+    { label: 'Add comment', action: () => addSpecialNode('comment', worldPoint.x, worldPoint.y) },
+    { label: 'Add group', action: () => addSpecialNode('group', worldPoint.x, worldPoint.y) },
+    { label: 'Paste node', shortcut: 'Ctrl+V', disabled: !clipboard || READONLY, action: () => {
+      const copy = { ...JSON.parse(JSON.stringify(clipboard)), id: flowId('n'), x: Math.round(worldPoint.x), y: Math.round(worldPoint.y) };
+      snapshot();
+      activeScript()?.graph.nodes.push(copy);
+      selectedNodeId = copy.id;
+      renderAll();
+      markDirty();
+    } },
+    '-',
+    { label: 'Fit graph', shortcut: 'F', action: fitView },
+    { label: 'Auto layout', action: autoLayout, disabled: !!READONLY },
+  ], x, y);
+}
+
+function showNodeMenu(node, x, y) {
+  const script = activeScript();
+  const incoming = script ? script.graph.edges.filter((edge) => edge.to.node === node.id).length : 0;
+  const outgoing = script ? script.graph.edges.filter((edge) => edge.from.node === node.id).length : 0;
+  showContextMenu([
+    { label: 'Duplicate', shortcut: 'Ctrl+D', action: duplicateSelectedNode, disabled: !!READONLY },
+    { label: 'Copy', shortcut: 'Ctrl+C', action: () => { clipboard = JSON.parse(JSON.stringify(node)); toast('Node copied'); } },
+    '-',
+    { label: `Disconnect inputs${incoming ? ` (${incoming})` : ''}`, disabled: !incoming || !!READONLY, action: () => {
+      snapshot();
+      script.graph.edges = script.graph.edges.filter((edge) => edge.to.node !== node.id);
+      renderAll(); markDirty();
+    } },
+    { label: `Disconnect outputs${outgoing ? ` (${outgoing})` : ''}`, disabled: !outgoing || !!READONLY, action: () => {
+      snapshot();
+      script.graph.edges = script.graph.edges.filter((edge) => edge.from.node !== node.id);
+      renderAll(); markDirty();
+    } },
+    '-',
+    { label: 'Delete node', danger: true, action: () => { selectedNodeId = node.id; deleteSelectedNode(); }, disabled: !!READONLY },
+  ], x, y);
+}
+
+function showEdgeMenu(edge, x, y) {
+  const script = activeScript();
+  showContextMenu([
+    { label: 'Select source node', action: () => { selectedNodeId = edge.from.node; selectedEdgeId = null; inspectorTab = 'node'; renderAll(); } },
+    { label: 'Select target node', action: () => { selectedNodeId = edge.to.node; selectedEdgeId = null; inspectorTab = 'node'; renderAll(); } },
+    '-',
+    { label: 'Delete connection', danger: true, disabled: !!READONLY, action: () => {
+      snapshot();
+      script.graph.edges = script.graph.edges.filter((item) => item.id !== edge.id);
+      selectedEdgeId = null;
+      renderAll(); markDirty();
+    } },
+  ], x, y);
+}
+
+function showPinMenu(info, x, y) {
+  const script = activeScript();
+  const count = script ? script.graph.edges.filter((edge) => (info.side === 'in'
+    ? edge.to.node === info.node.id && edge.to.pin === info.pin.id
+    : edge.from.node === info.node.id && edge.from.pin === info.pin.id)).length : 0;
+  showContextMenu([
+    { label: info.side === 'in' ? 'Disconnect this input' : 'Disconnect this output', danger: true, disabled: !count || !!READONLY, action: () => {
+      snapshot();
+      script.graph.edges = script.graph.edges.filter((edge) => (info.side === 'in'
+        ? !(edge.to.node === info.node.id && edge.to.pin === info.pin.id)
+        : !(edge.from.node === info.node.id && edge.from.pin === info.pin.id)));
+      renderAll(); markDirty();
+    } },
+    { label: 'Connect from here', disabled: !!READONLY, action: () => { selectedNodeId = info.node.id; renderNodes(); const el = sourcePin(info.node.id, info.pin.id, info.side); if (el) el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, button: 0 })); } },
+  ], x, y);
+}
+
 function renderNodes() {
   const script = activeScript();
   if (!script) {
@@ -490,73 +606,153 @@ function compatible(from, to) {
   return a === b || a === 'any' || b === 'any' || a === 'json' || b === 'json' || (a === 'number' && b === 'string') || (a === 'string' && b === 'number');
 }
 
-function tryConnect(targetPin) {
-  if (!connecting || !targetPin) return false;
-  const toNode = targetPin.dataset.node, toPin = targetPin.dataset.pin, toSide = targetPin.dataset.side;
-  const fromNode = connecting.from.node, fromPin = connecting.pin.id;
-  if (toSide !== 'in' || toNode === fromNode) return false;
-  const source = nodeById(fromNode), target = nodeById(toNode);
+function pinElInfo(el) {
+  if (!el?.dataset?.node) return null;
+  const node = nodeById(el.dataset.node);
+  const def = defOf(node);
+  if (!node || !def) return null;
+  const side = el.dataset.side === 'in' ? 'in' : 'out';
+  const pin = (side === 'out' ? def.outputs : def.inputs || []).find((p) => p.id === el.dataset.pin);
+  if (!pin) return null;
+  return { el, node, def, side, pin };
+}
+
+function pinCenterWorld(el) {
+  const dot = el.querySelector('.pin-dot') || el;
+  const r = dot.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  return { x: (r.left + r.width / 2 - wr.left - view.x) / view.zoom, y: (r.top + r.height / 2 - wr.top - view.y) / view.zoom };
+}
+
+function compatiblePin(from, to) {
+  return from.kind === to.kind && compatible(from.type, to.type);
+}
+
+/** Prefer an exact pin under the cursor, then the nearest compatible pin on the
+ *  node body. Dropping anywhere on the target node is a much larger target than
+ *  the 8px connector dot. */
+function resolveDropPin(ev, source) {
+  const under = document.elementFromPoint(ev.clientX, ev.clientY);
+  const direct = under?.closest('.flow-pin');
+  if (direct) return direct;
+  const nodeEl = under?.closest('.flow-node');
+  if (!nodeEl || nodeEl.dataset.id === source.node.id) return null;
+  const wanted = source.side === 'out' ? 'in' : 'out';
+  const candidates = [...nodeEl.querySelectorAll(`.flow-pin[data-side="${wanted}"]`)]
+    .map(pinElInfo)
+    .filter((entry) => entry && compatiblePin(source.pin, entry.pin));
+  if (!candidates.length) return null;
+  let best = candidates[0];
+  let bestDistance = Infinity;
+  for (const candidate of candidates) {
+    const dot = candidate.el.querySelector('.pin-dot') || candidate.el;
+    const r = dot.getBoundingClientRect();
+    const distance = Math.hypot(r.left + r.width / 2 - ev.clientX, r.top + r.height / 2 - ev.clientY);
+    if (distance < bestDistance) { bestDistance = distance; best = candidate; }
+  }
+  return best.el;
+}
+
+function tryConnect(targetEl, source = connecting ? pinElInfo(connecting.el) : null) {
+  const target = pinElInfo(targetEl);
   if (!source || !target) return false;
-  const fromDef = defOf(source), toDef = defOf(target);
-  const from = fromDef?.outputs.find((p) => p.id === fromPin);
-  const to = toDef?.inputs.find((p) => p.id === toPin);
-  if (!from || !to) return false;
-  if (from.kind !== to.kind) { toast('Execution pins connect only to execution pins', true); return false; }
-  if (!compatible(from.type, to.type)) { toast(`Type mismatch: ${from.type} → ${to.type}. Insert Convert Type.`, true); return false; }
+  if (source.side === target.side) { toast('Connect an output pin to an input pin', true); return false; }
+  if (source.node.id === target.node.id) { toast('A node cannot connect to itself', true); return false; }
+  const from = source.side === 'out' ? source : target;
+  const to = source.side === 'out' ? target : source;
+  if (from.pin.kind !== to.pin.kind) {
+    toast(from.pin.kind === 'exec' ? 'Execution pins connect only to execution pins' : 'Data pins connect only to data pins', true);
+    return false;
+  }
+  if (!compatible(from.pin.type, to.pin.type)) {
+    toast(`Type mismatch: ${from.pin.type} → ${to.pin.type}. Insert Convert Type.`, true);
+    return false;
+  }
   const script = activeScript();
+  if (!script) return false;
+  const duplicate = script.graph.edges.some((e) => e.from.node === from.node.id && e.from.pin === from.pin.id && e.to.node === to.node.id && e.to.pin === to.pin.id);
   snapshot();
-  script.graph.edges = script.graph.edges.filter((e) => !(e.to.node === toNode && e.to.pin === toPin));
-  script.graph.edges.push({ id: flowId('w'), from: { node: fromNode, pin: fromPin }, to: { node: toNode, pin: toPin }, kind: from.kind === 'exec' ? 'exec' : 'data' });
+  // One incoming connection per input pin; exec outputs may fan out.
+  script.graph.edges = script.graph.edges.filter((e) => !(e.to.node === to.node.id && e.to.pin === to.pin.id));
+  if (!duplicate) {
+    script.graph.edges.push({ id: flowId('w'), from: { node: from.node.id, pin: from.pin.id }, to: { node: to.node.id, pin: to.pin.id }, kind: from.pin.kind === 'exec' ? 'exec' : 'data' });
+  }
   selectedEdgeId = null;
-  selectedNodeId = toNode;
+  selectedNodeId = to.node.id;
   renderAll();
   markDirty();
+  toast(duplicate ? 'Already connected' : `Connected ${from.pin.label || from.pin.id} → ${to.pin.label || to.pin.id}`);
   return true;
 }
 
+function cancelConnection() {
+  tempPath?.remove();
+  tempPath = null;
+  connecting = null;
+  wrap.classList.remove('connecting', 'connecting-armed');
+  document.querySelectorAll('.flow-pin.target-ok,.flow-pin.target-bad').forEach((el) => el.classList.remove('target-ok', 'target-bad'));
+}
+
 function startConnection(e, pinEl) {
-  if (READONLY || pinEl.dataset.side !== 'out') return;
+  if (READONLY || (e.button !== undefined && e.button !== 0)) return;
   e.preventDefault();
   e.stopPropagation();
-  const node = nodeById(pinEl.dataset.node);
-  const def = defOf(node);
-  const pin = def?.outputs.find((p) => p.id === pinEl.dataset.pin);
-  if (!pin) return;
-  connecting = { from: { node: node.id, pin: pin.id }, pin };
+  // A click (rather than a drag) on the first pin keeps the pending connection
+  // armed, so clicking the second pin also connects.
+  if (connecting) {
+    const source = pinElInfo(connecting.el);
+    const target = pinElInfo(pinEl);
+    if (source && target && target.side !== source.side && target.node.id !== source.node.id) {
+      if (tryConnect(pinEl, source)) cancelConnection();
+      return;
+    }
+  }
+  const source = pinElInfo(pinEl);
+  if (!source) return;
+  cancelConnection();
+  connecting = { el: pinEl, node: { id: source.node.id }, side: source.side };
   wrap.classList.add('connecting');
   tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   tempPath.setAttribute('class', 'flow-temp-edge');
   tempPath.setAttribute('fill', 'none');
   edgesSvg.append(tempPath);
-  const move = (ev) => {
-    if (!connecting) return;
-    const start = sourcePin(node.id, pin.id, 'out')?.querySelector('.pin-dot');
-    if (!start) return;
-    const r = start.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
-    const a = { x: (r.left + r.width / 2 - wr.left - view.x) / view.zoom, y: (r.top + r.height / 2 - wr.top - view.y) / view.zoom };
+  const startX = e.clientX, startY = e.clientY;
+  const draw = (ev) => {
+    const live = connecting && pinElInfo(connecting.el);
+    if (!live) return;
+    const a = pinCenterWorld(live.el);
     const b = screenToWorld(ev.clientX, ev.clientY);
-    const dx = Math.max(38, Math.abs(b.x - a.x) * 0.45);
-    tempPath.setAttribute('d', `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`);
+    tempPath?.setAttribute('d', live.side === 'out' ? edgePathD(a, b) : edgePathD(b, a));
     document.querySelectorAll('.flow-pin.target-ok,.flow-pin.target-bad').forEach((el) => el.classList.remove('target-ok', 'target-bad'));
-    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.flow-pin');
-    if (hit?.dataset.side === 'in') {
-      const td = defOf(nodeById(hit.dataset.node));
-      const tp = td?.inputs.find((p) => p.id === hit.dataset.pin);
-      hit.classList.add(tp && tp.kind === pin.kind && compatible(pin.type, tp.type) && hit.dataset.node !== node.id ? 'target-ok' : 'target-bad');
+    const hitEl = resolveDropPin(ev, live);
+    if (hitEl) {
+      const hit = pinElInfo(hitEl);
+      hitEl.classList.add(hit && hit.node.id !== live.node.id && compatiblePin(live.pin, hit.pin) ? 'target-ok' : 'target-bad');
     }
   };
+  const move = (ev) => { draw(ev); };
   const up = (ev) => {
     document.removeEventListener('pointermove', move);
     document.removeEventListener('pointerup', up);
-    document.querySelectorAll('.flow-pin.target-ok,.flow-pin.target-bad').forEach((el) => el.classList.remove('target-ok', 'target-bad'));
-    tempPath?.remove();
-    tempPath = null;
-    wrap.classList.remove('connecting');
-    const wasConnecting = connecting;
-    connecting = null;
-    if (!wasConnecting) return;
-    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.flow-pin');
-    if (hit) tryConnect(hit);
+    const live = connecting && pinElInfo(connecting.el);
+    if (!live) { cancelConnection(); return; }
+    const moved = Math.hypot(ev.clientX - startX, ev.clientY - startY) > 4;
+    const hitEl = resolveDropPin(ev, live);
+    if (hitEl && tryConnect(hitEl, live)) { cancelConnection(); return; }
+    if (hitEl) {
+      // Keep the connection armed so the user can pick another target.
+      tempPath?.remove();
+      tempPath = null;
+      wrap.classList.add('connecting-armed');
+      return;
+    }
+    if (!moved) {
+      tempPath?.remove();
+      tempPath = null;
+      wrap.classList.add('connecting-armed');
+      toast('Now click an input pin to finish the connection');
+      return;
+    }
+    cancelConnection();
   };
   document.addEventListener('pointermove', move);
   document.addEventListener('pointerup', up, { once: true });
@@ -621,6 +817,7 @@ function startNodeDrag(e, nodeEl) {
 }
 
 function startPan(e) {
+  if (connecting) cancelConnection();
   if (e.button !== 0 && e.button !== 1) return;
   if (e.target.closest('.flow-node, .flow-pin, .flow-edges path, .flow-minimap, .flow-canvas-hud, .flow-btn')) return;
   e.preventDefault();
@@ -663,6 +860,42 @@ function fieldHtml(field, value, scope, ownerId) {
   return `<div class="fi-field"><label for="${id}">${esc(field.label)}</label>${control}${field.help ? `<div class="fi-help">${esc(field.help)}</div>` : ''}${field.warn ? `<div class="fi-note">${esc(field.warn)}</div>` : ''}</div>`;
 }
 
+function pinValueControl(node, pin, value, disabled) {
+  const id = `pin-${node.id}-${pin.id}`.replace(/[^a-z0-9_-]/gi, '-');
+  const common = `data-pin-value="1" data-pin-owner="${esc(node.id)}" data-pin-key="${esc(pin.id)}" data-pin-type="${esc(pin.type)}" id="${id}" ${disabled ? 'disabled' : ''}`;
+  if (pin.type === 'boolean') {
+    return `<label class="fi-check"><input type="checkbox" ${common} ${value ? 'checked' : ''}/> ${value ? 'true' : 'false'}</label>`;
+  }
+  if (pin.type === 'number') return `<input type="number" step="any" ${common} value="${esc(value ?? '')}" placeholder="0" />`;
+  if (pin.type === 'json') {
+    const text = value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    return `<textarea ${common} rows="3" spellcheck="false" placeholder='{"key": "value"}'>${esc(text)}</textarea>`;
+  }
+  return `<input type="text" ${common} value="${esc(value === undefined || value === null ? '' : typeof value === 'object' ? JSON.stringify(value) : value)}" placeholder="${pin.type === 'any' ? 'Type text or JSON…' : 'Type a value…'}" />`;
+}
+
+function pinValueRow(node, pin, edge, duplicateField) {
+  const connected = !!edge;
+  const sourceNode = edge ? nodeById(edge.from.node) : null;
+  const sourceDef = sourceNode ? defOf(sourceNode) : null;
+  const sourceLabel = sourceNode ? `${sourceDef?.title || sourceNode.type} › ${edge.from.pin}` : '';
+  return `<div class="fi-pin-row${connected ? ' is-connected' : ''}">
+    <div class="fi-pin-head"><span>${esc(pin.label || pin.id)}</span><span class="fi-pin-type">${esc(pin.type)}</span><span class="fi-pin-badge${connected ? ' on' : ''}">${connected ? 'connected' : 'value'}</span></div>
+    ${connected ? `<div class="fi-pin-source">From <b>${esc(sourceLabel)}</b><button class="flow-btn mini ghost" type="button" data-pin-disconnect="${esc(pin.id)}">Disconnect</button></div>` : ''}
+    ${duplicateField ? '<div class="fi-help">This pin is configured under Configuration.</div>' : pinValueControl(node, pin, node.config?.[pin.id], connected)}
+    ${!connected && !duplicateField ? '<div class="fi-help">Type a literal here, or drag this pin to a matching output.</div>' : ''}
+  </div>`;
+}
+
+function parsePinValue(raw, type) {
+  if (type === 'boolean') return !!raw;
+  if (type === 'number') return raw === '' ? 0 : Number(raw) || 0;
+  if (type === 'string') return String(raw ?? '');
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+  try { return JSON.parse(text); } catch { return text; }
+}
+
 function renderInspector() {
   if (!fiBody) return;
   if (inspectorTab === 'node' && !selectedNodeId && !selectedEdgeId) inspectorTab = 'script';
@@ -673,16 +906,13 @@ function renderInspector() {
     const node = nodeById(selectedNodeId);
     const def = defOf(node);
     if (node && def) {
-      const connected = new Set((activeScript()?.graph.edges || []).filter((e) => e.to.node === node.id).map((e) => e.to.pin));
+            const edgesInto = new Map((activeScript()?.graph.edges || []).filter((e) => e.to.node === node.id).map((e) => [e.to.pin, e]));
       const inputs = (def.inputs || []).filter((pin) => pin.kind !== 'exec');
-      const inputFields = inputs.filter((pin) => !connected.has(pin.id)).map((pin) => {
-        const type = pin.type === 'string' ? 'textarea' : pin.type === 'number' ? 'number' : pin.type === 'boolean' ? 'checkbox' : pin.type === 'json' ? 'json' : 'json';
-        return fieldHtml({ key: pin.id, label: pin.label || pin.id, type, help: `${pin.type} input · unconnected fallback` }, node.config?.[pin.id], 'node', node.id);
-      }).join('');
-      const connectedChips = inputs.filter((pin) => connected.has(pin.id)).map((pin) => `<span class="fi-chip">${esc(pin.label || pin.id)} · connected</span>`).join('');
+      const fieldKeys = new Set((def.fields || []).map((f) => f.key));
+      const inputFields = inputs.map((pin) => pinValueRow(node, pin, edgesInto.get(pin.id), fieldKeys.has(pin.id))).join('');
       fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico" style="background:${safeColor(def.color)}22;color:${safeColor(def.color)}">${esc(def.icon || 'N')}</span><div><b>${esc(def.title)}</b><small>${esc(def.category)} · ${esc(node.id)}</small></div></div>
         <p class="fi-desc">${esc(def.description || 'No description for this node.')}</p>
-        ${inputFields || connectedChips ? `<div class="fi-section"><b>Inputs</b>${inputFields}${connectedChips ? `<div class="fi-chiprow">${connectedChips}</div>` : ''}</div>` : ''}
+        ${inputFields ? `<div class="fi-section"><b>Inputs</b>${inputFields}</div>` : ''}
         <div class="fi-section"><b>Configuration</b>${(def.fields || []).map((f) => fieldHtml(f, node.config?.[f.key], 'node', node.id)).join('') || '<div class="fi-empty">This node has no configurable fields.</div>'}</div>
         <div class="fi-actions"><button class="flow-btn mini" type="button" id="fi-duplicate">Duplicate</button><button class="flow-btn mini" type="button" id="fi-disconnect">Disconnect</button><button class="flow-btn mini" type="button" id="fi-delete" style="color:#fb7185">Delete</button></div>`;
       $('fi-delete')?.addEventListener('click', deleteSelectedNode);
@@ -816,6 +1046,16 @@ function setPath(target, path, value) {
 }
 
 function onInspectorChange(e) {
+  const pinField = e.target.closest('[data-pin-value]');
+  if (pinField) {
+    if (READONLY || pinField.disabled) return;
+    const node = nodeById(pinField.dataset.pinOwner);
+    if (!node) return;
+    node.config ||= {};
+    node.config[pinField.dataset.pinKey] = parsePinValue(pinField.type === 'checkbox' ? pinField.checked : pinField.value, pinField.dataset.pinType);
+    markDirty();
+    return;
+  }
   const el = e.target.closest('[data-field-key]');
   if (!el || READONLY) return;
   const value = parseFieldValue(el);
@@ -1459,6 +1699,20 @@ function bindToolbar() {
     document.querySelectorAll('.fb-tab').forEach((x) => x.classList.toggle('on', x === tab));
     document.querySelectorAll('.fb-pane').forEach((p) => p.classList.toggle('on', p.id === `fb-${tab.dataset.fb}`));
   }));
+  fiBody?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pin-disconnect]');
+    if (!btn || READONLY) return;
+    const node = nodeById(selectedNodeId);
+    const script = activeScript();
+    if (!node || !script) return;
+    snapshot();
+    script.graph.edges = script.graph.edges.filter((edge) => !(edge.to.node === node.id && edge.to.pin === btn.dataset.pinDisconnect));
+    renderNodes();
+    renderInspector();
+    renderEdges();
+    markDirty();
+    toast('Input disconnected — type a value instead');
+  });
   fiBody?.addEventListener('input', (e) => { if (e.target.matches('textarea[data-json]')) parseFieldValue(e.target); });
   fiBody?.addEventListener('change', onInspectorChange);
   fiBody?.addEventListener('input', (e) => { if (!e.target.matches('input[type=text], input[type=number], textarea:not([data-json])')) return; onInspectorChange(e); });
@@ -1479,6 +1733,44 @@ function bindToolbar() {
   nodesEl?.addEventListener('dblclick', (e) => {
     const nodeEl = e.target.closest('.flow-node');
     if (nodeEl) { inspectorTab = 'node'; selectedNodeId = nodeEl.dataset.id; renderNodes(); renderInspector(); }
+  });
+  wrap?.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    const x = event.clientX, y = event.clientY;
+    const edgeEl = event.target.closest('[data-edge]');
+    if (edgeEl) {
+      const script = activeScript();
+      const edge = script?.graph.edges.find((item) => item.id === edgeEl.dataset.edge);
+      if (edge) {
+        selectedEdgeId = edge.id;
+        selectedNodeId = null;
+        renderNodes(); renderEdges(); renderInspector();
+        showEdgeMenu(edge, x, y);
+      }
+      return;
+    }
+    const pinEl = event.target.closest('.flow-pin');
+    if (pinEl) {
+      selectedNodeId = pinEl.dataset.node;
+      selectedEdgeId = null;
+      inspectorTab = 'node';
+      renderNodes(); renderInspector();
+      showPinMenu(pinElInfo(pinEl), x, y);
+      return;
+    }
+    const nodeEl = event.target.closest('.flow-node');
+    if (nodeEl) {
+      const node = nodeById(nodeEl.dataset.id);
+      if (!node) return;
+      selectedNodeId = node.id;
+      selectedEdgeId = null;
+      inspectorTab = 'node';
+      renderNodes(); renderInspector();
+      $('flow-shell')?.classList.add('has-inspector');
+      showNodeMenu(node, x, y);
+      return;
+    }
+    showCanvasMenu(x, y);
   });
   wrap?.addEventListener('pointerdown', startPan);
   wrap?.addEventListener('click', (e) => {
@@ -1513,6 +1805,7 @@ function bindToolbar() {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('flow-add-node').click(); return; }
+    if (e.key === 'Escape') { if (connecting) { cancelConnection(); toast('Connection cancelled'); return; } document.querySelector('.flow-context-menu')?.remove(); return; }
     if (typing) return;
     if (e.code === 'Space') { spaceDown = true; e.preventDefault(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selectedNodeId) { const n = nodeById(selectedNodeId); if (n) { clipboard = JSON.parse(JSON.stringify(n)); toast('Node copied'); } return; }

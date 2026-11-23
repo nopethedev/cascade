@@ -5,6 +5,7 @@
 <script>
   window.__ACCESS__ = <%- JSON.stringify({ role: myRole, canEdit: !!editable, shareMode: typeof shareMode !== 'undefined' && !!shareMode }).replace(/</g, '\\u003c') %>;
   <% if (typeof collabToken !== 'undefined' && collabToken) { %>window.__COLLAB_SHARE_TOKEN__ = <%- JSON.stringify(collabToken).replace(/</g, '\\u003c') %>;<% } %>
+  <% if (typeof shareToken !== 'undefined' && shareToken) { %>window.__SHARE_TOKEN__ = <%- JSON.stringify(shareToken).replace(/</g, '\\u003c') %>;<% } %>
 </script>
 <script type="module" src="/public/editors/collab-client.js"></script>
 <header class="ed-bar">
