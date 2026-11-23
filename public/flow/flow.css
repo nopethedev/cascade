@@ -106,7 +106,7 @@
 
 .flow-canvas-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #050507; }
 .flow-canvas-wrap {
-  position: relative; flex: 1; min-height: 0; overflow: hidden;
+  position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none;
   background-color: #08080b;
   background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.11) 1px, transparent 0);
   background-size: 20px 20px;
@@ -125,6 +125,7 @@
   color: #e9e9ed; user-select: none;
 }
 .flow-node.selected { border-color: rgba(244,63,94,.9); box-shadow: 0 0 0 1px rgba(244,63,94,.35), 0 14px 34px rgba(0,0,0,.48); }
+.flow-node.dragging { z-index: 5; will-change: transform; box-shadow: 0 18px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(244,63,94,.5); }
 .flow-node .fn-head {
   height: 31px; display: flex; align-items: center; gap: 7px; padding: 0 8px;
   background: linear-gradient(180deg, #22222a, #1b1b22);

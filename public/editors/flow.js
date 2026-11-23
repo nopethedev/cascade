@@ -37,6 +37,11 @@ let simLast = null;
 let toastTimer = null;
 let dragState = null;
 let spaceDown = false;
+let pinOffsets = new Map();
+let edgePathEls = new Map();
+let minimapFrame = 0;
+let dragFrame = 0;
+let suppressCanvasClick = false;
 const collapsedFolders = new Set();
 const consoleLines = [];
 
@@ -161,7 +166,10 @@ function applyView() {
   world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`;
   const label = $('flow-zoom-label');
   if (label) label.textContent = `${Math.round(view.zoom * 100)}%`;
-  renderEdges();
+  // Edges live inside .flow-world and already use world coordinates, so moving
+  // or zooming the camera only changes the world transform. Rebuilding every
+  // edge here used to force layout on each pointermove and made panning stall.
+  scheduleMinimap();
 }
 
 /* ------------------------------------------------------------------ explorer */
@@ -354,32 +362,52 @@ function nodeBounds() {
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
 
+function measurePinOffsets() {
+  pinOffsets = new Map();
+  for (const nodeEl of nodesEl.querySelectorAll('.flow-node')) {
+    const nodeId = nodeEl.dataset.id;
+    if (!nodeId) continue;
+    const nodeRect = nodeEl.getBoundingClientRect();
+    nodeEl.querySelectorAll('.flow-pin').forEach((pin) => {
+      const dot = pin.querySelector('.pin-dot') || pin;
+      const rect = dot.getBoundingClientRect();
+      pinOffsets.set(`${nodeId}:${pin.dataset.side}:${pin.dataset.pin}`, {
+        x: (rect.left + rect.width / 2 - nodeRect.left) / view.zoom,
+        y: (rect.top + rect.height / 2 - nodeRect.top) / view.zoom,
+      });
+    });
+  }
+}
+
+function pinWorldPos(nodeId, side, pinId) {
+  const node = nodeById(nodeId);
+  const offset = pinOffsets.get(`${nodeId}:${side}:${pinId}`);
+  if (!node || !offset) return null;
+  return { x: (Number(node.x) || 0) + offset.x, y: (Number(node.y) || 0) + offset.y };
+}
+
+function edgePathD(a, b) {
+  const dx = Math.max(42, Math.abs(b.x - a.x) * 0.45);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+}
+
 function renderEdges() {
   if (!edgesSvg) return;
   const script = activeScript();
   edgesSvg.innerHTML = '';
+  edgePathEls = new Map();
   if (!script) return;
+  measurePinOffsets();
   const bounds = nodeBounds();
   edgesSvg.style.width = `${Math.max(4000, (bounds?.maxX || 0) + 500)}px`;
   edgesSvg.style.height = `${Math.max(3000, (bounds?.maxY || 0) + 500)}px`;
-  const pins = new Map();
-  nodesEl.querySelectorAll('.flow-pin').forEach((el) => {
-    const dot = el.querySelector('.pin-dot') || el;
-    const r = dot.getBoundingClientRect();
-    const wr = wrap.getBoundingClientRect();
-    pins.set(`${el.dataset.node}:${el.dataset.side}:${el.dataset.pin}`, {
-      x: (r.left + r.width / 2 - wr.left - view.x) / view.zoom,
-      y: (r.top + r.height / 2 - wr.top - view.y) / view.zoom,
-    });
-  });
   const ns = 'http://www.w3.org/2000/svg';
   for (const edge of script.graph.edges) {
-    const a = pins.get(`${edge.from.node}:out:${edge.from.pin}`);
-    const b = pins.get(`${edge.to.node}:in:${edge.to.pin}`);
+    const a = pinWorldPos(edge.from.node, 'out', edge.from.pin);
+    const b = pinWorldPos(edge.to.node, 'in', edge.to.pin);
     if (!a || !b) continue;
     const path = document.createElementNS(ns, 'path');
-    const dx = Math.max(42, Math.abs(b.x - a.x) * 0.45);
-    path.setAttribute('d', `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`);
+    path.setAttribute('d', edgePathD(a, b));
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', edge.kind === 'exec' ? '#f43f5e' : '#64748b');
     path.setAttribute('stroke-width', selectedEdgeId === edge.id ? '2.4' : edge.kind === 'exec' ? '1.7' : '1.3');
@@ -395,9 +423,31 @@ function renderEdges() {
       renderInspector();
       renderEdges();
     });
+    edgePathEls.set(edge.id, path);
     edgesSvg.append(path);
   }
   if (selectedEdgeId && !script.graph.edges.some((e) => e.id === selectedEdgeId)) selectedEdgeId = null;
+}
+
+function updateNodeEdges(nodeId) {
+  const script = activeScript();
+  if (!script) return;
+  for (const edge of script.graph.edges) {
+    if (edge.from.node !== nodeId && edge.to.node !== nodeId) continue;
+    const path = edgePathEls.get(edge.id);
+    if (!path) continue;
+    const a = pinWorldPos(edge.from.node, 'out', edge.from.pin);
+    const b = pinWorldPos(edge.to.node, 'in', edge.to.pin);
+    if (a && b) path.setAttribute('d', edgePathD(a, b));
+  }
+}
+
+function scheduleMinimap() {
+  if (minimapFrame) return;
+  minimapFrame = requestAnimationFrame(() => {
+    minimapFrame = 0;
+    renderMinimap();
+  });
 }
 
 function renderMinimap() {
@@ -517,29 +567,51 @@ function startNodeDrag(e, nodeEl) {
   const node = nodeById(nodeEl.dataset.id);
   if (!node) return;
   e.preventDefault();
+  e.stopPropagation();
   selectedNodeId = node.id;
   selectedEdgeId = null;
   inspectorTab = 'node';
   $('flow-shell')?.classList.remove('has-explorer');
   $('flow-shell')?.classList.add('has-inspector');
-  renderNodes();
+  // Update the selection in place. Re-rendering the whole node layer here used
+  // to detach this node from the DOM, so dragging changed data without moving
+  // anything on screen.
+  for (const el of nodesEl.querySelectorAll('.flow-node')) el.classList.toggle('selected', el.dataset.id === node.id);
   renderInspector();
-  snapshot();
   const start = { x: e.clientX, y: e.clientY, nx: Number(node.x) || 0, ny: Number(node.y) || 0 };
   dragState = { node, start, el: nodeEl };
+  nodeEl.classList.add('dragging');
+  let moved = false;
+  const paint = () => {
+    dragFrame = 0;
+    if (!dragState) return;
+    nodeEl.style.transform = `translate(${node.x - start.nx}px, ${node.y - start.ny}px)`;
+    updateNodeEdges(node.id);
+  };
   const move = (ev) => {
     if (!dragState) return;
-    node.x = Math.round(start.nx + (ev.clientX - start.x) / view.zoom);
-    node.y = Math.round(start.ny + (ev.clientY - start.y) / view.zoom);
-    nodeEl.style.left = `${node.x}px`;
-    nodeEl.style.top = `${node.y}px`;
-    renderEdges();
-    renderMinimap();
+    const nx = Math.round(start.nx + (ev.clientX - start.x) / view.zoom);
+    const ny = Math.round(start.ny + (ev.clientY - start.y) / view.zoom);
+    if (!moved && (Math.abs(nx - start.nx) > 1 || Math.abs(ny - start.ny) > 1)) {
+      snapshot();
+      moved = true;
+    }
+    node.x = nx;
+    node.y = ny;
+    if (!dragFrame) dragFrame = requestAnimationFrame(paint);
   };
   const up = () => {
     document.removeEventListener('pointermove', move);
     document.removeEventListener('pointerup', up);
-    if (dragState && (Math.abs(node.x - start.nx) > 1 || Math.abs(node.y - start.ny) > 1)) {
+    if (dragFrame) { cancelAnimationFrame(dragFrame); dragFrame = 0; }
+    nodeEl.classList.remove('dragging');
+    nodeEl.style.left = `${node.x}px`;
+    nodeEl.style.top = `${node.y}px`;
+    nodeEl.style.transform = '';
+    if (moved) {
+      updateNodeEdges(node.id);
+      renderEdges();
+      scheduleMinimap();
       markDirty();
     }
     dragState = null;
@@ -550,21 +622,24 @@ function startNodeDrag(e, nodeEl) {
 
 function startPan(e) {
   if (e.button !== 0 && e.button !== 1) return;
-  if (e.target.closest('.flow-node, .flow-minimap, .flow-canvas-hud, .flow-btn')) return;
-  if (e.button === 0 && !spaceDown) return;
+  if (e.target.closest('.flow-node, .flow-pin, .flow-edges path, .flow-minimap, .flow-canvas-hud, .flow-btn')) return;
   e.preventDefault();
   wrap.classList.add('panning');
   const start = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+  let moved = false;
   const move = (ev) => {
-    view.x = start.vx + (ev.clientX - start.x);
-    view.y = start.vy + (ev.clientY - start.y);
+    const dx = ev.clientX - start.x;
+    const dy = ev.clientY - start.y;
+    if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+    view.x = start.vx + dx;
+    view.y = start.vy + dy;
     applyView();
-    renderMinimap();
   };
   const up = () => {
     document.removeEventListener('pointermove', move);
     document.removeEventListener('pointerup', up);
     wrap.classList.remove('panning');
+    if (moved) suppressCanvasClick = true;
   };
   document.addEventListener('pointermove', move);
   document.addEventListener('pointerup', up, { once: true });
@@ -1406,7 +1481,10 @@ function bindToolbar() {
     if (nodeEl) { inspectorTab = 'node'; selectedNodeId = nodeEl.dataset.id; renderNodes(); renderInspector(); }
   });
   wrap?.addEventListener('pointerdown', startPan);
-  wrap?.addEventListener('click', (e) => { if (!e.target.closest('.flow-node,.flow-pin,.flow-minimap')) { selectedNodeId = null; selectedEdgeId = null; renderNodes(); renderEdges(); renderInspector(); } });
+  wrap?.addEventListener('click', (e) => {
+    if (suppressCanvasClick) { suppressCanvasClick = false; return; }
+    if (!e.target.closest('.flow-node,.flow-pin,.flow-minimap')) { selectedNodeId = null; selectedEdgeId = null; renderNodes(); renderEdges(); renderInspector(); }
+  });
   wrap?.addEventListener('wheel', (e) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 0.91;
