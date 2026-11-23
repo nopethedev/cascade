@@ -1,0 +1,39 @@
+<%- include('partials/head', { title: 'Create account', shellClass: 'auth' }) %>
+<section class="auth-aside">
+  <div>
+    <div class="eyebrow">Create account</div>
+    <h1 class="auth-statement">Your own space, <em>on this server.</em></h1>
+    <div class="auth-points">
+      <div>Files are stored on this server</div>
+      <div>Every account has its own quota</div>
+      <div>Create documents, games, bots and more</div>
+    </div>
+  </div>
+  <div class="foot-mono faint"><%= theme.siteName %> · main mode</div>
+</section>
+
+<section class="auth-main">
+  <div class="auth-card">
+    <h2 style="font-size:20px">Create your account</h2>
+    <p class="hint" style="margin:7px 0 22px">Registration is enabled by this server's administrator.</p>
+    <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
+    <form method="post" action="/register" class="stack">
+      <div class="field">
+        <label class="label" for="username">Username</label>
+        <input id="username" name="username" value="<%= typeof values !== 'undefined' ? values.username : '' %>" autocomplete="username" minlength="3" maxlength="32" required autofocus />
+      </div>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="6" required />
+        <span class="hint">At least 6 characters.</span>
+      </div>
+      <div class="field">
+        <label class="label" for="confirm-password">Confirm password</label>
+        <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required />
+      </div>
+      <button class="btn btn-block" type="submit">Create account</button>
+    </form>
+    <p class="hint" style="margin-top:18px">Already have an account? <a href="/login" style="color:var(--accent)">Sign in</a>.</p>
+  </div>
+</section>
+<%- include('partials/foot') %>

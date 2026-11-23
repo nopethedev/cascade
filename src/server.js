@@ -10,6 +10,8 @@ import { Op } from 'sequelize';
 import { config } from './config.js';
 import { sequelize, User, FileRecord, NodeRecord, Folder, getSettings, saveSettings, needsSetup } from './db.js';
 import { requireLogin, requireAdmin, hashPassword, checkPassword, publicUser } from './auth.js';
+import { validateNewAccount, validateUsername, usernameTaken, createAccount } from './accounts.js';
+import { scanUnusedStorage, removeUnusedStorage } from './cleanup.js';
 import { resolveTargets, storeToNode, readFileWithFallback, deleteFromNode, allTargets, localDiskUsage } from './storage.js';
 import { nodeStatus, startHealthLoop, checkAllNodes, desiredReplicasForDisplay } from './health.js';
 import { nodeStat } from './nodeClient.js';
@@ -279,6 +281,7 @@ export function createMainApp() {
       }
 
       res.locals.settings = settings;
+      res.locals.allowPublicSignup = !!settings.allowPublicSignup;
       res.locals.user = req.user;
       res.locals.path = req.path;
       res.locals.mode = config.mode;
@@ -376,10 +379,55 @@ export function createMainApp() {
     res.redirect('/');
   }));
 
+  // ---------- Registration ----------
+  // Disabled by default. An administrator can opt in from Admin → Users.
+  const registrationOpen = async () => !!(await getSettings()).allowPublicSignup;
+
+  app.get('/api/auth/config', wrap(async (req, res) => {
+    const settings = await getSettings();
+    res.json({ allowPublicSignup: !!settings.allowPublicSignup, siteName: settings.siteName || 'Cascade' });
+  }));
+
+  app.get('/register', wrap(async (req, res) => {
+    if (req.user) return res.redirect('/');
+    if (!(await registrationOpen())) return res.redirect('/login?registration=disabled');
+    res.render('register', { error: null, values: {} });
+  }));
+
+  app.post('/register', wrap(async (req, res) => {
+    if (!(await registrationOpen())) return res.status(403).render('register', { error: 'Registration is disabled on this server.', values: {} });
+    const values = { username: String(req.body?.username || '').trim() };
+    if (req.body?.confirmPassword !== undefined && req.body.confirmPassword !== req.body.password) {
+      return res.status(400).render('register', { error: 'Passwords do not match.', values });
+    }
+    const checked = validateNewAccount({ username: values.username, password: req.body?.password });
+    if (!checked.ok) return res.status(400).render('register', { error: checked.error, values });
+    try {
+      const user = await createAccount({ username: checked.username, password: req.body.password });
+      req.session.user = publicUser(user);
+      return res.redirect('/');
+    } catch (error) {
+      return res.status(error.status || 400).render('register', { error: error.message, values });
+    }
+  }));
+
+  app.post('/api/auth/register', wrap(async (req, res) => {
+    if (!(await registrationOpen())) return res.status(403).json({ error: 'Registration is disabled on this server.' });
+    const checked = validateNewAccount({ username: req.body?.username, password: req.body?.password });
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
+    try {
+      const user = await createAccount({ username: checked.username, password: req.body.password });
+      req.session.user = publicUser(user);
+      res.status(201).json({ ok: true, user: publicUser(user) });
+    } catch (error) {
+      res.status(error.status || 400).json({ error: error.message });
+    }
+  }));
+
   // ---------- Auth ----------
   app.get('/login', (req, res) => {
     if (req.user) return res.redirect('/');
-    res.render('login', { error: null });
+    res.render('login', { error: null, query: req.query });
   });
 
   app.post('/login', wrap(async (req, res) => {
@@ -398,6 +446,62 @@ export function createMainApp() {
   app.post('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/login'));
   });
+
+  // ---------- Account settings ----------
+  app.get('/settings', requireLogin, wrap(async (req, res) => {
+    const me = await User.findByPk(req.user.id);
+    if (!me) return res.redirect('/login');
+    const mine = await FileRecord.findAll({ where: { ownerId: me.id }, attributes: ['size'] });
+    const used = mine.reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+    res.render('settings', {
+      account: publicUser(me),
+      used,
+      fileCount: mine.length,
+      quota: Number(me.quotaBytes) || 0,
+      notice: req.query.updated ? 'Account updated.' : null,
+      error: null,
+    });
+  }));
+
+  app.post('/settings/profile', requireLogin, wrap(async (req, res) => {
+    const me = await User.findByPk(req.user.id);
+    if (!me) return res.redirect('/login');
+    const checked = validateUsername(req.body?.username);
+    if (!checked.ok) {
+      const mine = await FileRecord.findAll({ where: { ownerId: me.id }, attributes: ['size'] });
+      return res.status(400).render('settings', {
+        account: publicUser(me), used: mine.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+        fileCount: mine.length, quota: Number(me.quotaBytes) || 0, notice: null, error: checked.error,
+      });
+    }
+    if (checked.username.toLowerCase() !== String(me.username).toLowerCase() && await usernameTaken(checked.username, me.id)) {
+      const mine = await FileRecord.findAll({ where: { ownerId: me.id }, attributes: ['size'] });
+      return res.status(409).render('settings', {
+        account: publicUser(me), used: mine.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+        fileCount: mine.length, quota: Number(me.quotaBytes) || 0, notice: null, error: 'That username is already taken.',
+      });
+    }
+    await me.update({ username: checked.username });
+    await FileRecord.update({ ownerName: checked.username }, { where: { ownerId: me.id } });
+    req.session.user = publicUser(me);
+    res.redirect('/settings?updated=1');
+  }));
+
+  app.post('/settings/password', requireLogin, wrap(async (req, res) => {
+    const me = await User.findByPk(req.user.id);
+    if (!me) return res.redirect('/login');
+    const current = String(req.body?.currentPassword || '');
+    const next = String(req.body?.newPassword || '');
+    const mine = await FileRecord.findAll({ where: { ownerId: me.id }, attributes: ['size'] });
+    const view = {
+      account: publicUser(me), used: mine.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+      fileCount: mine.length, quota: Number(me.quotaBytes) || 0, notice: null,
+    };
+    if (!(await checkPassword(current, me.passwordHash))) return res.status(400).render('settings', { ...view, error: 'Current password is incorrect.' });
+    if (next.length < 6) return res.status(400).render('settings', { ...view, error: 'New password must be at least 6 characters.' });
+    await me.update({ passwordHash: await hashPassword(next) });
+    res.redirect('/settings?updated=1');
+  }));
 
   // ---------- Dashboard ----------
   app.get('/', requireLogin, wrap(async (req, res) => {
@@ -896,7 +1000,13 @@ export function createMainApp() {
         fileCount: mine.length,
       };
     });
-    res.render('admin/users', { users });
+    res.render('admin/users', { users, allowPublicSignup: !!(await getSettings()).allowPublicSignup });
+  }));
+
+  app.post('/admin/registration', requireAdmin, wrap(async (req, res) => {
+    const enabled = req.body?.allowPublicSignup === 'on' || req.body?.allowPublicSignup === '1' || req.body?.allowPublicSignup === 'true';
+    await saveSettings({ allowPublicSignup: enabled });
+    res.redirect('/admin/users');
   }));
 
   app.post('/admin/users', requireAdmin, wrap(async (req, res) => {
@@ -941,6 +1051,28 @@ export function createMainApp() {
       User.findAll(),
     ]);
     res.render('admin/files', { files, users: people });
+  }));
+
+  // Local blob cleanup. A blob is unused only when its id has no FileRecord;
+  // this never deletes uploads merely because no document references them.
+  app.get('/admin/cleanup', requireAdmin, wrap(async (req, res) => {
+    const records = await FileRecord.findAll({ attributes: ['id'] });
+    const scan = scanUnusedStorage({ storageDir: config.storageDir, knownIds: records.map((file) => file.id) });
+    res.render('admin/cleanup', {
+      tab: 'cleanup', scan, records: records.length, disk: localDiskUsage(),
+      cleaned: req.query.cleaned !== undefined ? Number(req.query.cleaned) || 0 : null,
+      cleanedBytes: Number(req.query.bytes) || 0,
+      cleanupError: req.query.error ? String(req.query.error).slice(0, 200) : null,
+    });
+  }));
+
+  app.post('/admin/cleanup', requireAdmin, wrap(async (req, res) => {
+    const records = await FileRecord.findAll({ attributes: ['id'] });
+    const scan = scanUnusedStorage({ storageDir: config.storageDir, knownIds: records.map((file) => file.id) });
+    const removed = removeUnusedStorage({ storageDir: config.storageDir, files: scan.files });
+    const params = new URLSearchParams({ cleaned: String(removed.deleted.length), bytes: String(removed.bytes) });
+    if (removed.failed.length) params.set('error', `${removed.failed.length} file(s) could not be removed`);
+    res.redirect(`/admin/cleanup?${params}`);
   }));
 
   app.get('/admin/nodes', requireAdmin, wrap(async (req, res) => {

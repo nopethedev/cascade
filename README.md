@@ -59,7 +59,8 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 - Published websites with forms, analytics, sitemap/robots and custom-domain Host routing
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (5-minute revalidating public cache)
 - Roles: `admin` / `user`, per-user quota (MB, with 0.1 GB = 102.4 MB)
-- Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
+- Admin panel: overview, **analytics**, users, all files, **storage cleanup**, nodes + replication, **API keys**, appearance
+- Storage cleanup scans local blobs and reports only objects with no matching file record, so ordinary uploads and document assets are never removed
 - **Analytics** — views, downloads, uploads, unique visitors, traffic chart, top files and recent events, all stored in SQLite (no third-party scripts)
 - **API keys** — SHA-256-hashed, revocable keys with read-only, read/write or full-owner scopes; create/revoke in the admin panel
 - **MCP server** — stateless Streamable HTTP at `/mcp` with owner-scoped document CRUD, folders, search, versions/restore, starring/sharing, templates, form responses, and resources, using the same API keys and permissions as the app; atomic version concurrency and adversarial isolation tests are verified with the official SDK and documented against MCP 2025-11-25 in `docs/mcp-server.md`
@@ -116,6 +117,8 @@ curl -H "x-api-key: $KEY" -H "content-type: application/json" \
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | public health / mode / node status |
+| `GET /api/auth/config` | public registration availability |
+| `POST /api/auth/register` | create a standard account when registration is enabled |
 | `GET /api/me` | account, quota and usage |
 | `GET /api/files` | list files (`?limit=`, `?all=1` for admins) |
 | `GET /api/files/:id` | one file + raw/public URLs |
@@ -124,6 +127,8 @@ curl -H "x-api-key: $KEY" -H "content-type: application/json" \
 | `POST /api/files/:id/share` | toggle public sharing |
 | `POST /api/files/:id/rename` | rename + re-detect MIME |
 | `DELETE /api/files/:id` | delete from every replica |
+
+Account settings (same auth): `/settings`, `POST /settings/profile`, `POST /settings/password`. Public registration is disabled by default and can be enabled in Admin → Users; new accounts always have the `user` role.
 
 Workspace API (same auth): `POST /api/workspace/docs`, `GET|PUT /api/workspace/docs/:id`, `GET /api/workspace/docs/:id/versions`, `POST /api/workspace/docs/:id/restore`, `POST /api/workspace/docs/:id/heartbeat`, `POST /api/workspace/docs/:id/template`, `POST /api/workspace/folders`, `GET /export/:id`, `GET /download/:id`, `GET /api/images/search?q=`, `GET /api/images/proxy?url=` (editor image library; Wikimedia-host allowlist).
 

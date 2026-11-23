@@ -111,6 +111,11 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
 <span class="cmt"># or</span>
 Authorization: Bearer csk_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</pre>
     <p>Only a SHA-256 hash of each key is stored. Revoking a key takes effect immediately (the next request gets <span class="code">401</span>). Read-only keys can read their owner's files and workspace but cannot mutate anything; read/write keys can mutate but cannot open admin pages; full-owner keys act as the owner, including admin access for admin-owned keys. A key never sees another account's private resources.</p>
+    <p><strong>Registration</strong> is disabled by default. An administrator can enable it in <a href="/admin/users">Admin → Users</a>; the public form is at <span class="code">/register</span>. Check availability with <span class="code">GET /api/auth/config</span>, then create a standard (never admin) account with <span class="code">POST /api/auth/register</span>:</p>
+    <pre class="snippet">curl -s http://localhost:3000/api/auth/register \
+  -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"at-least-6-chars"}'</pre>
+    <p>Signed-in people can update their username, password and theme from <span class="code">/settings</span>; <span class="code">POST /settings/profile</span> and <span class="code">POST /settings/password</span> back those forms.</p>
   </div>
 </section>
 

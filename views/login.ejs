@@ -15,7 +15,15 @@
 <section class="auth-main">
   <div class="auth-card">
     <h2 style="font-size:20px">Sign in</h2>
-    <p class="hint" style="margin:7px 0 22px">Accounts are created by an administrator.</p>
+    <p class="hint" style="margin:7px 0 22px">
+      <% if (allowPublicSignup) { %>
+        New here? <a href="/register" style="color:var(--accent)">Create an account</a>.
+      <% } else if (typeof query !== 'undefined' && query.registration === 'disabled') { %>
+        Registration is disabled on this server. Ask an administrator for an account.
+      <% } else { %>
+        Accounts are created by an administrator.
+      <% } %>
+    </p>
     <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
     <form method="post" action="/login" class="stack">
       <div class="field">

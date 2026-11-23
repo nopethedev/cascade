@@ -692,6 +692,19 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-2); 
 .is-readonly .ed-toolbar button,
 .is-readonly .ed-toolbar input,
 .is-readonly .ed-toolbar select { cursor: not-allowed; }
+/* Read-only links still need their own controls: share, comments, versions and
+   the theme/user chrome must be mouse-clickable, not keyboard-only. */
+.is-readonly .ed-toolbar #btn-share,
+.is-readonly .ed-toolbar #btn-comments,
+.is-readonly .ed-toolbar #btn-versions,
+.is-readonly .ed-toolbar #btn-editor-panel,
+.is-readonly .ed-toolbar .ed-more,
+.is-readonly .ed-toolbar .ed-more > summary,
+.is-readonly .ed-toolbar .ed-more > div button,
+.is-readonly .ed-toolbar .ed-more > div a { pointer-events: auto; cursor: pointer; }
+.is-readonly .ed-toolbar #btn-share:disabled,
+.is-readonly .ed-toolbar #btn-comments:disabled,
+.is-readonly .ed-toolbar #btn-versions:disabled { cursor: default; }
 .is-readonly .pdf-toolbar, .is-readonly .pdf-inspector { opacity: .55; }
 .is-readonly .site-toolbar, .is-readonly .site-layers, .is-readonly .site-inspector { opacity: .55; pointer-events: none; }
 .is-readonly .site-canvas { pointer-events: none; }
@@ -1753,6 +1766,34 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-2); 
   .image-tools .side-actions { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ---------- theme toggle ---------- */
+.theme-toggle {
+  width: 29px; height: 29px; flex: none; display: inline-grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  color: var(--muted); cursor: pointer; touch-action: manipulation;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--line-2); background: var(--raise); }
+.theme-ico { width: 15px; height: 15px; display: block; }
+.theme-ico-moon { display: none; }
+html[data-theme="light"] .theme-ico-sun { display: none; }
+html[data-theme="light"] .theme-ico-moon { display: block; }
+.user-chip { text-decoration: none; }
+.user-chip:hover { color: var(--text); border-color: var(--line-2); }
+
+/* Native dialogs are in the top layer; make hit testing explicit and avoid
+   treating a scrollbar click as a backdrop click. */
+dialog { pointer-events: auto; }
+dialog .dlg-in, dialog .share-dlg-in, dialog .gs-dialog-body, dialog .ph-dialog-body { position: relative; z-index: 1; }
+dialog button, dialog a, dialog input, dialog select, dialog textarea { touch-action: manipulation; }
+.share-dlg-in { overscroll-behavior: contain; }
+.is-readonly dialog, .is-readonly dialog * { pointer-events: auto; }
+.detail-list { display: grid; gap: 8px; margin: 0; }
+.detail-list > div { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+.detail-list > div:last-child { border-bottom: 0; padding-bottom: 0; }
+.detail-list dt { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+.detail-list dd { margin: 0; text-align: right; font-size: 12.5px; }
+.alert-ok { border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); color: var(--ok); }
+
 /* App-style editor header used by Game Studio and Flow */
 .ci { width: 15px; height: 15px; flex: 0 0 auto; display: inline-block; vertical-align: -3px; pointer-events: none; }
 .has-icon { display: inline-flex; align-items: center; gap: 5px; }
@@ -1774,3 +1815,112 @@ kbd { display: inline-block; padding: 1px 5px; border: 1px solid var(--line-2); 
 .app-publish { display: inline-flex; align-items: center; gap: 6px; background: #c81e3e; border: 1px solid #e11d48; color: #fff; border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .app-publish:hover { background: #e11d48; }
 @media (max-width: 720px) { .app-menu-title { display: none; } .app-brand small { display: none; } .app-menubar { overflow-x: auto; scrollbar-width: none; } .app-menubar::-webkit-scrollbar { display: none; } }
+
+/* ============================================================
+   Light workspace
+   The toggle in the topbar stores this per browser; the inline
+   head script applies it before paint.
+   ============================================================ */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --text: #17181c;
+  --line: #e1e4e9;
+  --line-2: #cfd4dc;
+  --raise: #f7f8fa;
+  --sunken: #eef1f5;
+  --muted: #59616d;
+  --faint: #818894;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, #ffffff);
+  --accent-line: color-mix(in srgb, var(--accent) 40%, #ffffff);
+  --ok: #059669;
+  --bad: #dc2626;
+}
+html[data-theme="light"] body { background: var(--bg); color: var(--text); }
+html[data-theme="light"] .topbar { background: rgba(255,255,255,.88); }
+html[data-theme="light"] .foot { background: var(--bg); }
+html[data-theme="light"] .site-canvas { background: #ffffff; }
+html[data-theme="light"] .app-menubar { background: #f8f9fb; border-color: var(--line); color: #334155; }
+html[data-theme="light"] .app-menu > [data-menu-trigger] { color: #475569; }
+html[data-theme="light"] .app-menu > [data-menu-trigger]:hover,
+html[data-theme="light"] .app-menu.open > [data-menu-trigger] { background: #e9edf3; color: #0f172a; }
+html[data-theme="light"] .app-menu-pop { background: #ffffff; border-color: var(--line-2); box-shadow: 0 18px 45px rgba(30,41,59,.16); }
+html[data-theme="light"] .app-menu-pop button,
+html[data-theme="light"] .app-menu-pop a { color: #334155; }
+html[data-theme="light"] .app-menu-pop button:hover,
+html[data-theme="light"] .app-menu-pop a:hover { background: #eef2f7; color: #0f172a; }
+html[data-theme="light"] .app-menu-title { color: #64748b; }
+html[data-theme="light"] .app-menu-pop .sep { background: var(--line); }
+html[data-theme="light"] .app-menu-pop kbd { color: #64748b; border-color: var(--line-2); }
+html[data-theme="light"] .app-brand { color: #1e293b; }
+
+/* Game Studio light surfaces */
+html[data-theme="light"] {
+  --gs-bg: #eef1f5;
+  --gs-panel: #ffffff;
+  --gs-panel-2: #f5f7fa;
+  --gs-line: #d8dde5;
+  --gs-line-soft: #e7ebf0;
+  --gs-text: #1b2430;
+  --gs-muted: #647084;
+  --gs-dim: #8a94a5;
+}
+html[data-theme="light"] .gs-toolbar { background: #f8fafc; }
+html[data-theme="light"] .gs-brand { color: #334155; }
+html[data-theme="light"] .gs-btn,
+html[data-theme="light"] .gs-mini { background: #ffffff; color: #334155; border-color: var(--gs-line); }
+html[data-theme="light"] .gs-btn:hover,
+html[data-theme="light"] .gs-mini:hover { background: #eef2f7; border-color: #c4cbd6; color: #0f172a; }
+html[data-theme="light"] .gs-select { background: #ffffff; color: #334155; border-color: var(--gs-line); }
+html[data-theme="light"] .gs-bottom,
+html[data-theme="light"] .gs-left,
+html[data-theme="light"] .gs-right,
+html[data-theme="light"] .gs-graph-wrap { background: var(--gs-panel); }
+html[data-theme="light"] .gs-dialog { background: #ffffff; color: var(--gs-text); border-color: var(--gs-line); }
+html[data-theme="light"] .gs-dialog-head { border-color: var(--gs-line); }
+html[data-theme="light"] .gs-node { background: #ffffff; }
+
+/* Flow light surfaces */
+html[data-theme="light"] .flow-shell {
+  --flow-bg: #eef1f5;
+  --flow-panel: #ffffff;
+  --flow-panel-2: #f5f7fa;
+  --flow-line: #d8dde5;
+  --flow-text: #1b2430;
+  --flow-muted: #647084;
+}
+html[data-theme="light"] .flow-topbar { background: #f8fafc; }
+html[data-theme="light"] .flow-explorer,
+html[data-theme="light"] .flow-inspector,
+html[data-theme="light"] .flow-bottom { background: #ffffff; }
+html[data-theme="light"] .flow-node { background: #ffffff; border-color: #d8dde5; color: #1b2430; }
+html[data-theme="light"] .flow-dialog { background: #ffffff; color: #1b2430; border-color: #d8dde5; }
+html[data-theme="light"] .flow-btn { color: #334155; }
+
+/* Photo light surfaces */
+html[data-theme="light"] {
+  --ph-bg: #eef1f5;
+  --ph-panel: #ffffff;
+  --ph-panel-2: #f5f7fa;
+  --ph-panel-3: #e9edf3;
+  --ph-line: #d8dde5;
+  --ph-line-soft: #e7ebf0;
+  --ph-text: #1b2430;
+  --ph-muted: #647084;
+  --ph-dim: #8a94a5;
+}
+html[data-theme="light"] .ph-toolbar { background: #f8fafc; }
+html[data-theme="light"] .ph-left,
+html[data-theme="light"] .ph-right,
+html[data-theme="light"] .ph-bottom { background: #ffffff; }
+html[data-theme="light"] .ph-tool { color: #475569; }
+html[data-theme="light"] .ph-tool:hover { background: #eef2f7; color: #0f172a; }
+html[data-theme="light"] .ph-dialog { background: #ffffff; color: var(--ph-text); border-color: var(--ph-line); }
+html[data-theme="light"] .ph-btn { color: #334155; }
+
+@media (max-width: 600px) {
+  .theme-toggle { width: 27px; height: 27px; }
+  .topbar-in { gap: 12px; padding: 0 14px; }
+  .nav { gap: 12px; }
+}

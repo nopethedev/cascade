@@ -1,0 +1,111 @@
+<%- include('partials/head', { title: 'Account settings' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Account</div>
+    <h1 class="page-title">Account settings</h1>
+    <p class="lede">Manage your identity, password, storage and appearance.</p>
+  </div>
+  <div class="actions">
+    <a class="btn btn-quiet" href="/">Back to files</a>
+  </div>
+</div>
+
+<% if (notice) { %><div class="alert alert-ok" style="margin-bottom:16px"><%= notice %></div><% } %>
+<% if (error) { %><div class="alert" style="margin-bottom:16px"><%= error %></div><% } %>
+
+<div class="split">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Profile</div>
+          <div class="panel-sub">This is the name people see when you share a document.</div>
+        </div>
+        <span class="badge"><%= account.role %></span>
+      </div>
+      <div class="panel-body">
+        <form method="post" action="/settings/profile" class="stack">
+          <div class="field">
+            <label class="label" for="account-username">Username</label>
+            <input id="account-username" name="username" value="<%= account.username %>" autocomplete="username" minlength="3" maxlength="32" required />
+            <span class="hint">3–32 characters: letters, numbers, dots, dashes or underscores.</span>
+          </div>
+          <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Save profile</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Password</div>
+          <div class="panel-sub">Use at least 6 characters. You will stay signed in after changing it.</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <form method="post" action="/settings/password" class="stack">
+          <div class="field">
+            <label class="label" for="current-password">Current password</label>
+            <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required />
+          </div>
+          <div class="field">
+            <label class="label" for="new-password">New password</label>
+            <input id="new-password" name="newPassword" type="password" minlength="6" autocomplete="new-password" required />
+          </div>
+          <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Change password</button></div>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Storage</div>
+        <span class="badge"><%= fileCount %> file<%= fileCount === 1 ? '' : 's' %></span>
+      </div>
+      <div class="panel-body">
+        <% const pct = quota ? Math.min(100, Math.round((used / quota) * 100)) : 0; %>
+        <div class="meter-row" style="font-size:13px;margin-bottom:7px">
+          <span><%= prettyBytes(used) %> used</span>
+          <span><%= prettyBytes(quota) %> quota</span>
+        </div>
+        <div class="meter"><div class="meter-fill" style="width:<%= pct %>%"></div></div>
+        <p class="hint" style="margin-top:10px">Your quota covers uploaded files and workspace documents. Contact an administrator if you need more space.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Appearance</div>
+          <div class="panel-sub">Your choice is stored in this browser.</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="row-between" style="gap:12px">
+          <div>
+            <strong style="font-size:13px">Theme</strong>
+            <p class="hint">Switch between the dark studio theme and a light workspace.</p>
+          </div>
+          <button class="btn btn-ghost" type="button" data-theme-toggle aria-label="Toggle light or dark theme">Toggle theme</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Account details</div></div>
+      <div class="panel-body">
+        <dl class="detail-list">
+          <div><dt>Username</dt><dd><%= account.username %></dd></div>
+          <div><dt>Role</dt><dd><%= account.role %></dd></div>
+          <div><dt>Created</dt><dd><%= account.createdAt ? prettyDate(account.createdAt) : '—' %></dd></div>
+          <div><dt>Account ID</dt><dd class="mono tiny"><%= account.id.slice(0, 12) %></dd></div>
+        </dl>
+      </div>
+    </section>
+  </div>
+</div>
+
+<%- include('partials/foot') %>

@@ -487,6 +487,15 @@ async function migrateSchema() {
       await sequelize.query("ALTER TABLE `api_keys` ADD COLUMN `scope` VARCHAR(16) NOT NULL DEFAULT 'full'");
     }
   }
+  if (tables.includes('settings')) {
+    const columns = await sequelize.query('PRAGMA table_info(`settings`)', { type: QueryTypes.SELECT });
+    const have = new Set(columns.map((c) => c.name));
+    // Older installs predate the registration flag. It stays disabled until an
+    // administrator explicitly enables it.
+    if (!have.has('allowPublicSignup')) {
+      await sequelize.query('ALTER TABLE `settings` ADD COLUMN `allowPublicSignup` BOOLEAN NOT NULL DEFAULT 0');
+    }
+  }
 }
 
 export async function initDb() {

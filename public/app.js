@@ -1,6 +1,49 @@
 // Cascade — front-end helpers: drag/drop uploads with progress, share/rename/delete,
 // the text editor, toasts and a small dialog to replace alert/confirm/prompt.
 
+// Theme preference is intentionally local to the browser. The inline head
+// script applies it before paint to avoid a dark flash on load.
+(function initTheme() {
+  const root = document.documentElement;
+  const key = 'cascade-theme';
+  const apply = (theme, persist) => {
+    const light = theme === 'light';
+    if (light) root.dataset.theme = 'light'; else delete root.dataset.theme;
+    document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+      button.setAttribute('aria-pressed', String(light));
+      button.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
+    });
+    if (persist) {
+      try { localStorage.setItem(key, light ? 'light' : 'dark'); } catch { /* private mode */ }
+    }
+  };
+  apply(root.dataset.theme === 'light' ? 'light' : 'dark', false);
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-theme-toggle]');
+    if (!button) return;
+    apply(root.dataset.theme === 'light' ? 'dark' : 'light', true);
+  });
+})();
+
+// Native dialogs close on a backdrop click, but not when the pointer is over
+// their scrollbar. Checking the dialog rectangle makes scrollbar dragging safe
+// and keeps every dialog's close button responsive.
+document.addEventListener('click', (event) => {
+  const dialog = event.target.closest('dialog');
+  if (!dialog || event.target !== dialog) return;
+  if (!dialog.classList.contains('share-dlg') && dialog.dataset.backdropClose !== 'true') return;
+  const rect = dialog.getBoundingClientRect();
+  const outside = event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+  if (outside) dialog.close();
+}, true);
+
+// Keep delegated close buttons working for dynamically rendered dialogs too.
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('dialog [data-close]');
+  if (!button) return;
+  button.closest('dialog')?.close();
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

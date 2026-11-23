@@ -10,6 +10,25 @@
   <div class="actions"><span class="badge"><%= users.length %> accounts</span></div>
 </div>
 
+<section class="panel" style="margin-bottom:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Public registration</div>
+      <div class="panel-sub">Off by default. When enabled, anyone who can reach this server can create a standard account.</div>
+    </div>
+    <span class="badge <%= allowPublicSignup ? 'badge-ok' : '' %>"><%= allowPublicSignup ? 'enabled' : 'disabled' %></span>
+  </div>
+  <div class="panel-body">
+    <form method="post" action="/admin/registration" class="row-between" style="gap:18px;align-items:center">
+      <label class="check" style="margin:0;flex:1;max-width:520px">
+        <input type="checkbox" name="allowPublicSignup" value="1" <%= allowPublicSignup ? 'checked' : '' %> />
+        <span>Allow account creation from <span class="code">/register</span> and <span class="code">POST /api/auth/register</span></span>
+      </label>
+      <button class="btn btn-ghost btn-sm" type="submit">Save registration setting</button>
+    </form>
+  </div>
+</section>
+
 <section class="panel">
   <div class="panel-head">
     <div>

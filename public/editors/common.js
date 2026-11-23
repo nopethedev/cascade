@@ -135,7 +135,7 @@
         // surface level so a Viewer link cannot format, type, drop or paste.
         const blockEdit = (event) => {
           if (!window.__ACCESS__ || window.__ACCESS__.canEdit !== false) return;
-          if (event.target.closest('#btn-share, #btn-comments, #btn-versions, #btn-editor-panel, .ed-more, a, .versions-panel, .share-dlg, .comment-dlg, .draft-bar')) return;
+          if (event.target.closest('dialog, #btn-share, #btn-comments, #btn-versions, #btn-editor-panel, .ed-more, a, .versions-panel, .share-dlg, .comment-dlg, .draft-bar')) return;
           if (event.target.closest(editorSurface)) {
             event.preventDefault();
             event.stopPropagation();
@@ -146,6 +146,7 @@
         document.addEventListener('drop', blockEdit, true);
         document.addEventListener('click', (event) => {
           if (!window.__ACCESS__ || window.__ACCESS__.canEdit !== false) return;
+          if (event.target.closest('dialog')) return;
           if (event.target.closest(editorSurface) && !event.target.closest('a, .sheet-tab, .deck-slide, nav')) {
             const control = event.target.closest('button, input, select, textarea');
             if (control && !control.closest('#btn-share, #btn-comments, #btn-versions, #btn-editor-panel, .ed-more')) {
@@ -598,9 +599,6 @@
         accessDialog.className = 'dlg share-dlg';
         accessDialog.innerHTML = '<div class="share-dlg-in" id="share-dlg-in"></div>';
         document.body.append(accessDialog);
-        accessDialog.addEventListener('click', (e) => {
-          if (e.target === accessDialog) accessDialog.close();
-        });
         return accessDialog;
       }
 
@@ -755,6 +753,10 @@
 
       async function openShare() {
         buildShareDialog();
+        // A mobile "More actions" details popup can remain open above the
+        // dialog. Close it before taking focus so pointer and keyboard focus
+        // always land on the dialog controls.
+        document.querySelectorAll('details[open].ed-more, details[open].fm-menu').forEach((details) => details.removeAttribute('open'));
         await loadAccess();
         renderShareDialog();
         accessDialog.showModal();

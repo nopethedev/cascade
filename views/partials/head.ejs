@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>try { if (localStorage.getItem('cascade-theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}</script>
   <title><%= (typeof title !== 'undefined' && title ? title + ' · ' : '') + theme.siteName %></title>
   <link rel="icon" href="/public/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/public/theme.css" />
@@ -37,8 +38,15 @@
       <a href="/docs" class="<%= currentPath === '/docs' ? 'is-active' : '' %>">Docs</a>
     </nav>
     <div class="topbar-right">
+      <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light theme" title="Toggle light or dark theme" aria-pressed="false">
+        <svg class="theme-ico theme-ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        <svg class="theme-ico theme-ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       <% if (user) { %>
-        <span class="user-chip"><%= user.username %><i>/</i><%= user.role %></span>
+        <a class="theme-toggle account-link" href="/settings" aria-label="Account settings" title="Account settings">
+          <svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </a>
+        <a class="user-chip" href="/settings" title="Account settings"><%= user.username %><i>/</i><%= user.role %></a>
         <form method="post" action="/logout"><button class="btn btn-quiet btn-sm" type="submit">Sign out</button></form>
       <% } %>
     </div>

@@ -1,0 +1,75 @@
+<%- include('../partials/head', { title: 'Admin · Storage cleanup' }) %>
+<%- include('../partials/admin-tabs', { tab: 'cleanup' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Storage cleanup</h1>
+    <p class="lede">Find local blobs whose file record no longer exists. File records are never removed, and uploads that are simply not used by a document are left alone.</p>
+  </div>
+  <div class="actions">
+    <span class="badge"><%= records %> file records</span>
+    <a class="btn btn-quiet" href="/admin">Overview</a>
+  </div>
+</div>
+
+<% if (cleaned !== null) { %>
+  <div class="alert <%= cleaned ? 'alert-ok' : '' %>" style="margin-bottom:16px">
+    <% if (cleaned) { %>Removed <%= cleaned %> unused object<%= cleaned === 1 ? '' : 's' %> and reclaimed <%= prettyBytes(cleanedBytes) %>.<% } else { %>No unused objects needed removal.<% } %>
+    <% if (cleanupError) { %> <strong><%= cleanupError %>.</strong><% } %>
+  </div>
+<% } %>
+
+<div class="stat-grid">
+  <div class="stat"><b><%= prettyBytes(scan.totalBytes) %></b><span>Local storage</span></div>
+  <div class="stat"><b><%= scan.totalFiles %></b><span>Local objects</span></div>
+  <div class="stat stat-accent"><b><%= scan.files.length %></b><span>Unused objects</span></div>
+  <div class="stat"><b><%= prettyBytes(scan.bytes) %></b><span>Reclaimable</span></div>
+</div>
+
+<section class="panel has-table" style="margin-top:16px">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Unused local objects</div>
+      <div class="panel-sub">Named by file id, with no matching <span class="code">files</span> row.</div>
+    </div>
+    <% if (scan.files.length) { %>
+      <form method="post" action="/admin/cleanup" onsubmit="return confirm('Delete <%= scan.files.length %> unused object(s) and reclaim <%= prettyBytes(scan.bytes) %>? This cannot be undone.');">
+        <button class="btn btn-danger" type="submit">Clean up space</button>
+      </form>
+    <% } else { %>
+      <button class="btn btn-quiet" type="button" disabled>Nothing to clean</button>
+    <% } %>
+  </div>
+  <% if (!scan.files.length) { %>
+    <div class="panel-body">
+      <div class="empty">
+        <div class="empty-ico">✓</div>
+        <strong>Storage is clean</strong>
+        <span>Every local object belongs to a file record.</span>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Object</th><th>Size</th><th class="right">Modified</th></tr></thead>
+        <tbody>
+          <% for (const file of scan.files) { %>
+            <tr>
+              <td><span class="mono tiny"><%= file.name %></span></td>
+              <td class="muted nowrap"><%= prettyBytes(file.bytes) %></td>
+              <td class="right muted nowrap"><%= prettyDateTime(file.modifiedAt) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-body">
+    <p class="hint"><strong>How this works.</strong> The scan compares local storage filenames against file-record ids. It never deletes a file merely because no document references it, so ordinary uploads and shared files are safe. Remote storage nodes are not modified by this local cleanup; use their own maintenance tools.</p>
+  </div>
+</section>
+<%- include('../partials/foot') %>
