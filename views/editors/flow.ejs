@@ -3,23 +3,71 @@
 <%- include('../partials/editor-bar', { file, kind }) %>
 
 <div class="flow-shell" id="flow-shell">
+  <div class="app-menubar" aria-label="Flow application menu">
+    <div class="app-brand"><span class="app-logo"></span><b>FLOW</b><small>Discord bot IDE</small></div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="file">File <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <div class="app-menu-title">Bot</div>
+        <a href="/create?kind=flow"><span data-lucide="plus"></span>New bot…</a>
+        <button type="button" data-menu-action="save"><span data-lucide="save"></span>Save now<kbd>Ctrl+S</kbd></button>
+        <button type="button" data-menu-action="history"><span data-lucide="history"></span>Version history</button>
+        <button type="button" data-menu-action="share"><span data-lucide="share-2"></span>Share bot…</button>
+        <div class="sep"></div>
+        <div class="app-menu-title">Build</div>
+        <button type="button" data-menu-action="compile"><span data-lucide="flask"></span>Compile<kbd>Ctrl+Enter</kbd></button>
+        <button type="button" data-menu-action="test"><span data-lucide="terminal"></span>Run simulator</button>
+        <button type="button" data-menu-action="export"><span data-lucide="download"></span>Export bot…</button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="settings"><span data-lucide="settings"></span>Bot settings…</button>
+        <a href="/docs/flow" target="_blank" rel="noopener"><span data-lucide="file-text"></span>Documentation</a>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="edit">Edit <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="undo"><span data-lucide="undo-2"></span>Undo<kbd>Ctrl+Z</kbd></button>
+        <button type="button" data-menu-action="redo"><span data-lucide="redo-2"></span>Redo<kbd>Ctrl+Shift+Z</kbd></button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="add-node"><span data-lucide="plus"></span>Add node…<kbd>A</kbd></button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="view">View <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="fit"><span data-lucide="maximize-2"></span>Fit graph<kbd>F</kbd></button>
+        <button type="button" data-menu-action="layout"><span data-lucide="layout-grid"></span>Auto layout</button>
+        <button type="button" data-menu-action="bookmark"><span data-lucide="bookmark"></span>Bookmark view</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="help">Help <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <a href="/docs/flow" target="_blank" rel="noopener"><span data-lucide="file-text"></span>Flow docs</a>
+        <a href="/docs/game" target="_blank" rel="noopener"><span data-lucide="bookmark"></span>Game Studio docs</a>
+        <button type="button" data-menu-action="shortcuts"><span data-lucide="layout-grid"></span>Keyboard shortcuts</button>
+      </div>
+    </div>
+    <span class="app-menu-spacer"></span>
+    <span class="ft-status" id="flow-app-status"><span class="dot"></span><span id="flow-app-status-text">Ready</span></span>
+  </div>
   <div class="flow-topbar">
-    <button class="flow-btn flow-mobile-project" type="button" id="flow-mobile-project" title="Project explorer">☰</button>
+    <button class="flow-btn flow-mobile-project" type="button" id="flow-mobile-project" title="Project explorer"><span data-lucide="panel-left"></span></button>
     <div class="ft-brand"><b>FLOW</b><small>Discord bot IDE</small></div>
-    <button class="flow-btn primary" type="button" id="flow-add-node" title="Add node (A)"><span>＋</span><span class="btn-label">Add node</span></button>
-    <button class="flow-btn" type="button" id="flow-compile" title="Compile project (Ctrl+Enter)"><span>▶</span><span class="btn-label">Compile</span></button>
-    <button class="flow-btn" type="button" id="flow-test" title="Run a simulated graph"><span>🧪</span><span class="btn-label">Test</span></button>
+    <button class="flow-btn primary" type="button" id="flow-add-node" title="Add node (A)"><span data-lucide="plus"></span><span class="btn-label">Add node</span></button>
+    <button class="flow-btn" type="button" id="flow-compile" title="Compile project (Ctrl+Enter)"><span data-lucide="play"></span><span class="btn-label">Compile</span></button>
+    <button class="flow-btn" type="button" id="flow-test" title="Run a simulated graph"><span data-lucide="flask"></span><span class="btn-label">Test</span></button>
     <span class="ft-divider"></span>
-    <button class="flow-btn icon" type="button" id="flow-undo" title="Undo (Ctrl+Z)">↶</button>
-    <button class="flow-btn icon" type="button" id="flow-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-    <button class="flow-btn icon" type="button" id="flow-fit" title="Fit graph (F)">⌗</button>
-    <button class="flow-btn icon" type="button" id="flow-layout" title="Auto layout">⇲</button>
+    <button class="flow-btn icon" type="button" id="flow-undo" title="Undo (Ctrl+Z)"><span data-lucide="undo-2"></span></button>
+    <button class="flow-btn icon" type="button" id="flow-redo" title="Redo (Ctrl+Shift+Z)"><span data-lucide="redo-2"></span></button>
+    <button class="flow-btn icon" type="button" id="flow-fit" title="Fit graph (F)"><span data-lucide="maximize-2"></span></button>
+    <button class="flow-btn icon" type="button" id="flow-layout" title="Auto layout"><span data-lucide="layout-grid"></span></button>
     <span class="ft-divider"></span>
-    <button class="flow-btn" type="button" id="flow-bookmark" title="Bookmark this view">☆ Bookmark</button>
-    <a class="flow-btn" href="/docs/flow" target="_blank" rel="noopener" title="Flow documentation and tutorial">? Docs</a>
+    <button class="flow-btn" type="button" id="flow-bookmark" title="Bookmark this view"><span data-lucide="bookmark"></span><span class="btn-label">Bookmark</span></button>
+    <a class="flow-btn" href="/docs/flow" target="_blank" rel="noopener" title="Flow documentation and tutorial"><span data-lucide="book-open"></span>Docs</a>
     <span class="ft-spacer"></span>
     <span class="ft-status" id="flow-status"><span class="dot"></span><span id="flow-status-text">Ready</span></span>
-    <button class="flow-btn" type="button" id="flow-export"><span>⇩</span><span class="btn-label">Export</span></button>
+    <button class="flow-btn" type="button" id="flow-export"><span data-lucide="download"></span><span class="btn-label">Export</span></button>
   </div>
 
   <div class="flow-main">
@@ -29,8 +77,8 @@
       <input class="fe-search" id="fe-search" type="search" placeholder="Filter scripts…" aria-label="Filter scripts" />
       <div class="fe-tree" id="fe-tree"></div>
       <div class="fe-actions">
-        <button class="flow-btn mini" type="button" id="fe-new-script">＋ Script</button>
-        <button class="flow-btn mini" type="button" id="fe-new-folder">＋ Folder</button>
+        <button class="flow-btn mini" type="button" id="fe-new-script"><span data-lucide="plus"></span>Script</button>
+        <button class="flow-btn mini" type="button" id="fe-new-folder"><span data-lucide="plus"></span>Folder</button>
       </div>
     </aside>
 
@@ -42,10 +90,10 @@
           <div class="flow-nodes" id="flow-nodes"></div>
         </div>
         <div class="flow-canvas-hud">
-          <button class="flow-btn mini" type="button" id="flow-zoom-out" title="Zoom out">−</button>
+          <button class="flow-btn mini" type="button" id="flow-zoom-out" title="Zoom out"><span data-lucide="zoom-out"></span></button>
           <button class="flow-btn mini" type="button" id="flow-zoom-label" title="Reset zoom">100%</button>
-          <button class="flow-btn mini" type="button" id="flow-zoom-in" title="Zoom in">＋</button>
-          <button class="flow-btn mini" type="button" id="flow-minimap-toggle" title="Toggle minimap">Map</button>
+          <button class="flow-btn mini" type="button" id="flow-zoom-in" title="Zoom in"><span data-lucide="zoom-in"></span></button>
+          <button class="flow-btn mini" type="button" id="flow-minimap-toggle" title="Toggle minimap"><span data-lucide="map"></span></button>
         </div>
         <div class="flow-minimap" id="flow-minimap" title="Minimap — click to navigate"><svg id="flow-minimap-svg" viewBox="0 0 150 92"></svg></div>
       </div>
@@ -139,6 +187,8 @@
 <script>
   window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
 </script>
+<script src="/public/icons.js"></script>
+<script src="/public/editor-menu.js"></script>
 <script src="/public/editors/common.js"></script>
 <script type="module" src="/public/editors/flow.js"></script>
 <%- include('../partials/foot') %>

@@ -301,3 +301,13 @@ main.shell-game .ed-bar { margin: 0; padding: 7px 12px; top: 0; position: relati
 .gs-pin-source .gs-mini { margin-left: auto; }
 .gs-pin-row .gs-insp-note { margin-top: 3px; }
 .gs-pin-row .gs-check { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #cbd5e1; }
+
+/* App header publish dialog and pannable graph */
+.gs-publish-link { display: flex; gap: 6px; margin-bottom: 10px; }
+.gs-publish-link input { flex: 1 1 auto; min-width: 0; background: #0e121a; border: 1px solid var(--gs-line); border-radius: 6px; color: #dbe4f3; padding: 8px 10px; font: 11px ui-monospace, monospace; }
+.gs-publish-link .gs-btn { flex: 0 0 auto; }
+.gs-graph-wrap { overflow: hidden; cursor: grab; }
+.gs-graph-wrap:active { cursor: grabbing; }
+.gs-graph-nodes { cursor: grab; }
+.gs-node { cursor: default; }
+.gs-graph-tools .gs-mini .ci { width: 13px; height: 13px; }

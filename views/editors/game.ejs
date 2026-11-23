@@ -3,22 +3,76 @@
 <%- include('../partials/editor-bar', { file, kind }) %>
 
 <div class="game-studio" id="game-studio">
+  <div class="app-menubar" aria-label="Game Studio application menu">
+    <div class="app-brand"><span class="app-logo"></span><b>GAME STUDIO</b><small id="g-mode-badge-top" class="gs-mode">2D</small></div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="file">File <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <div class="app-menu-title">Project</div>
+        <a href="/create?kind=game"><span data-lucide="plus"></span>New game…</a>
+        <button type="button" data-menu-action="save"><span data-lucide="save"></span>Save now<kbd>Ctrl+S</kbd></button>
+        <button type="button" data-menu-action="history"><span data-lucide="history"></span>Version history</button>
+        <button type="button" data-menu-action="share"><span data-lucide="share-2"></span>Share project…</button>
+        <div class="sep"></div>
+        <div class="app-menu-title">Build</div>
+        <button type="button" data-menu-action="compile"><span data-lucide="flask"></span>Compile &amp; validate<kbd>Ctrl+Enter</kbd></button>
+        <button type="button" data-menu-action="publish"><span data-lucide="external-link"></span>Publish &amp; copy link…</button>
+        <button type="button" data-menu-action="export-html"><span data-lucide="download"></span>Export standalone HTML</button>
+        <button type="button" data-menu-action="export-zip"><span data-lucide="download"></span>Export ZIP + source</button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="settings"><span data-lucide="settings"></span>Project settings…</button>
+        <a href="/docs/game" target="_blank" rel="noopener"><span data-lucide="file-text"></span>Documentation</a>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="edit">Edit <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="undo"><span data-lucide="undo-2"></span>Undo<kbd>Ctrl+Z</kbd></button>
+        <button type="button" data-menu-action="redo"><span data-lucide="redo-2"></span>Redo<kbd>Ctrl+Shift+Z</kbd></button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="duplicate"><span data-lucide="copy"></span>Duplicate selection<kbd>Ctrl+D</kbd></button>
+        <button type="button" data-menu-action="delete"><span data-lucide="trash-2"></span>Delete selection<kbd>Del</kbd></button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="view">View <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="toggle-left"><span data-lucide="panel-left"></span>Toggle Hierarchy</button>
+        <button type="button" data-menu-action="toggle-right"><span data-lucide="panel-right"></span>Toggle Inspector</button>
+        <button type="button" data-menu-action="toggle-bottom"><span data-lucide="terminal"></span>Toggle bottom panel</button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="fit-graph"><span data-lucide="maximize-2"></span>Fit visual script</button>
+        <button type="button" data-menu-action="fullscreen"><span data-lucide="maximize"></span>Fullscreen viewport</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="help">Help <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <a href="/docs/game" target="_blank" rel="noopener"><span data-lucide="file-text"></span>Game Studio docs</a>
+        <a href="/docs/flow" target="_blank" rel="noopener"><span data-lucide="bookmark"></span>Flow docs</a>
+        <button type="button" data-menu-action="shortcuts"><span data-lucide="layout-grid"></span>Keyboard shortcuts</button>
+      </div>
+    </div>
+    <span class="app-menu-spacer"></span>
+    <span class="gs-save" id="g-app-save">Ready</span>
+    <button class="app-publish" type="button" data-menu-action="publish"><span data-lucide="external-link"></span>Publish</button>
+  </div>
   <div class="gs-toolbar" role="toolbar" aria-label="Game Studio toolbar">
     <div class="gs-brand"><b>GAME STUDIO</b><span id="g-mode-badge" class="gs-mode">2D</span>
-      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-left" title="Project explorer">☰</button>
-      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-right" title="Inspector">⚙</button>
+      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-left" title="Project explorer"><span data-lucide="panel-left"></span></button>
+      <button class="gs-btn gs-icon gs-panel-btn" type="button" id="g-toggle-right" title="Inspector"><span data-lucide="panel-right"></span></button>
     </div>
     <div class="gs-toolgroup">
-      <button class="gs-btn gs-primary" type="button" id="g-play" title="Play (P)">▶ <span>Play</span></button>
-      <button class="gs-btn" type="button" id="g-pause" title="Pause" disabled>⏸</button>
-      <button class="gs-btn" type="button" id="g-step" title="Step one frame" disabled>⏭</button>
-      <button class="gs-btn" type="button" id="g-stop" title="Stop (Shift+P)" disabled>■</button>
-      <button class="gs-btn" type="button" id="g-fullscreen" title="Fullscreen play">⛶</button>
+      <button class="gs-btn gs-primary" type="button" id="g-play" title="Play (P)"><span data-lucide="play"></span><span>Play</span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-pause" title="Pause" disabled><span data-lucide="pause"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-step" title="Step one frame" disabled><span data-lucide="step-forward"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-stop" title="Stop (Shift+P)" disabled><span data-lucide="square"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-fullscreen" title="Fullscreen play"><span data-lucide="maximize"></span></button>
     </div>
     <div class="gs-toolgroup">
       <label class="gs-select-label" for="g-scene-select">Scene</label>
       <select class="gs-select" id="g-scene-select" aria-label="Active scene"></select>
-      <button class="gs-btn gs-icon" type="button" id="g-add-scene" title="Add scene">＋</button>
+      <button class="gs-btn gs-icon" type="button" id="g-add-scene" title="Add scene"><span data-lucide="plus"></span></button>
     </div>
     <div class="gs-toolgroup">
       <span class="gs-tool-label">Add</span>
@@ -35,20 +89,20 @@
         <option value="light">Light</option>
         <option value="sprite">Sprite (2D)</option>
       </select>
-      <button class="gs-btn" type="button" id="g-add" title="Add object">＋ Add</button>
+      <button class="gs-btn" type="button" id="g-add" title="Add object"><span data-lucide="plus"></span>Add</button>
     </div>
     <div class="gs-toolgroup">
-      <button class="gs-btn gs-icon on" type="button" data-gizmo="move" title="Move (W)">✥</button>
-      <button class="gs-btn gs-icon" type="button" data-gizmo="rotate" title="Rotate (E)">⟳</button>
-      <button class="gs-btn gs-icon" type="button" data-gizmo="scale" title="Scale (R)">⤢</button>
-      <button class="gs-btn gs-icon" type="button" id="g-local-toggle" title="Toggle local/world space">L</button>
+      <button class="gs-btn gs-icon on" type="button" data-gizmo="move" title="Move (W)"><span data-lucide="move"></span></button>
+      <button class="gs-btn gs-icon" type="button" data-gizmo="rotate" title="Rotate (E)"><span data-lucide="rotate-cw"></span></button>
+      <button class="gs-btn gs-icon" type="button" data-gizmo="scale" title="Scale / resize (R)"><span data-lucide="scaling"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-local-toggle" title="Toggle local/world space"><span data-lucide="box"></span></button>
     </div>
     <div class="gs-toolgroup">
-      <button class="gs-btn gs-icon" type="button" id="g-undo" title="Undo (Ctrl+Z)">↶</button>
-      <button class="gs-btn gs-icon" type="button" id="g-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
-      <button class="gs-btn gs-icon" type="button" id="g-duplicate" title="Duplicate (Ctrl+D)">⧉</button>
-      <button class="gs-btn gs-icon" type="button" id="g-group" title="Group selection">▣</button>
-      <button class="gs-btn gs-icon danger" type="button" id="g-delete" title="Delete (Delete)">🗑</button>
+      <button class="gs-btn gs-icon" type="button" id="g-undo" title="Undo (Ctrl+Z)"><span data-lucide="undo-2"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-redo" title="Redo (Ctrl+Shift+Z)"><span data-lucide="redo-2"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-duplicate" title="Duplicate (Ctrl+D)"><span data-lucide="copy"></span></button>
+      <button class="gs-btn gs-icon" type="button" id="g-group" title="Group selection"><span data-lucide="layout-grid"></span></button>
+      <button class="gs-btn gs-icon danger" type="button" id="g-delete" title="Delete (Delete)"><span data-lucide="trash-2"></span></button>
     </div>
     <div class="gs-toolgroup gs-views">
       <button class="gs-btn gs-icon" type="button" data-view="perspective" title="Perspective">Persp</button>
@@ -56,7 +110,7 @@
       <button class="gs-btn gs-icon" type="button" data-view="front" title="Front view">Front</button>
       <button class="gs-btn gs-icon" type="button" data-view="side" title="Side view">Side</button>
       <button class="gs-btn gs-icon" type="button" data-view="ortho" title="Toggle orthographic">Ortho</button>
-      <button class="gs-btn gs-icon" type="button" id="g-focus" title="Focus selected (F)">⌖</button>
+      <button class="gs-btn gs-icon" type="button" id="g-focus" title="Focus selected (F)"><span data-lucide="crosshair"></span></button>
     </div>
     <div class="gs-toolgroup gs-snap">
       <label class="gs-check"><input type="checkbox" id="g-snap" checked /> Snap</label>
@@ -64,10 +118,10 @@
     </div>
     <span class="gs-spacer"></span>
     <span class="gs-save" id="g-save-note">Ready</span>
-    <a class="gs-btn" href="/docs/game" target="_blank" rel="noopener" title="Game Studio documentation and tutorials">Docs</a>
-    <button class="gs-btn" type="button" id="g-compile" title="Validate and compile (Ctrl+Enter)">Compile</button>
+    <a class="gs-btn" href="/docs/game" target="_blank" rel="noopener" title="Game Studio documentation and tutorials"><span data-lucide="file-text"></span>Docs</a>
+    <button class="gs-btn" type="button" id="g-compile" title="Validate and compile (Ctrl+Enter)"><span data-lucide="flask"></span>Compile</button>
     <div class="gs-menu-wrap">
-      <button class="gs-btn" type="button" id="g-export" title="Export game">Export ▾</button>
+      <button class="gs-btn" type="button" id="g-export" title="Export game"><span data-lucide="download"></span>Export <span data-lucide="chevron-down"></span></button>
       <div class="gs-menu" id="g-export-menu" hidden>
         <button type="button" data-export="html">Standalone HTML5 (.html)</button>
         <button type="button" data-export="zip">ZIP + source (.zip)</button>
@@ -81,10 +135,10 @@
       <div class="gs-panel-head"><span>Hierarchy</span><button class="gs-mini" type="button" id="g-collapse-left" title="Collapse panel">‹</button></div>
       <div class="gs-hierarchy-search"><input type="search" id="g-hierarchy-search" placeholder="Search objects…" aria-label="Search objects" /></div>
       <div class="gs-tree" id="g-hierarchy" role="tree"></div>
-      <div class="gs-subhead"><span>Assets</span><button class="gs-mini" type="button" id="g-upload-asset">＋ Import</button></div>
+      <div class="gs-subhead"><span>Assets</span><button class="gs-mini" type="button" id="g-upload-asset"><span data-lucide="upload"></span>Import</button></div>
       <input type="file" id="g-asset-input" multiple accept=".glb,.gltf,.obj,.fbx,.stl,image/*,audio/*" hidden />
       <div class="gs-assets" id="g-assets"><div class="gs-empty">Drop GLB, glTF, OBJ, FBX, STL, textures or audio here.</div></div>
-      <div class="gs-subhead"><span>Scripts</span><button class="gs-mini" type="button" id="g-add-script">＋ Script</button></div>
+      <div class="gs-subhead"><span>Scripts</span><button class="gs-mini" type="button" id="g-add-script"><span data-lucide="file-plus"></span>Script</button></div>
       <div class="gs-scripts" id="g-scripts"></div>
     </aside>
 
@@ -122,11 +176,14 @@
           <span class="gs-spacer"></span>
           <span class="gs-graph-tools" id="g-graph-tools">
             <select class="gs-select" id="g-script-select" aria-label="Active script"></select>
-            <button class="gs-mini" type="button" id="g-add-node">＋ Node</button>
+            <button class="gs-mini" type="button" id="g-add-node"><span data-lucide="plus"></span>Node</button>
             <button class="gs-mini" type="button" id="g-delete-node">Delete node</button>
-            <button class="gs-mini" type="button" id="g-fit-graph">Fit</button>
+            <button class="gs-mini" type="button" id="g-graph-zoom-out" title="Zoom out"><span data-lucide="zoom-out"></span></button>
+            <button class="gs-mini" type="button" id="g-graph-zoom-label" title="Reset zoom">100%</button>
+            <button class="gs-mini" type="button" id="g-graph-zoom-in" title="Zoom in"><span data-lucide="zoom-in"></span></button>
+            <button class="gs-mini" type="button" id="g-fit-graph"><span data-lucide="maximize-2"></span>Fit</button>
           </span>
-          <button class="gs-mini" type="button" id="g-bottom-toggle" title="Toggle console">⌄</button>
+          <button class="gs-mini" type="button" id="g-bottom-toggle" title="Toggle console"><span data-lucide="chevron-down"></span></button>
         </div>
         <div class="gs-tab-body on" id="g-tab-graph">
           <div class="gs-graph-wrap" id="g-graph-wrap">
@@ -136,7 +193,17 @@
           </div>
         </div>
         <div class="gs-tab-body" id="g-tab-code">
-          <div class="gs-code-wrap" id="g-code-wrap"><div id="g-monaco"></div><textarea id="g-code" spellcheck="false" aria-label="JavaScript game code"></textarea></div>
+          <div class="gs-code-toolbar">
+            <span class="gs-code-lang"><span data-lucide="code"></span>Language</span>
+            <select class="gs-select" id="g-code-language" aria-label="Script language">
+              <option value="javascript">JavaScript</option>
+              <option value="lua">Lua</option>
+            </select>
+            <button class="gs-mini" type="button" id="g-convert-lua"><span data-lucide="rotate-cw"></span>Visual → Lua</button>
+            <button class="gs-mini" type="button" id="g-convert-nodes"><span data-lucide="layout-grid"></span>Lua → Visual</button>
+            <span class="gs-code-hint" id="g-code-hint">Lua compiles to the same runtime.</span>
+          </div>
+          <div class="gs-code-wrap" id="g-code-wrap"><div id="g-monaco"></div><textarea id="g-code" spellcheck="false" aria-label="Game script code"></textarea></div>
         </div>
         <div class="gs-tab-body" id="g-tab-console"><div class="gs-console" id="g-console"><div class="gs-empty">Console output from Play mode and builds appears here.</div></div></div>
         <div class="gs-tab-body" id="g-tab-problems"><div class="gs-console" id="g-problems"><div class="gs-empty">Compile the project to see diagnostics.</div></div></div>
@@ -172,12 +239,24 @@
   <div class="gs-dialog-body"><select class="gs-select wide" id="g-component-type"></select><div class="gs-dialog-actions"><button class="gs-btn gs-primary" type="button" id="g-component-add">Add component</button></div></div>
 </dialog>
 
+<dialog class="gs-dialog" id="g-publish-dialog">
+  <div class="gs-dialog-head"><div><h2>Game published</h2><p>Anyone with this link can play the build. Images, audio and models are embedded as base64 data URLs.</p></div><button class="gs-btn" type="button" data-close="g-publish-dialog"><span data-lucide="x"></span></button></div>
+  <div class="gs-dialog-body">
+    <div class="gs-publish-link"><input id="g-publish-link" type="text" readonly aria-label="Published game link" /><button class="gs-btn gs-primary" type="button" id="g-copy-publish"><span data-lucide="copy"></span>Copy link</button></div>
+    <div class="gs-export-row"><div><b>Playable link</b><small>The game runs the same runtime as Play mode and needs no Cascade account.</small></div><a class="gs-btn" id="g-open-publish" href="#" target="_blank" rel="noopener"><span data-lucide="external-link"></span>Open game</a></div>
+    <div class="gs-export-status" id="g-publish-status"></div>
+  </div>
+</dialog>
+
 <div class="gs-toast-host" id="g-toast-host"></div>
 
 <script>
   window.__DOC__ = <%- JSON.stringify({ id: file.id, kind: file.kind, version: file.version, isPublic: !!file.isPublic, slug: file.slug, filename: file.filename, content, canEdit }).replace(/</g, '\\u003c') %>;
 </script>
 <script src="/public/vendor/cascade-three.js"></script>
+<script src="/public/icons.js"></script>
+<script src="/public/editor-menu.js"></script>
+<script src="/public/game/lua.js"></script>
 <script src="/public/editors/common.js"></script>
 <script type="module" src="/public/editors/game.js"></script>
 <%- include('../partials/foot') %>

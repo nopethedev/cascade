@@ -8,6 +8,7 @@ import { NODE_BY_TYPE, EVENTS, PIN_TYPES } from '../../public/flow/nodes.mjs';
 import { normalizeFlow } from '../../public/flow/schema.mjs';
 import { scanFlowSecrets } from '../../public/flow/secrets.mjs';
 import { createFlowRuntime } from './runtime.js';
+import '../../public/game/lua.js';
 
 const PRIVILEGED_INTENTS = ['MessageContent', 'GuildMembers', 'Presence', 'GuildPresences'];
 const VALID_BACKENDS = ['json', 'sqlite', 'mongodb'];
@@ -288,7 +289,11 @@ function runValidation(content, project, diagnostics) {
         const body = (script.graph.edges || []).find((e) => e.from?.node === node.id && e.from?.pin === 'body');
         if (!body) diag(diagnostics, 'warning', 'flow.loop-no-body', `${def.title} has no body connection.`, node.id, script.id);
       }
-      if (def?.type === 'custom-code' || def?.type === 'function-define' || def?.operation === 'script.custom' || def?.operation === 'script.defineFunction') {
+      if (def?.type === 'custom-code' && node.config?.language === 'lua') {
+        const lua = globalThis.CascadeLua?.compile(String(node.config?.code || ''), {});
+        if (!lua?.ok) diag(diagnostics, 'error', 'flow.lua', `Lua error: ${lua?.error || 'Lua compiler unavailable'}`, node.id, script.id);
+        else diag(diagnostics, 'warning', 'flow.custom-code', `${def.title} contains user Lua. Review it before exporting or hosting.`, node.id, script.id);
+      } else if (def?.type === 'custom-code' || def?.type === 'function-define' || def?.operation === 'script.custom' || def?.operation === 'script.defineFunction') {
         diag(diagnostics, 'warning', 'flow.custom-code', `${def.title} contains user JavaScript. Review it before exporting or hosting.`, node.id, script.id);
       }
     }
@@ -497,7 +502,11 @@ function compileScript(script, project, diagnostics, codeMap) {
   function argsExpr(node) {
     const parts = [];
     for (const field of fieldsFor(node)) {
-      const value = node.config?.[field.key] !== undefined ? node.config[field.key] : field.default;
+      let value = node.config?.[field.key] !== undefined ? node.config[field.key] : field.default;
+      if (node.type === 'custom-code' && field.key === 'code' && node.config?.language === 'lua') {
+        const lua = globalThis.CascadeLua?.compile(String(value || ''), {});
+        if (lua?.ok) value = lua.code;
+      }
       if (value !== undefined) parts.push(`${q(field.key)}: ${literal(value)}`);
     }
     for (const pin of pinsOf(node).inputs.filter(isDataPin)) {

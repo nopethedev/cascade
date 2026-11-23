@@ -80,6 +80,13 @@ function rebuildCustomDefs() {
 }
 rebuildCustomDefs();
 const defOf = (node) => (node ? customDefs.get(node.type) || NODE_BY_TYPE.get(node.type) : null);
+const NODE_ICONS = {
+  Events: 'zap', Commands: 'terminal', Messages: 'message-square', Components: 'mouse-pointer',
+  Guild: 'users', Logic: 'git-branch', Data: 'database', Database: 'database', AI: 'sparkles',
+  HTTP: 'globe', Music: 'music', Scripts: 'code', Runtime: 'settings', Testing: 'flask',
+};
+const nodeIcon = (def) => window.CascadeIcons?.svg(NODE_ICONS[def.category] || 'file-text') || esc(def.icon || 'N');
+const scriptIcon = (s) => window.CascadeIcons?.svg(s.type === 'command' ? 'terminal' : s.type === 'event' ? 'zap' : s.type === 'module' ? 'box' : 'play') || '';
 const isExec = (pin) => pin?.kind === 'exec';
 const isDataOnly = (node) => {
   const def = defOf(node);
@@ -105,6 +112,8 @@ function toast(message, bad = false) {
 function setStatus(text, kind = '') {
   const el = $('flow-status');
   const label = $('flow-status-text');
+  const appLabel = $('flow-app-status-text');
+  if (appLabel) appLabel.textContent = text;
   if (label) label.textContent = text;
   if (el) el.className = `ft-status ${kind}`;
 }
@@ -186,7 +195,7 @@ function renderExplorer() {
   const folderIds = new Set(folders.map((f) => f.id));
   let html = '';
   const scriptRow = (s) => `<div class="fe-script ${s.id === activeScriptId ? 'on' : ''} ${s.enabled === false ? 'off' : ''}" data-script="${esc(s.id)}" data-type="${esc(s.type)}" tabindex="0" role="button">
-    <span class="fe-ico">${s.type === 'command' ? 'CMD' : s.type === 'event' ? 'EV' : s.type === 'module' ? 'MOD' : 'RUN'}</span>
+    <span class="fe-ico">${scriptIcon(s)}</span>
     <span class="fe-name">${esc(s.name)}</span>
     <span class="fe-kind">${esc(s.type === 'command' ? (s.command?.kind || 'slash') : s.type === 'event' ? s.event : s.type)}</span>
     <button class="fe-toggle ${s.enabled !== false ? 'on' : ''}" type="button" data-toggle-script="${esc(s.id)}" title="${s.enabled !== false ? 'Disable' : 'Enable'} script">✓</button>
@@ -428,7 +437,7 @@ function renderNodes() {
     const outputs = (def.outputs || []).map((pin) => pinHtml(node, pin, 'out')).join('');
     const summary = nodeSummary(node, def);
     return `<div class="flow-node ${selected === node.id ? 'selected' : ''}" data-id="${esc(node.id)}" style="left:${Number(node.x) || 0}px;top:${Number(node.y) || 0}px;width:${def.width || 230}px;--node-color:${safeColor(def.color)}">
-      <div class="fn-head"><span class="fn-ico">${esc(def.icon || 'N')}</span><span class="fn-title">${esc(def.title)}</span><span class="fn-badge">${esc(def.category)}</span></div>
+      <div class="fn-head"><span class="fn-ico">${nodeIcon(def)}</span><span class="fn-title">${esc(def.title)}</span><span class="fn-badge">${esc(def.category)}</span></div>
       <div class="fn-body"><div class="fn-col in">${inputs}</div><div class="fn-col out">${outputs}</div></div>
       ${summary ? `<div class="fn-summary">${esc(summary)}</div>` : ''}
     </div>`;
@@ -910,7 +919,7 @@ function renderInspector() {
       const inputs = (def.inputs || []).filter((pin) => pin.kind !== 'exec');
       const fieldKeys = new Set((def.fields || []).map((f) => f.key));
       const inputFields = inputs.map((pin) => pinValueRow(node, pin, edgesInto.get(pin.id), fieldKeys.has(pin.id))).join('');
-      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico" style="background:${safeColor(def.color)}22;color:${safeColor(def.color)}">${esc(def.icon || 'N')}</span><div><b>${esc(def.title)}</b><small>${esc(def.category)} · ${esc(node.id)}</small></div></div>
+      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico" style="background:${safeColor(def.color)}22;color:${safeColor(def.color)}">${nodeIcon(def)}</span><div><b>${esc(def.title)}</b><small>${esc(def.category)} · ${esc(node.id)}</small></div></div>
         <p class="fi-desc">${esc(def.description || 'No description for this node.')}</p>
         ${inputFields ? `<div class="fi-section"><b>Inputs</b>${inputFields}</div>` : ''}
         <div class="fi-section"><b>Configuration</b>${(def.fields || []).map((f) => fieldHtml(f, node.config?.[f.key], 'node', node.id)).join('') || '<div class="fi-empty">This node has no configurable fields.</div>'}</div>
@@ -933,7 +942,7 @@ function renderInspector() {
     const edge = script?.graph.edges.find((e) => e.id === selectedEdgeId);
     if (edge) {
       const from = nodeById(edge.from.node), to = nodeById(edge.to.node);
-      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">→</span><div><b>Connection</b><small>${esc(edge.kind)} · ${esc(edge.id)}</small></div></div>
+      fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">${window.CascadeIcons?.svg('arrow-left-right') || '→'}</span><div><b>Connection</b><small>${esc(edge.kind)} · ${esc(edge.id)}</small></div></div>
         <p class="fi-desc">${esc(defOf(from)?.title || from?.type)} → ${esc(defOf(to)?.title || to?.type)}</p>
         <div class="fi-section"><b>Pins</b><div class="fi-chiprow"><span class="fi-chip">${esc(edge.from.pin)}</span><span class="fi-chip">${esc(edge.to.pin)}</span></div></div>
         <div class="fi-actions"><button class="flow-btn mini" type="button" id="fi-delete-edge" style="color:#fb7185">Delete connection</button></div>`;
@@ -956,7 +965,7 @@ function renderScriptInspector() {
   if (!s) { fiBody.innerHTML = '<div class="fi-empty">Create a script to begin.</div>'; return; }
   const isCommand = s.type === 'command';
   const eventOptions = [...Object.keys(EVENTS), 'raw', 'custom'];
-  fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">${isCommand ? 'CMD' : s.type === 'event' ? 'EV' : s.type === 'module' ? 'MOD' : 'RUN'}</span><div><b>${esc(s.name)}</b><small>${esc(s.type)} · ${esc(s.id)}</small></div></div>
+  fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">${scriptIcon(s)}</span><div><b>${esc(s.name)}</b><small>${esc(s.type)} · ${esc(s.id)}</small></div></div>
     <div class="fi-section"><b>Script</b>
       ${fieldHtml({ key: 'name', label: 'Name', type: 'text' }, s.name, 'script', s.id)}
       ${fieldHtml({ key: 'type', label: 'Type', type: 'select', options: SCRIPT_TYPES }, s.type, 'script', s.id)}
@@ -986,7 +995,7 @@ function renderProjectInspector() {
   const p = content.project;
   const intents = ['Guilds', 'GuildMessages', 'GuildMembers', 'MessageContent', 'GuildVoiceStates', 'GuildPresences', 'GuildMessageReactions', 'DirectMessages', 'GuildModeration', 'GuildInvites'];
   const selectedIntents = new Set(p.intents || []);
-  fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">PRJ</span><div><b>${esc(p.name || 'Project settings')}</b><small>project.json · environment-safe</small></div></div>
+  fiBody.innerHTML = `<div class="fi-node-title"><span class="fn-ico">${window.CascadeIcons?.svg('settings') || ''}</span><div><b>${esc(p.name || 'Project settings')}</b><small>project.json · environment-safe</small></div></div>
     <div class="fi-section"><b>Identity</b>
       ${fieldHtml({ key: 'name', label: 'Project name', type: 'text' }, p.name, 'project', 'project')}
       ${fieldHtml({ key: 'description', label: 'Description', type: 'textarea' }, p.description, 'project', 'project')}
@@ -1688,7 +1697,27 @@ function bindToolbar() {
   $('library-search')?.addEventListener('input', (e) => { libraryQuery = e.target.value; renderLibrary(); });
   $('library-clear')?.addEventListener('click', () => { libraryQuery = ''; $('library-search').value = ''; renderLibrary(); });
   $('test-run')?.addEventListener('click', runSimulation);
-  $('fe-settings')?.addEventListener('click', () => { inspectorTab = 'project'; selectedNodeId = null; renderInspector(); });
+  $('fe-settings')?.addEventListener('click', () => { inspectorTab = 'project'; selectedNodeId = null; renderInspector(); $('flow-shell')?.classList.add('has-inspector'); });
+  document.addEventListener('cascade:menu', (event) => {
+    const action = event.detail?.action;
+    switch (action) {
+      case 'save': $('btn-save')?.click(); break;
+      case 'history': $('btn-versions')?.click(); break;
+      case 'share': $('btn-share')?.click(); break;
+      case 'compile': $('flow-compile')?.click(); break;
+      case 'test': $('flow-test')?.click(); break;
+      case 'export': $('flow-export')?.click(); break;
+      case 'settings': $('fe-settings')?.click(); break;
+      case 'undo': undo(); break;
+      case 'redo': redo(); break;
+      case 'add-node': $('flow-add-node')?.click(); break;
+      case 'fit': fitView(); break;
+      case 'layout': autoLayout(); break;
+      case 'bookmark': addBookmark(); break;
+      case 'shortcuts': toast('A add node · F fit · Ctrl+Enter compile · right-click for canvas/node/pin menus'); break;
+      default: break;
+    }
+  });
   $('fe-new-script')?.addEventListener('click', newScript);
   $('fe-new-folder')?.addEventListener('click', newFolder);
   $('fe-search')?.addEventListener('input', renderExplorer);

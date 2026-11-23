@@ -1,0 +1,308 @@
+<%- include('../partials/head', { title: file.filename, shellClass: 'shell shell-photo' }) %>
+<link rel="stylesheet" href="/public/photo/photo.css" />
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="ph-app" id="ph-app">
+  <div class="app-menubar" aria-label="Photo editor application menu">
+    <div class="app-brand"><span class="app-logo"></span><b>PHOTO</b><small class="ph-mode-badge">RGBA</small></div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="file">File <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <div class="app-menu-title">Document</div>
+        <button type="button" data-menu-action="new"><span data-lucide="file-plus"></span>New canvas…</button>
+        <button type="button" data-menu-action="open"><span data-lucide="image-plus"></span>Open image or PSD…<kbd>Ctrl+O</kbd></button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="save"><span data-lucide="save"></span>Save<kbd>Ctrl+S</kbd></button>
+        <button type="button" data-menu-action="history"><span data-lucide="history"></span>Version history</button>
+        <button type="button" data-menu-action="share"><span data-lucide="share-2"></span>Share…</button>
+        <div class="sep"></div>
+        <div class="app-menu-title">Export</div>
+        <button type="button" data-menu-action="export-png"><span data-lucide="file-image"></span>Export PNG…</button>
+        <button type="button" data-menu-action="export-jpg"><span data-lucide="file-image"></span>Export JPG…</button>
+        <button type="button" data-menu-action="export-svg"><span data-lucide="pen-tool"></span>Export SVG…</button>
+        <button type="button" data-menu-action="export-webp"><span data-lucide="file-image"></span>Export WebP…</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="edit">Edit <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="undo"><span data-lucide="undo-2"></span>Undo<kbd>Ctrl+Z</kbd></button>
+        <button type="button" data-menu-action="redo"><span data-lucide="redo-2"></span>Redo<kbd>Ctrl+Shift+Z</kbd></button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="duplicate-layer"><span data-lucide="copy"></span>Duplicate layer<kbd>Ctrl+J</kbd></button>
+        <button type="button" data-menu-action="delete-layer"><span data-lucide="trash-2"></span>Delete layer</button>
+        <button type="button" data-menu-action="flatten"><span data-lucide="layers"></span>Flatten image</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="image">Image <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="canvas-size"><span data-lucide="crop"></span>Canvas size…</button>
+        <button type="button" data-menu-action="fit"><span data-lucide="maximize-2"></span>Fit on screen<kbd>Ctrl+0</kbd></button>
+        <button type="button" data-menu-action="zoom-100"><span data-lucide="search"></span>Actual size<kbd>Ctrl+1</kbd></button>
+        <div class="sep"></div>
+        <button type="button" data-menu-action="rotate-cw"><span data-lucide="rotate-cw"></span>Rotate 90° clockwise</button>
+        <button type="button" data-menu-action="rotate-ccw"><span data-lucide="rotate-ccw"></span>Rotate 90° counter-clockwise</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="view">View <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="toggle-left"><span data-lucide="panel-left"></span>Toggle tools</button>
+        <button type="button" data-menu-action="toggle-right"><span data-lucide="panel-right"></span>Toggle layers</button>
+        <button type="button" data-menu-action="fullscreen"><span data-lucide="maximize"></span>Fullscreen</button>
+      </div>
+    </div>
+    <div class="app-menu">
+      <button type="button" data-menu-trigger="help">Help <span data-lucide="chevron-down"></span></button>
+      <div class="app-menu-pop">
+        <button type="button" data-menu-action="shortcuts"><span data-lucide="keyboard"></span>Keyboard shortcuts</button>
+        <a href="/docs" target="_blank" rel="noopener"><span data-lucide="book-open"></span>Workspace docs</a>
+      </div>
+    </div>
+    <span class="app-menu-spacer"></span>
+    <span class="ph-save-state" id="ph-save-state">Ready</span>
+    <button class="app-publish" type="button" data-menu-action="export-open"><span data-lucide="download"></span>Export</button>
+  </div>
+
+  <div class="ph-toolbar" role="toolbar" aria-label="Photo tools">
+    <div class="ph-tools" id="ph-tools">
+      <button class="ph-tool on" type="button" data-tool="move" title="Move / transform (V)"><span data-lucide="move"></span><kbd>V</kbd></button>
+      <button class="ph-tool" type="button" data-tool="brush" title="Brush (B)"><span data-lucide="paintbrush"></span><kbd>B</kbd></button>
+      <button class="ph-tool" type="button" data-tool="eraser" title="Eraser (E)"><span data-lucide="eraser"></span><kbd>E</kbd></button>
+      <button class="ph-tool" type="button" data-tool="rect" title="Rectangle (R)"><span data-lucide="square"></span><kbd>R</kbd></button>
+      <button class="ph-tool" type="button" data-tool="ellipse" title="Ellipse (O)"><span data-lucide="circle"></span><kbd>O</kbd></button>
+      <button class="ph-tool" type="button" data-tool="line" title="Line (L)"><span data-lucide="minus"></span><kbd>L</kbd></button>
+      <button class="ph-tool" type="button" data-tool="text" title="Text (T)"><span data-lucide="type"></span><kbd>T</kbd></button>
+      <button class="ph-tool" type="button" data-tool="crop" title="Crop (C)"><span data-lucide="crop"></span><kbd>C</kbd></button>
+      <button class="ph-tool" type="button" data-tool="pan" title="Pan (H)"><span data-lucide="hand"></span><kbd>H</kbd></button>
+    </div>
+    <span class="ph-tool-sep"></span>
+    <div class="ph-colors" title="Foreground and background colors">
+      <label class="ph-color ph-fg" title="Foreground color"><input type="color" id="ph-fg" value="#111827" /><span data-lucide="paintbrush"></span></label>
+      <label class="ph-color ph-bg" title="Background color"><input type="color" id="ph-bg" value="#ffffff" /></label>
+      <button class="ph-swap" type="button" id="ph-swap-colors" title="Swap colors"><span data-lucide="arrow-left-right"></span></button>
+    </div>
+    <span class="ph-tool-sep"></span>
+    <label class="ph-field">Size <input type="number" id="ph-brush-size" min="1" max="400" value="24" /></label>
+    <label class="ph-field">Opacity <input type="range" id="ph-opacity" min="1" max="100" value="100" /><output id="ph-opacity-out">100%</output></label>
+    <span class="ph-tool-sep"></span>
+    <button class="ph-btn" type="button" id="ph-zoom-out" title="Zoom out"><span data-lucide="zoom-out"></span></button>
+    <button class="ph-btn" type="button" id="ph-zoom-label" title="Reset zoom">100%</button>
+    <button class="ph-btn" type="button" id="ph-zoom-in" title="Zoom in"><span data-lucide="zoom-in"></span></button>
+    <button class="ph-btn" type="button" id="ph-fit" title="Fit on screen"><span data-lucide="maximize-2"></span>Fit</button>
+    <span class="ph-spacer"></span>
+    <button class="ph-btn" type="button" id="ph-import"><span data-lucide="image-plus"></span>Open</button>
+    <button class="ph-btn" type="button" id="ph-export"><span data-lucide="download"></span>Export</button>
+    <input type="file" id="ph-file" accept=".psd,image/png,image/jpeg,image/webp,image/gif" hidden />
+  </div>
+
+  <div class="ph-main">
+    <div class="ph-stage" id="ph-stage">
+      <div class="ph-canvas-wrap" id="ph-canvas-wrap">
+        <div class="ph-checker"></div>
+        <canvas id="ph-canvas" aria-label="Photo canvas"></canvas>
+        <canvas id="ph-overlay" aria-label="Selection overlay"></canvas>
+      </div>
+      <div class="ph-empty" id="ph-empty" hidden>
+        <b>Nothing on the canvas yet</b>
+        <span>Open a PSD or image, or start painting with the brush.</span>
+      </div>
+    </div>
+
+    <aside class="ph-right" aria-label="Layers and properties">
+      <div class="ph-panel-head">
+        <span>Layers</span>
+        <div class="ph-layer-actions">
+          <button type="button" id="ph-add-layer" title="New raster layer"><span data-lucide="plus"></span></button>
+          <button type="button" id="ph-dup-layer" title="Duplicate layer"><span data-lucide="copy"></span></button>
+          <button type="button" id="ph-del-layer" title="Delete layer"><span data-lucide="trash-2"></span></button>
+          <button type="button" id="ph-up-layer" title="Move layer up"><span data-lucide="chevron-up"></span></button>
+          <button type="button" id="ph-down-layer" title="Move layer down"><span data-lucide="chevron-down"></span></button>
+        </div>
+      </div>
+      <div class="ph-layers" id="ph-layers"></div>
+
+      <div class="ph-panel-head"><span>Properties</span></div>
+      <div class="ph-props" id="ph-props">
+        <div class="ph-prop-empty" id="ph-prop-empty">Select a layer to edit its properties.</div>
+        <div class="ph-prop-body" id="ph-prop-body" hidden>
+          <label class="ph-prop-row">Name <input type="text" id="ph-prop-name" maxlength="80" /></label>
+          <div class="ph-prop-grid">
+            <label>X <input type="number" id="ph-prop-x" step="1" /></label>
+            <label>Y <input type="number" id="ph-prop-y" step="1" /></label>
+            <label>W <input type="number" id="ph-prop-w" step="1" min="1" /></label>
+            <label>H <input type="number" id="ph-prop-h" step="1" min="1" /></label>
+            <label>Angle <input type="number" id="ph-prop-rotation" step="1" /></label>
+          </div>
+          <label class="ph-prop-row">Blend
+            <select id="ph-prop-blend">
+              <option value="normal">Normal</option>
+              <option value="multiply">Multiply</option>
+              <option value="screen">Screen</option>
+              <option value="overlay">Overlay</option>
+              <option value="darken">Darken</option>
+              <option value="lighten">Lighten</option>
+              <option value="color-dodge">Color Dodge</option>
+              <option value="color-burn">Color Burn</option>
+              <option value="hard-light">Hard Light</option>
+              <option value="soft-light">Soft Light</option>
+              <option value="difference">Difference</option>
+              <option value="exclusion">Exclusion</option>
+              <option value="hue">Hue</option>
+              <option value="saturation">Saturation</option>
+              <option value="color">Color</option>
+              <option value="luminosity">Luminosity</option>
+            </select>
+          </label>
+          <label class="ph-prop-row">Layer opacity <input type="range" id="ph-prop-opacity" min="0" max="100" value="100" /><output id="ph-prop-opacity-out">100%</output></label>
+
+          <div class="ph-prop-section" data-prop-group="raster">
+            <span class="ph-prop-title">Raster</span>
+            <button class="ph-btn wide" type="button" id="ph-replace-raster"><span data-lucide="image-up"></span>Replace pixels…</button>
+          </div>
+
+          <div class="ph-prop-section" data-prop-group="shape">
+            <span class="ph-prop-title">Shape</span>
+            <div class="ph-prop-grid colors">
+              <label>Fill <input type="color" id="ph-prop-fill" /></label>
+              <label>Stroke <input type="color" id="ph-prop-stroke" /></label>
+              <label>Stroke px <input type="number" id="ph-prop-stroke-width" min="0" step="1" /></label>
+              <label>Radius <input type="number" id="ph-prop-radius" min="0" step="1" /></label>
+            </div>
+          </div>
+
+          <div class="ph-prop-section" data-prop-group="text">
+            <span class="ph-prop-title">Text</span>
+            <textarea id="ph-prop-text" rows="4" placeholder="Type text…"></textarea>
+            <div class="ph-prop-grid">
+              <label>Size <input type="number" id="ph-prop-size" min="1" step="1" /></label>
+              <label>Weight <input type="number" id="ph-prop-weight" min="100" max="900" step="100" /></label>
+              <label>Color <input type="color" id="ph-prop-color" /></label>
+              <label>Align
+                <select id="ph-prop-align">
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </label>
+            </div>
+            <label class="ph-prop-row">Font
+              <select id="ph-prop-font">
+                <option value="Inter">Inter</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Arial">Arial</option>
+                <option value="Courier New">Courier New</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Verdana">Verdana</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="ph-statusbar">
+    <span id="ph-doc-size">1200 × 800</span>
+    <span id="ph-tool-hint">Move: drag a layer, corner to resize</span>
+    <span class="ph-spacer"></span>
+    <span id="ph-layer-count">0 layers</span>
+    <span id="ph-status-zoom">100%</span>
+  </div>
+</div>
+
+<dialog class="ph-dialog" id="ph-export-dialog">
+  <div class="ph-dialog-head">
+    <div><h2>Export image</h2><p>Everything is rendered from visible layers at full resolution.</p></div>
+    <button class="ph-btn" type="button" data-close="ph-export-dialog" aria-label="Close"><span data-lucide="x"></span></button>
+  </div>
+  <div class="ph-dialog-body">
+    <div class="ph-export-grid">
+      <button type="button" class="ph-export-option" data-export-format="png"><span data-lucide="file-image"></span><b>PNG</b><small>Lossless · full quality</small></button>
+      <button type="button" class="ph-export-option" data-export-format="jpg"><span data-lucide="file-image"></span><b>JPG</b><small>Flattened · small</small></button>
+      <button type="button" class="ph-export-option" data-export-format="webp"><span data-lucide="file-image"></span><b>WebP</b><small>Modern · transparency</small></button>
+      <button type="button" class="ph-export-option" data-export-format="svg"><span data-lucide="pen-tool"></span><b>SVG</b><small>Vector wrapper · text + shapes</small></button>
+    </div>
+    <div class="ph-export-row"><span>Scale</span><input type="range" id="ph-export-scale" min="25" max="400" step="25" value="100" /><output id="ph-export-scale-out">100%</output></div>
+    <div class="ph-export-row"><span>JPG / WebP quality</span><input type="range" id="ph-export-quality" min="40" max="100" value="92" /><output id="ph-export-quality-out">92</output></div>
+    <div class="ph-export-status" id="ph-export-status"></div>
+    <div class="ph-dialog-actions">
+      <a class="ph-btn" id="ph-download-svg" href="#" download><span data-lucide="server"></span>Server SVG</a>
+      <button class="ph-btn primary" type="button" id="ph-export-run">Export</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="ph-dialog" id="ph-size-dialog">
+  <div class="ph-dialog-head">
+    <div><h2>Canvas size</h2><p>Resizing keeps the top-left corner. Raster layers are cropped or extended.</p></div>
+    <button class="ph-btn" type="button" data-close="ph-size-dialog" aria-label="Close"><span data-lucide="x"></span></button>
+  </div>
+  <div class="ph-dialog-body">
+    <div class="ph-prop-grid">
+      <label>Width <input type="number" id="ph-size-w" min="1" max="12000" step="1" /></label>
+      <label>Height <input type="number" id="ph-size-h" min="1" max="12000" step="1" /></label>
+    </div>
+    <label class="ph-prop-row">Background <input type="color" id="ph-size-bg" /></label>
+    <div class="ph-dialog-actions">
+      <button class="ph-btn" type="button" data-close="ph-size-dialog">Cancel</button>
+      <button class="ph-btn primary" type="button" id="ph-size-apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="ph-dialog" id="ph-new-dialog">
+  <div class="ph-dialog-head">
+    <div><h2>New canvas</h2><p>This replaces the current document in this editor.</p></div>
+    <button class="ph-btn" type="button" data-close="ph-new-dialog" aria-label="Close"><span data-lucide="x"></span></button>
+  </div>
+  <div class="ph-dialog-body">
+    <div class="ph-prop-grid">
+      <label>Width <input type="number" id="ph-new-w" min="1" max="12000" value="1200" /></label>
+      <label>Height <input type="number" id="ph-new-h" min="1" max="12000" value="800" /></label>
+    </div>
+    <label class="ph-prop-row">Background <input type="color" id="ph-new-bg" value="#ffffff" /></label>
+    <div class="ph-dialog-actions">
+      <button class="ph-btn" type="button" data-close="ph-new-dialog">Cancel</button>
+      <button class="ph-btn primary" type="button" id="ph-new-create">Create</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="ph-dialog" id="ph-shortcuts-dialog">
+  <div class="ph-dialog-head">
+    <div><h2>Keyboard shortcuts</h2><p>Tools work whenever the canvas has focus.</p></div>
+    <button class="ph-btn" type="button" data-close="ph-shortcuts-dialog" aria-label="Close"><span data-lucide="x"></span></button>
+  </div>
+  <div class="ph-dialog-body ph-shortcuts">
+    <div><kbd>V</kbd><span>Move / transform</span></div>
+    <div><kbd>B</kbd><span>Brush</span></div>
+    <div><kbd>E</kbd><span>Eraser</span></div>
+    <div><kbd>R</kbd><span>Rectangle</span></div>
+    <div><kbd>O</kbd><span>Ellipse</span></div>
+    <div><kbd>T</kbd><span>Text</span></div>
+    <div><kbd>C</kbd><span>Crop</span></div>
+    <div><kbd>H</kbd><span>Pan</span></div>
+    <div><kbd>[</kbd><span>Smaller brush</span></div>
+    <div><kbd>]</kbd><span>Larger brush</span></div>
+    <div><kbd>Ctrl+Z</kbd><span>Undo</span></div>
+    <div><kbd>Ctrl+Shift+Z</kbd><span>Redo</span></div>
+    <div><kbd>Ctrl+0</kbd><span>Fit on screen</span></div>
+    <div><kbd>Ctrl+1</kbd><span>Actual size</span></div>
+    <div><kbd>Ctrl+O</kbd><span>Open image or PSD</span></div>
+    <div><kbd>Ctrl+S</kbd><span>Save</span></div>
+  </div>
+</dialog>
+
+<div class="ph-toast-host" id="ph-toast-host"></div>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, kind: file.kind, version: file.version, isPublic: !!file.isPublic, slug: file.slug, filename: file.filename, content, canEdit }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/icons.js"></script>
+<script src="/public/editor-menu.js"></script>
+<script src="/public/photo/psd.js"></script>
+<script src="/public/editors/common.js"></script>
+<script type="module" src="/public/editors/photo.js"></script>
+<%- include('../partials/foot') %>

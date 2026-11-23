@@ -19,7 +19,7 @@
   <a href="#assets">Assets &amp; models</a>
   <a href="#graph">Visual scripting</a>
   <a href="#values">Typed values</a>
-  <a href="#code">JavaScript scripts</a>
+  <a href="#code">JavaScript &amp; Lua scripts</a>
   <a href="#play">Playtesting</a>
   <a href="#publish">Export &amp; publish</a>
   <a href="#shortcuts">Shortcuts</a>
@@ -119,11 +119,13 @@
 </section>
 
 <section class="panel" id="code">
-  <div class="panel-head"><div class="panel-title">JavaScript scripts</div></div>
+  <div class="panel-head"><div class="panel-title">JavaScript &amp; Lua scripts</div></div>
   <div class="panel-body doc">
-    <p>Add a <strong>Code</strong> script for logic that is easier to write directly. Code scripts run in a sandbox inside the same runtime and receive the game context; they cannot access the page or the editor.</p>
+    <p>Add a <strong>Code</strong> script for logic that is easier to write directly. Code scripts run in a sandbox inside the same runtime and receive the game context; they cannot access the page or the editor. JavaScript and Lua compile to the same runtime, so either language works in Play, exported HTML and published games.</p>
     <ul>
-      <li>Select a script and switch to the <strong>Code</strong> tab. Monaco is used when available, with a plain textarea fallback.</li>
+      <li>Select a script and switch to the <strong>Code</strong> tab. Choose <strong>JavaScript</strong> or <strong>Lua</strong> from the language menu. Monaco is used when available, with a plain textarea fallback.</li>
+      <li>Use <strong>Visual → Lua</strong> to turn supported graph nodes into editable Lua. <strong>Lua → Visual</strong> restores the graph snapshot saved at conversion; Lua edits are not parsed back into nodes. Unsupported nodes are skipped with a visible warning and a TODO comment.</li>
+      <li>Lua syntax errors are shown under the editor and in Problems; the last successfully compiled program is kept so a typo does not stop Play mode.</li>
       <li>Use <span class="code">entity</span>, <span class="code">scene</span>, <span class="code">input</span>, <span class="code">time</span>, <span class="code">log</span> and the lifecycle callbacks documented in the script template.</li>
       <li>Errors appear in Console/Problems during Compile or Play. A failing script is isolated; it does not stop the editor.</li>
       <li>Choose the trigger (start/update/etc.) in the script row. Visual and code scripts can coexist on one object.</li>

@@ -134,7 +134,8 @@
   border-left: 3px solid var(--node-color, #f43f5e);
 }
 .flow-node .fn-head:active { cursor: grabbing; }
-.flow-node .fn-ico { width: 19px; height: 19px; border-radius: 4px; display: grid; place-items: center; font: 800 7px ui-monospace, monospace; background: color-mix(in srgb, var(--node-color, #f43f5e) 18%, #16161c); color: var(--node-color, #f43f5e); border: 1px solid color-mix(in srgb, var(--node-color, #f43f5e) 35%, transparent); }
+.flow-node .fn-ico { width: 19px; height: 19px; border-radius: 4px; display: grid; place-items: center; background: color-mix(in srgb, var(--node-color, #f43f5e) 18%, #16161c); color: var(--node-color, #f43f5e); border: 1px solid color-mix(in srgb, var(--node-color, #f43f5e) 35%, transparent); }
+.flow-node .fn-ico svg { width: 12px; height: 12px; }
 .flow-node .fn-title { font: 650 10px/1.2 Inter, system-ui, sans-serif; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node .fn-badge { font: 7px ui-monospace, monospace; color: #71717a; border: 1px solid rgba(255,255,255,.09); padding: 2px 4px; border-radius: 3px; }
 .flow-node .fn-body { display: flex; justify-content: space-between; gap: 6px; padding: 7px 8px; min-height: 31px; }
@@ -236,7 +237,9 @@
 .fi-body { flex: 1; overflow: auto; padding: 10px 11px 18px; }
 .fi-empty { color: #63636d; font-size: 10px; line-height: 1.6; padding: 12px 3px; }
 .fi-node-title { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-.fi-node-title .fn-ico { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center; font: 800 8px ui-monospace, monospace; background: rgba(244,63,94,.12); color: #fb7185; }
+.fi-node-title .fn-ico { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center; background: rgba(244,63,94,.12); color: #fb7185; }
+.fi-node-title .fn-ico svg { width: 15px; height: 15px; }
+.fe-ico svg { width: 12px; height: 12px; }
 .fi-node-title b { display: block; font-size: 11px; }
 .fi-node-title small { color: #6c6c76; font: 7.5px ui-monospace, monospace; }
 .fi-desc { color: #8a8a94; font-size: 9px; line-height: 1.55; margin: 0 0 10px; }

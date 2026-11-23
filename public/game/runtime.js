@@ -928,9 +928,13 @@
         const api = this.api();
         let instance;
         const source = script.code;
-        if (/export\s+default\s+class/.test(source) || /^\s*class\s/.test(source)) {
-          const factory = new Function('api', 'entity', `"use strict";\n${source.replace(/export\s+default\s+/g, 'return ').replace(/^\s*export\s+/gm, '')}\n`);
+        const classMatch = /(?:export\s+default\s+|return\s+)?class\s+([A-Za-z_$][\w$]*)/.exec(source);
+        if (classMatch) {
+          let body = source.replace(/export\s+default\s+/g, 'return ').replace(/^\s*export\s+/gm, '');
+          if (!/(?:export\s+default\s+|return\s+)class/.test(source)) body += `\nreturn ${classMatch[1]};`;
+          const factory = new Function('api', 'entity', `"use strict";\n${body}\n`);
           const built = factory(api, script.entityId ? this.entityByIdOrName(script.entityId) : null);
+          if (typeof built !== 'function') throw new Error('The script class could not be instantiated.');
           instance = new built();
           instance.game = this;
           instance.entity = script.entityId ? this.entityByIdOrName(script.entityId) : null;
@@ -961,6 +965,8 @@
         getVar: (name) => this.vars[name],
         setVar: (name, value) => { this.vars[name] = value; },
         setVelocity: (entity, x, y) => this.setVelocity(entity, x, y),
+        getVelocity: (entity, axis) => axis === 'y' ? num(entity?.body?.velocity.y, entity?.vy) : num(entity?.body?.velocity.x, entity?.vx),
+        isGrounded: (entity) => this.isGrounded(entity),
         applyImpulse: (entity, x, y) => this.applyImpulse(entity, x, y),
         setPosition: (entity, x, y) => this.setPosition(entity, x, y),
         spawn: (prefabId, x, y) => this.spawn(prefabId, x, y),
@@ -1293,6 +1299,22 @@
       }
       ctx.cache.set(key, result);
       return result;
+    }
+
+    isGrounded(entity) {
+      if (!entity) return false;
+      if (entity.contacts?.size) {
+        return [...entity.contacts].some((id) => {
+          const other = this.entities.get(id);
+          return other?.body?.isStatic && other.worldY > entity.worldY;
+        });
+      }
+      if (entity.body && root.Matter) {
+        const start = { x: entity.body.position.x, y: entity.body.position.y + entity.h / 2 };
+        const end = { x: start.x, y: start.y + 5 };
+        return root.Matter.Query.ray(this.bodies.filter((body) => body !== entity.body && body.isStatic), start, end, 1).length > 0;
+      }
+      return false;
     }
 
     setVelocity(entity, x, y) {

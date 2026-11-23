@@ -121,7 +121,8 @@
   <div class="panel-head"><div class="panel-title">Compile &amp; simulate</div></div>
   <div class="panel-body doc">
     <p><strong>Compile</strong> validates the entire project and emits async JavaScript. Diagnostics carry script and node ids, so clicking a problem selects the node that caused it.</p>
-    <p><strong>Test</strong> runs a script against a mock interaction/message payload. It traces routing, branches, loops, variables, replies and breakpoints locally. Network calls, custom JavaScript and real Discord APIs are not executed in the simulator.</p>
+    <p><strong>Test</strong> runs a script against a mock interaction/message payload. It traces routing, branches, loops, variables, replies and breakpoints locally. Network calls, custom code and real Discord APIs are not executed in the simulator.</p>
+    <p>The <strong>Custom Code</strong> node accepts JavaScript or Lua. Lua is compiled at compile/export time; the generated bot still runs the same JavaScript action body, so no Lua runtime is required on the host.</p>
     <pre class="snippet">{
   "user": { "id": "123", "username": "tester" },
   "options": { "query": "hello" },

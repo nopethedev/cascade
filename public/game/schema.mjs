@@ -504,7 +504,10 @@ export function gameScript(options = {}) {
     entityId: options.entityId || '',
     enabled: options.enabled !== false,
     graph: options.graph ? clone(options.graph) : { nodes: [], edges: [] },
+    graphSnapshot: options.graphSnapshot ? clone(options.graphSnapshot) : null,
     code: String(options.code || ''),
+    lua: String(options.lua || ''),
+    jsSource: String(options.jsSource || ''),
   };
 }
 

@@ -40,6 +40,7 @@ import { allowFormSubmission } from './formRateLimit.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { readFileWithFallback } from './storage.js';
 import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
+import { photoToSvg } from './photo.js';
 import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
 import { compileFlow, singleFileExport, modularExport } from './flow/compiler.js';
@@ -1171,6 +1172,13 @@ export function createWorkspaceRouter() {
       };
     }
     if (file.kind === 'board') return { body: boardToSvg(file, content), type: 'image/svg+xml; charset=utf-8', filename: `${base}.svg` };
+    if (file.kind === 'photo') {
+      return {
+        body: photoToSvg(file, content),
+        type: 'image/svg+xml; charset=utf-8',
+        filename: `${base}.svg`,
+      };
+    }
     if (file.kind === 'pdf') return { body: await renderPdfBuffer(content, file.ownerId), type: 'application/pdf', filename: `${base}.pdf` };
     if (file.kind === 'code') {
       const active = (content.files || [])[content.active || 0] || (content.files || [])[0];
@@ -1222,7 +1230,7 @@ export function createWorkspaceRouter() {
     res.setHeader('Content-Type', out.type);
     res.setHeader('Cache-Control', 'private, no-store');
     if (out.type.startsWith('image/svg+xml')) {
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
       res.setHeader('X-Content-Type-Options', 'nosniff');
     }
     res.send(out.body);
@@ -1236,7 +1244,7 @@ export function createWorkspaceRouter() {
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(out.filename)}"`);
     if (out.type.startsWith('image/svg+xml')) {
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
       res.setHeader('X-Content-Type-Options', 'nosniff');
     }
     res.send(out.body);

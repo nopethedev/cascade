@@ -16,6 +16,7 @@ export const KINDS = [
   { id: 'roblox', label: 'Roblox place', tag: 'Studio relay + 3D', icon: 'RBX' },
   { id: 'flow', label: 'Discord bot', tag: 'Visual bot IDE', icon: 'FLOW' },
   { id: 'game', label: 'Game', tag: '2D + 3D game studio', icon: 'GAME' },
+  { id: 'photo', label: 'Photo', tag: 'Layers & PSD', icon: 'IMG' },
 ];
 
 export const CATEGORIES = ['blank', 'development', 'business', 'education', 'personal', 'blog', 'ecommerce', 'community', 'game', 'custom'];
@@ -743,7 +744,28 @@ function flowCommunity() {
   return flow;
 }
 
+const blankPhoto = (w = 1200, h = 800) => ({
+  w,
+  h,
+  background: '#ffffff',
+  layers: [],
+  activeLayerId: null,
+});
+
 TEMPLATES.push(...GAME_TEMPLATES);
+
+TEMPLATES.push(
+  { id: 'photo-blank', name: 'Blank canvas', kind: 'photo', category: 'blank', description: 'A white 1200×800 canvas with layers, brushes, shapes and PSD import.', build: () => blankPhoto() },
+  { id: 'photo-poster', name: 'Social poster', kind: 'photo', category: 'personal', description: 'A 1080×1080 canvas with a bold headline and accent shapes.', build: () => ({
+    ...blankPhoto(1080, 1080),
+    background: '#0b1220',
+    layers: [
+      { id: 'p1', name: 'Glow', type: 'ellipse', x: 80, y: 120, w: 920, h: 920, fill: '#2563eb', opacity: 0.35, blend: 'screen', visible: true },
+      { id: 'p2', name: 'Headline', type: 'text', x: 110, y: 560, w: 860, h: 150, text: 'MAKE\nSOMETHING', color: '#ffffff', size: 108, font: 'Inter', weight: 800, align: 'left', opacity: 1, blend: 'normal', visible: true },
+      { id: 'p3', name: 'Caption', type: 'text', x: 116, y: 760, w: 700, h: 60, text: 'LAYERS · MASKS · PSD · EXPORT', color: '#93c5fd', size: 28, font: 'Inter', weight: 500, align: 'left', opacity: 1, blend: 'normal', visible: true },
+    ],
+  }) },
+);
 
 TEMPLATES.push(
   { id: 'flow-blank', name: 'Blank Discord bot', kind: 'flow', category: 'blank', description: 'An empty visual bot with a ready graph and no commands.', build: () => blankFlow('My Discord Bot') },
@@ -770,6 +792,7 @@ export function buildContent(templateId, kind) {
   if (t) return t.build();
   if (kind === 'flow') return blankFlow();
   if (kind === 'game') return GAME_TEMPLATES.find((x) => x.id === 'game-blank-2d').build();
+  if (kind === 'photo') return blankPhoto();
   const blank = TEMPLATES.find((x) => x.kind === kind && x.category === 'blank');
   return blank ? blank.build() : null;
 }

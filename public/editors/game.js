@@ -105,6 +105,8 @@ function scheduleSave() {
   workspace?.schedule();
   const note = $('g-save-note');
   if (note) note.textContent = 'Unsaved';
+  const appNote = $('g-app-save');
+  if (appNote) appNote.textContent = 'Unsaved';
 }
 
 function refreshAfterChange({ rebuild = true, inspector = true } = {}) {
@@ -400,6 +402,29 @@ function draw2D() {
   draw2DGizmo();
 }
 
+const RESIZE_HANDLES = [['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]];
+
+function resizeHandles2d(item) {
+  if (!item) return [];
+  const p = screen2d(item.x, item.y);
+  const hw = (Math.abs(num(item.w, 1)) / 2) * cam2d.zoom + 3;
+  const hh = (Math.abs(num(item.h, 1)) / 2) * cam2d.zoom + 3;
+  const angle = (num(item.rotation, 0) * Math.PI) / 180;
+  return RESIZE_HANDLES.map(([name, sx, sy]) => {
+    const dx = sx * hw, dy = sy * hh;
+    return { name, x: p.x + dx * Math.cos(angle) - dy * Math.sin(angle), y: p.y + dx * Math.sin(angle) + dy * Math.cos(angle) };
+  });
+}
+
+function hitResizeHandle2d(x, y) {
+  const item = selectedEntity();
+  if (!item || project.mode !== '2d' || item.locked) return null;
+  for (const handle of resizeHandles2d(item)) {
+    if (Math.hypot(handle.x - x, handle.y - y) <= 9) return { item, handle: handle.name };
+  }
+  return null;
+}
+
 function draw2DGizmo() {
   const item = selectedEntity();
   if (!item || project.mode !== '2d') return;
@@ -412,6 +437,15 @@ function draw2DGizmo() {
     ctx2d.beginPath(); ctx2d.moveTo(p.x, p.y); ctx2d.lineTo(p.x + dx * s, p.y + dy * s); ctx2d.stroke();
     ctx2d.fillStyle = color;
     ctx2d.beginPath(); ctx2d.arc(p.x + dx * s, p.y + dy * s, 3.5, 0, Math.PI * 2); ctx2d.fill();
+  }
+  // Corner handles take priority over body dragging, so resizing never moves.
+  for (const handle of resizeHandles2d(item)) {
+    ctx2d.fillStyle = '#f8fafc';
+    ctx2d.strokeStyle = '#0b0d12';
+    ctx2d.lineWidth = 1.5;
+    ctx2d.beginPath();
+    ctx2d.rect(handle.x - 4.5, handle.y - 4.5, 9, 9);
+    ctx2d.fill(); ctx2d.stroke();
   }
   ctx2d.restore();
 }
@@ -440,6 +474,15 @@ if (canvas2d) {
       drag2d = { type: 'pan', startX: event.clientX, startY: event.clientY, camX: cam2d.x, camY: cam2d.y };
       return;
     }
+    const resize = hitResizeHandle2d(x, y);
+    if (resize) {
+      const startWorld = world2d(x, y);
+      const item = resize.item;
+      pushHistory();
+      drag2d = { type: 'resize', id: item.id, handle: resize.handle, startX: startWorld.x, startY: startWorld.y, ox: item.x, oy: item.y, ow: Math.abs(num(item.w, 1)), oh: Math.abs(num(item.h, 1)) };
+      canvas2d.style.cursor = 'nwse-resize';
+      return;
+    }
     const hit = hit2d(x, y);
     if (hit) {
       setSelected(hit.id);
@@ -453,7 +496,12 @@ if (canvas2d) {
     }
   });
   canvas2d.addEventListener('pointermove', (event) => {
-    if (!drag2d) return;
+    if (!drag2d) {
+      const rect = canvas2d.getBoundingClientRect();
+      const handle = hitResizeHandle2d(event.clientX - rect.left, event.clientY - rect.top);
+      canvas2d.style.cursor = handle ? (handle.handle === 'nw' || handle.handle === 'se' ? 'nwse-resize' : 'nesw-resize') : 'default';
+      return;
+    }
     const rect = canvas2d.getBoundingClientRect();
     if (drag2d.type === 'pan') {
       cam2d.x = drag2d.camX - (event.clientX - drag2d.startX) / cam2d.zoom;
@@ -464,6 +512,24 @@ if (canvas2d) {
     const item = findEntity(drag2d.id);
     if (!item) return;
     const point = world2d(event.clientX - rect.left, event.clientY - rect.top);
+    if (drag2d.type === 'resize') {
+      const dx = point.x - drag2d.startX;
+      const dy = point.y - drag2d.startY;
+      const east = drag2d.handle.includes('e');
+      const south = drag2d.handle.includes('s');
+      let w = drag2d.ow + (east ? dx : -dx);
+      let h = drag2d.oh + (south ? dy : -dy);
+      w = Math.max(0.1, w); h = Math.max(0.1, h);
+      if (snapEnabled) { w = Math.round(w * 4) / 4; h = Math.round(h * 4) / 4; }
+      const dw = w - drag2d.ow, dh = h - drag2d.oh;
+      item.w = w; item.h = h;
+      item.x = drag2d.ox + (east ? dw : -dw) / 2;
+      item.y = drag2d.oy + (south ? dh : -dh) / 2;
+      scheduleSave();
+      updateTransformFields(item);
+      draw2D();
+      return;
+    }
     let nx = drag2d.ox + point.x - drag2d.startX;
     let ny = drag2d.oy + point.y - drag2d.startY;
     if (snapEnabled) { nx = Math.round(nx / 8) * 8; ny = Math.round(ny / 8) * 8; }
@@ -493,7 +559,7 @@ if (canvas2d) {
 function updateTransformFields(item) {
   const host = $('g-inspector');
   if (!host || selectedId !== item.id) return;
-  for (const key of ['x', 'y', 'z', 'rotation', 'rotationX', 'rotationY', 'rotationZ']) {
+  for (const key of ['x', 'y', 'z', 'w', 'h', 'd', 'rotation', 'rotationX', 'rotationY', 'rotationZ', 'scaleX', 'scaleY', 'scaleZ']) {
     const input = host.querySelector(`[data-transform="${key}"]`);
     if (input && document.activeElement !== input) input.value = round(item[key]);
   }
@@ -580,7 +646,7 @@ function renderEntityInspector(item) {
       <div class="gs-field"><label>Layer</label><input type="number" data-entity="layer" value="${num(item.layer)}" /></div>
     </div>
     <div class="gs-insp-section"><h3>Transform</h3>${transform}</div>
-    <div class="gs-insp-section"><h3>Components <button class="gs-mini" type="button" id="g-add-component">＋ Add</button></h3>${compHtml || '<div class="gs-insp-note">No components. Add a renderer, collider or script component.</div>'}</div>
+    <div class="gs-insp-section"><h3>Components <button class="gs-mini" type="button" id="g-add-component">${window.CascadeIcons?.svg('plus') || ''} Add</button></h3>${compHtml || '<div class="gs-insp-note">No components. Add a renderer, collider or script component.</div>'}</div>
     <div class="gs-insp-section"><h3>Object</h3><div class="gs-insp-actions">
       <button class="gs-mini" type="button" data-object-action="focus">Focus</button>
       <button class="gs-mini" type="button" data-object-action="duplicate">Duplicate</button>
@@ -1359,9 +1425,19 @@ function updateSelection3D() {
     shaft.position.copy(dir.clone().multiplyScalar(0.48));
     shaft.quaternion.setFromUnitVectors(new three.Vector3(0, 1, 0), dir);
     shaft.userData.axis = axis;
-    const tip = new three.Mesh(new three.ConeGeometry(0.065, 0.2, 8), new three.MeshBasicMaterial({ color, depthTest: false }));
-    tip.position.copy(dir.clone().multiplyScalar(1.03));
-    tip.quaternion.copy(shaft.quaternion);
+    let tip;
+    if (gizmoMode === 'scale') {
+      tip = new three.Mesh(new three.BoxGeometry(0.15, 0.15, 0.15), new three.MeshBasicMaterial({ color, depthTest: false }));
+      tip.position.copy(dir.clone().multiplyScalar(1.03));
+    } else if (gizmoMode === 'rotate') {
+      tip = new three.Mesh(new three.TorusGeometry(0.12, 0.025, 6, 14), new three.MeshBasicMaterial({ color, depthTest: false }));
+      tip.position.copy(dir.clone().multiplyScalar(0.8));
+      tip.quaternion.setFromUnitVectors(new three.Vector3(0, 0, 1), dir);
+    } else {
+      tip = new three.Mesh(new three.ConeGeometry(0.065, 0.2, 8), new three.MeshBasicMaterial({ color, depthTest: false }));
+      tip.position.copy(dir.clone().multiplyScalar(1.03));
+      tip.quaternion.copy(shaft.quaternion);
+    }
     tip.userData.axis = axis;
     group.add(shaft, tip);
   }
@@ -1629,6 +1705,8 @@ function addObjectFromToolbar() {
 
 function renderAll() {
   const badge = $('g-mode-badge');
+  const topBadge = $('g-mode-badge-top');
+  if (topBadge) topBadge.textContent = project.mode === '3d' ? '3D' : '2D';
   if (badge) badge.textContent = project.mode === '3d' ? '3D' : '2D';
   const canvas2 = $('g-canvas-2d'), canvas3 = $('g-canvas-3d');
   if (canvas2) canvas2.hidden = project.mode === '3d';
@@ -1658,6 +1736,105 @@ function renderAll() {
 
 let pendingPin = null;
 let dragNode = null;
+let graphPan = null;
+const graphView = { x: 36, y: 36, zoom: 1 };
+
+function applyGraphView() {
+  const nodes = $('g-graph-nodes');
+  const edges = $('g-graph-edges');
+  const tf = `translate(${graphView.x}px, ${graphView.y}px) scale(${graphView.zoom})`;
+  if (nodes) { nodes.style.transformOrigin = '0 0'; nodes.style.transform = tf; }
+  if (edges) { edges.style.transformOrigin = '0 0'; edges.style.transform = tf; }
+  const label = $('g-graph-zoom-label');
+  if (label) label.textContent = `${Math.round(graphView.zoom * 100)}%`;
+}
+
+function startGraphPan(event) {
+  if (event.button !== 0 && event.button !== 1 && !event.shiftKey) return;
+  graphPan = { sx: event.clientX, sy: event.clientY, x: graphView.x, y: graphView.y, pointerId: event.pointerId };
+  try { $('g-graph-nodes')?.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+  event.preventDefault();
+}
+
+function fitGraph() {
+  const graph = activeScript()?.graph;
+  const wrap = $('g-graph-wrap');
+  if (!graph || !graph.nodes.length || !wrap) { graphView.x = 36; graphView.y = 36; graphView.zoom = 1; applyGraphView(); return; }
+  const minX = Math.min(...graph.nodes.map((n) => num(n.x, 40)));
+  const minY = Math.min(...graph.nodes.map((n) => num(n.y, 40)));
+  const maxX = Math.max(...graph.nodes.map((n) => num(n.x, 40) + 208));
+  const maxY = Math.max(...graph.nodes.map((n) => num(n.y, 40) + 130));
+  const rect = wrap.getBoundingClientRect();
+  const zoom = Math.max(0.35, Math.min(1.25, Math.min((rect.width - 70) / Math.max(1, maxX - minX), (rect.height - 70) / Math.max(1, maxY - minY))));
+  graphView.zoom = zoom;
+  graphView.x = 36 - minX * zoom;
+  graphView.y = 36 - minY * zoom;
+  applyGraphView();
+}
+
+function selectGraphNode(id) {
+  selectedNodeId = id;
+  selectedId = null;
+  renderGraph();
+  renderInspector();
+}
+
+function duplicateSelectedNode() {
+  const script = activeScript();
+  const node = selectedNodeId && script?.graph?.nodes?.find((n) => n.id === selectedNodeId);
+  if (!node) return;
+  pushHistory();
+  const copy = { ...JSON.parse(JSON.stringify(node)), id: gid('n'), x: num(node.x, 40) + 34, y: num(node.y, 40) + 34 };
+  script.graph.nodes.push(copy);
+  selectedNodeId = copy.id;
+  changed({ rebuild: false });
+}
+
+function disconnectNodePins(direction) {
+  const script = activeScript();
+  if (!script?.graph || !selectedNodeId) return;
+  pushHistory();
+  script.graph.edges = script.graph.edges.filter((edge) => !(direction === 'in' ? edge.to.node === selectedNodeId : edge.from.node === selectedNodeId));
+  changed({ rebuild: false });
+  toast(direction === 'in' ? 'Inputs disconnected' : 'Outputs disconnected');
+}
+
+function graphContextMenu(event) {
+  const nodeEl = event.target.closest('.gs-node');
+  const pinEl = event.target.closest('.gs-pin');
+  event.preventDefault();
+  event.stopPropagation();
+  if (pinEl) {
+    const node = activeScript()?.graph?.nodes?.find((n) => n.id === pinEl.dataset.node);
+    if (!node) return;
+    selectGraphNode(node.id);
+    if (pinEl.dataset.dir === 'out') {
+      return showGameMenu([
+        { label: 'Start connection', action: () => { pendingPin = { node: node.id, pin: pinEl.dataset.pin }; renderGraph(); toast('Click an input pin to connect', false); } },
+        { label: 'Disconnect outputs', action: () => disconnectNodePins('out') },
+      ], event.clientX, event.clientY);
+    }
+    return showGameMenu([
+      { label: pendingPin ? 'Connect here' : 'Disconnect input', action: () => { if (pendingPin) { connectPins(pendingPin, { node: node.id, pin: pinEl.dataset.pin }); pendingPin = null; renderGraph(); } else disconnectNodePins('in'); } },
+    ], event.clientX, event.clientY);
+  }
+  if (nodeEl) {
+    selectGraphNode(nodeEl.dataset.nodeId);
+    return showGameMenu([
+      { label: 'Duplicate node', action: duplicateSelectedNode },
+      { label: 'Disconnect inputs', action: () => disconnectNodePins('in') },
+      { label: 'Disconnect outputs', action: () => disconnectNodePins('out') },
+      '-',
+      { label: 'Add node…', action: openNodeLibrary },
+      { label: 'Delete node', danger: true, shortcut: 'Del', action: deleteSelectedNode },
+    ], event.clientX, event.clientY);
+  }
+  showGameMenu([
+    { label: 'Add node…', shortcut: 'A', action: openNodeLibrary },
+    { label: 'Fit graph', action: fitGraph },
+    { label: 'Reset zoom', action: () => { graphView.zoom = 1; graphView.x = 36; graphView.y = 36; applyGraphView(); } },
+  ], event.clientX, event.clientY);
+}
 
 function nodeWidth() { return 208; }
 
@@ -1716,6 +1893,7 @@ function renderGraph() {
     const pin = (def?.outputs || []).find((entry) => entry.id === edge.from.pin);
     return `<path data-edge="${esc(edge.id)}" class="${pin?.kind === 'exec' ? 'exec' : ''}" d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
   }).join('');
+  applyGraphView();
 }
 
 $('g-graph-nodes')?.addEventListener('pointerdown', (event) => {
@@ -1737,7 +1915,7 @@ $('g-graph-nodes')?.addEventListener('pointerdown', (event) => {
     return;
   }
   const head = event.target.closest('[data-node-drag]');
-  if (!head) return;
+  if (!head) { startGraphPan(event); return; }
   const node = activeScript()?.graph?.nodes?.find((entry) => entry.id === head.dataset.nodeDrag);
   if (!node) return;
   selectedNodeId = node.id;
@@ -1751,18 +1929,38 @@ $('g-graph-nodes')?.addEventListener('pointerdown', (event) => {
 });
 
 $('g-graph-nodes')?.addEventListener('pointermove', (event) => {
+  if (graphPan) {
+    graphView.x = graphPan.x + (event.clientX - graphPan.sx);
+    graphView.y = graphPan.y + (event.clientY - graphPan.sy);
+    applyGraphView();
+    return;
+  }
   if (!dragNode) return;
   const node = activeScript()?.graph?.nodes?.find((entry) => entry.id === dragNode.id);
   if (!node) return;
-  node.x = Math.max(0, dragNode.x + (event.clientX - dragNode.startX));
-  node.y = Math.max(0, dragNode.y + (event.clientY - dragNode.startY));
+  node.x = Math.max(0, dragNode.x + (event.clientX - dragNode.startX) / graphView.zoom);
+  node.y = Math.max(0, dragNode.y + (event.clientY - dragNode.startY) / graphView.zoom);
   const el = $('g-graph-nodes').querySelector(`[data-node-id="${CSS.escape(node.id)}"]`);
   if (el) { el.style.left = `${node.x}px`; el.style.top = `${node.y}px`; }
   renderGraph();
   scheduleSave();
 });
-$('g-graph-nodes')?.addEventListener('pointerup', () => { if (dragNode) { dragNode = null; refreshAfterChange({ rebuild: false, inspector: false }); } });
-$('g-graph-nodes')?.addEventListener('pointercancel', () => { dragNode = null; });
+$('g-graph-nodes')?.addEventListener('pointerup', () => {
+  if (graphPan) { graphPan = null; return; }
+  if (dragNode) { dragNode = null; refreshAfterChange({ rebuild: false, inspector: false }); }
+});
+$('g-graph-nodes')?.addEventListener('pointercancel', () => { dragNode = null; graphPan = null; });
+$('g-graph-wrap')?.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  const rect = $('g-graph-wrap').getBoundingClientRect();
+  const mx = event.clientX - rect.left, my = event.clientY - rect.top;
+  const next = Math.max(0.25, Math.min(2.5, graphView.zoom * (event.deltaY > 0 ? 0.9 : 1.1)));
+  graphView.x = mx - ((mx - graphView.x) * next) / graphView.zoom;
+  graphView.y = my - ((my - graphView.y) * next) / graphView.zoom;
+  graphView.zoom = next;
+  applyGraphView();
+}, { passive: false });
+$('g-graph-wrap')?.addEventListener('contextmenu', graphContextMenu);
 
 function connectPins(from, to) {
   const script = activeScript();
@@ -1845,34 +2043,128 @@ function deleteSelectedNode() {
 
 $('g-add-node')?.addEventListener('click', openNodeLibrary);
 $('g-delete-node')?.addEventListener('click', deleteSelectedNode);
-$('g-fit-graph')?.addEventListener('click', () => {
-  const wrap = $('g-graph-wrap');
-  wrap.scrollLeft = 0; wrap.scrollTop = 0;
-});
+$('g-fit-graph')?.addEventListener('click', fitGraph);
 $('g-node-clear')?.addEventListener('click', () => { const input = $('g-node-search'); if (input) { input.value = ''; input.dispatchEvent(new Event('input')); } });
 $('g-add-node')?.addEventListener('dblclick', (event) => event.preventDefault());
 
 /* ---------------- code editor ---------------- */
 
+function luaSource(script) { return String(script?.lua ?? script?.code ?? ''); }
+function activeCodeSource(script) { return script?.language === 'lua' ? luaSource(script) : String(script?.code || ''); }
+
 function renderCode() {
   const script = activeScript();
   const textarea = $('g-code');
-  const code = script?.type === 'code' ? script.code : '';
-  if (textarea && document.activeElement !== textarea) textarea.value = script?.type === 'code' ? code : 'Select a JavaScript script to edit code, or add one from the Scripts panel.';
+  const isCode = script?.type === 'code';
+  const source = isCode ? activeCodeSource(script) : '';
+  if (textarea && document.activeElement !== textarea) textarea.value = isCode ? source : 'Select a code script to edit, or convert a visual script to Lua.';
   if (monacoEditor) {
     const current = monacoEditor.getValue();
-    if (script?.type === 'code' && current !== script.code) monacoEditor.setValue(script.code || '');
+    if (isCode && current !== source) monacoEditor.setValue(source);
+    if (isCode && monacoEditor.getModel()) monaco.editor.setModelLanguage(monacoEditor.getModel(), script.language === 'lua' ? 'lua' : 'javascript');
   }
+  const lang = $('g-code-language');
+  if (lang) lang.value = script?.language === 'lua' ? 'lua' : 'javascript';
+  const hint = $('g-code-hint');
+  if (hint) hint.textContent = script?.language === 'lua' ? (script.luaError ? `Lua error: ${script.luaError}` : 'Lua compiles to the same runtime.') : 'JavaScript runs in the sandboxed runtime.';
   const wrap = $('g-code-wrap');
-  if (wrap) wrap.dataset.language = script?.type === 'code' ? script.language || 'javascript' : 'text';
+  if (wrap) wrap.dataset.language = isCode ? script.language || 'javascript' : 'text';
   const head = $('g-graph-tools');
   if (head) head.style.display = activeTab === 'graph' ? 'inline-flex' : 'none';
+}
+
+function convertVisualToLua() {
+  const script = activeScript();
+  if (!script || script.type !== 'visual' || !window.CascadeLua) return toast('Select a visual script first.', true);
+  if (!editable) return;
+  const result = window.CascadeLua.graphToLua(script, gameNodeDef);
+  const compiled = window.CascadeLua.compile(result.code, { lifecycle: true });
+  if (!compiled.ok) return toast(`Lua conversion failed: ${compiled.error}`, true);
+  pushHistory();
+  script.graphSnapshot = clone(script.graph);
+  script.type = 'code';
+  script.language = 'lua';
+  script.lua = result.code;
+  script.code = compiled.code;
+  script.luaError = '';
+  changed({ rebuild: false });
+  selectScript(script.id);
+  setTab('code');
+  toast(result.skipped.length ? `Converted to Lua · skipped ${result.skipped.join(', ')}` : 'Converted visual graph to Lua', false);
+}
+
+function convertLuaToVisual() {
+  const script = activeScript();
+  if (!script || script.type !== 'code' || script.language !== 'lua') return toast('Select a Lua script first.', true);
+  if (!editable) return;
+  if (!script.graphSnapshot) return toast('This Lua script has no visual graph. Convert a visual script first, or keep coding in Lua.', true);
+  pushHistory();
+  script.graph = script.graphSnapshot;
+  script.graphSnapshot = null;
+  script.type = 'visual';
+  script.language = 'javascript';
+  script.code = '';
+  script.lua = '';
+  script.luaError = '';
+  selectedNodeId = null;
+  changed({ rebuild: false });
+  selectScript(script.id);
+  setTab('graph');
+  toast('Restored the visual graph (Lua edits are not applied)', false);
+}
+
+function changeCodeLanguage(event) {
+  const script = activeScript();
+  if (!script || script.type !== 'code' || !editable) return;
+  const next = event.target.value === 'lua' ? 'lua' : 'javascript';
+  if (next === script.language) return;
+  pushHistory();
+  if (next === 'lua') {
+    script.jsSource = script.code;
+    script.language = 'lua';
+    if (!script.lua) script.lua = '';
+    applyLuaSource(script, script.lua);
+  } else {
+    script.language = 'javascript';
+    script.code = script.jsSource || script.code;
+  }
+  scheduleSave();
+  renderCode();
+  toast(next === 'lua' ? 'Lua mode — write a Lua script' : 'JavaScript mode');
+}
+
+// Delegated so the listeners survive the bottom panel being re-rendered.
+document.addEventListener('click', (event) => {
+  if (event.target.closest('#g-convert-lua')) convertVisualToLua();
+  else if (event.target.closest('#g-convert-nodes')) convertLuaToVisual();
+});
+document.addEventListener('change', (event) => {
+  if (event.target.id === 'g-code-language') changeCodeLanguage(event);
+});
+
+function applyLuaSource(script, source) {
+  const result = window.CascadeLua?.compile(source, { lifecycle: true });
+  script.lua = source;
+  if (result?.ok) {
+    script.code = result.code;
+    script.luaError = '';
+  } else {
+    script.luaError = result?.error || 'Lua compiler unavailable';
+  }
+  const hint = $('g-code-hint');
+  if (hint) hint.textContent = script.luaError ? `Lua error: ${script.luaError}` : 'Lua compiles to the same runtime.';
+  return result;
 }
 
 $('g-code')?.addEventListener('input', (event) => {
   const script = activeScript();
   if (!script || script.type !== 'code' || !editable) return;
-  script.code = event.target.value;
+  if (script.language === 'lua') {
+    const result = applyLuaSource(script, event.target.value);
+    if (result && !result.ok) logConsole(result.error, 'error');
+  } else {
+    script.code = event.target.value;
+  }
   scheduleSave();
   clearTimeout(codeTimer);
   codeTimer = setTimeout(() => refreshAfterChange({ rebuild: false, inspector: false }), 250);
@@ -1908,14 +2200,18 @@ async function openMonaco() {
   window.MonacoEnvironment = window.MonacoEnvironment || { getWorkerUrl: () => '/public/vendor/monaco/vs/editorWorkerHost-B_VpI68A.js' };
   const script = activeScript();
   monacoEditor = m.editor.create($('g-monaco'), {
-    value: script?.type === 'code' ? script.code || '' : '',
-    language: script?.language === 'typescript' ? 'typescript' : 'javascript',
+    value: script?.type === 'code' ? activeCodeSource(script) : '',
+    language: script?.language === 'lua' ? 'lua' : script?.language === 'typescript' ? 'typescript' : 'javascript',
     theme: 'vs-dark', automaticLayout: true, minimap: { enabled: false }, fontSize: 12, lineHeight: 19,
     scrollBeyondLastLine: false, tabSize: 2, padding: { top: 8 },
   });
   monacoEditor.onDidChangeModelContent(() => {
     const current = activeScript();
-    if (current?.type === 'code' && editable) { current.code = monacoEditor.getValue(); scheduleSave(); }
+    if (current?.type === 'code' && editable) {
+      const value = monacoEditor.getValue();
+      if (current.language === 'lua') applyLuaSource(current, value); else current.code = value;
+      scheduleSave();
+    }
   });
   const ta = $('g-code');
   if (ta) ta.style.display = 'none';
@@ -1981,8 +2277,8 @@ function setPlayingUI(on) {
   $('g-pause').disabled = !on;
   $('g-step').disabled = !on;
   $('g-stop').disabled = !on;
-  $('g-play').innerHTML = on ? '▶ <span>Playing</span>' : '▶ <span>Play</span>';
-  if (!on) { paused = false; $('g-pause').textContent = '⏸'; $('g-play-pause').textContent = 'Pause'; }
+  $('g-play').innerHTML = `${window.CascadeIcons?.svg('play') || ''}<span>${on ? 'Playing' : 'Play'}</span>`;
+  if (!on) { paused = false; $('g-pause').innerHTML = window.CascadeIcons?.svg('pause') || ''; $('g-play-pause').textContent = 'Pause'; }
 }
 
 async function startPlay() {
@@ -2020,7 +2316,7 @@ function togglePause() {
   if (!playing) return;
   paused = !paused;
   controlPlay(paused ? 'pause' : 'resume');
-  $('g-pause').textContent = paused ? '▶' : '⏸';
+  $('g-pause').innerHTML = window.CascadeIcons?.svg(paused ? 'play' : 'pause') || '';
   $('g-play-pause').textContent = paused ? 'Resume' : 'Pause';
   $('g-play-stats').textContent = paused ? 'Paused' : 'Running the real runtime';
 }
@@ -2040,8 +2336,8 @@ window.addEventListener('message', (event) => {
   const type = data.type.replace(/^cascade-game:/, '');
   if (type === 'console') logConsole(data.message, data.level === 'warn' ? 'warn' : data.level === 'error' ? 'error' : 'log');
   if (type === 'ready') { $('g-play-stats').textContent = 'Running · ' + (data.mode || project.mode).toUpperCase(); }
-  if (type === 'paused') { paused = true; $('g-pause').textContent = '▶'; $('g-play-pause').textContent = 'Resume'; }
-  if (type === 'resumed') { paused = false; $('g-pause').textContent = '⏸'; $('g-play-pause').textContent = 'Pause'; }
+  if (type === 'paused') { paused = true; $('g-pause').innerHTML = window.CascadeIcons?.svg('play') || ''; $('g-play-pause').textContent = 'Resume'; }
+  if (type === 'resumed') { paused = false; $('g-pause').innerHTML = window.CascadeIcons?.svg('pause') || ''; $('g-play-pause').textContent = 'Pause'; }
   if (type === 'profiler') {
     const sim = $('g-prof-sim');
     if (sim) sim.textContent = `runtime fps: ${data.fps || '—'}\nentities: ${data.entities || 0}\nphysics bodies: ${data.bodies || 0}\nscripts: ${data.scripts || 0}\nscript ms: ${data.scriptMs || 0}`;
@@ -2065,11 +2361,17 @@ async function exportGame(mode) {
   if (mode === 'publish') {
     try {
       const published = await apiJson(`/api/workspace/docs/${DOC.id}/publish`, { method: 'POST', body: JSON.stringify({ content: project }) });
-      if (status) { status.className = 'gs-export-status ok'; status.innerHTML = `Published at <a href="${esc(published.url)}" target="_blank" rel="noopener">${esc(published.url)}</a>`; }
+      const absolute = new URL(published.url, location.origin).href;
+      if (status) { status.className = 'gs-export-status ok'; status.innerHTML = `Published at <a href="${esc(absolute)}" target="_blank" rel="noopener">${esc(absolute)}</a>`; }
       const urlNode = $('g-publish-url');
-      if (urlNode) { urlNode.textContent = published.url; urlNode.dataset.url = published.url; }
+      if (urlNode) { urlNode.textContent = published.url; urlNode.dataset.url = absolute; }
+      const link = $('g-publish-link');
+      if (link) link.value = absolute;
+      const open = $('g-open-publish');
+      if (open) open.href = absolute;
+      if ($('g-publish-dialog')) $('g-publish-dialog').showModal();
       toast('Game published');
-      logConsole(`Published ${published.url}`);
+      logConsole(`Published ${absolute}`);
     } catch (error) {
       if (status) { status.className = 'gs-export-status bad'; status.textContent = error.message; }
       toast(error.message, true);
@@ -2121,6 +2423,7 @@ document.querySelectorAll('.gs-tab').forEach((button) => button.addEventListener
 document.querySelectorAll('[data-gizmo]').forEach((button) => button.addEventListener('click', () => {
   gizmoMode = button.dataset.gizmo;
   document.querySelectorAll('[data-gizmo]').forEach((el) => el.classList.toggle('on', el === button));
+  if (project.mode === '3d') updateSelection3D();
 }));
 document.querySelectorAll('[data-view]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
 $('g-bottom-toggle')?.addEventListener('click', () => $('g-bottom')?.classList.toggle('collapsed'));
@@ -2128,6 +2431,48 @@ $('g-toggle-left')?.addEventListener('click', () => { const left = document.quer
 $('g-toggle-right')?.addEventListener('click', () => { const left = document.querySelector('.gs-left'); const right = document.querySelector('.gs-right'); right?.classList.toggle('open'); left?.classList.remove('open'); });
 $('g-collapse-left')?.addEventListener('click', () => $('game-studio')?.classList.toggle('gs-collapse-left'));
 $('g-inspector-mode') && ($('g-inspector-mode').textContent = 'Object');
+
+function openProjectSettings() {
+  inspectorMode = 'project';
+  const modeButton = $('g-inspector-mode');
+  if (modeButton) modeButton.textContent = 'Project';
+  document.querySelector('.gs-right')?.classList.add('open');
+  renderInspector();
+}
+
+$('g-graph-zoom-in')?.addEventListener('click', () => { graphView.zoom = Math.min(2.5, graphView.zoom * 1.15); applyGraphView(); });
+$('g-graph-zoom-out')?.addEventListener('click', () => { graphView.zoom = Math.max(0.25, graphView.zoom / 1.15); applyGraphView(); });
+$('g-graph-zoom-label')?.addEventListener('click', () => { graphView.zoom = 1; applyGraphView(); });
+$('g-copy-publish')?.addEventListener('click', async () => {
+  const value = $('g-publish-link')?.value || '';
+  try { await navigator.clipboard.writeText(value); toast('Playable link copied'); }
+  catch { $('g-publish-link')?.select(); document.execCommand('copy'); toast('Playable link copied'); }
+});
+
+document.addEventListener('cascade:menu', (event) => {
+  const action = event.detail?.action;
+  switch (action) {
+    case 'save': $('btn-save')?.click(); break;
+    case 'history': $('btn-versions')?.click(); break;
+    case 'share': $('btn-share')?.click(); break;
+    case 'compile': compileProject(); break;
+    case 'publish': exportGame('publish'); break;
+    case 'export-html': exportGame('html'); break;
+    case 'export-zip': exportGame('zip'); break;
+    case 'settings': openProjectSettings(); break;
+    case 'undo': undo(); break;
+    case 'redo': redo(); break;
+    case 'duplicate': selectedNodeId ? duplicateSelectedNode() : duplicateSelection(); break;
+    case 'delete': selectedNodeId ? deleteSelectedNode() : deleteSelection(); break;
+    case 'toggle-left': $('g-toggle-left')?.click(); break;
+    case 'toggle-right': $('g-toggle-right')?.click(); break;
+    case 'toggle-bottom': $('g-bottom-toggle')?.click(); break;
+    case 'fit-graph': setTab('graph'); fitGraph(); break;
+    case 'fullscreen': $('g-fullscreen')?.click(); break;
+    case 'shortcuts': toast('W/E/R gizmos · F focus · P play · Ctrl+Enter compile · drag empty graph to pan · wheel to zoom'); break;
+    default: break;
+  }
+});
 
 window.addEventListener('keydown', (event) => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || $('g-node-dialog')?.open || $('g-export-dialog')?.open) return;
@@ -2151,7 +2496,10 @@ new ResizeObserver(() => {
 
 const saveWatcher = $('save-status');
 if (saveWatcher) {
-  new MutationObserver(() => { const note = $('g-save-note'); if (note) note.textContent = saveWatcher.textContent || 'Ready'; }).observe(saveWatcher, { childList: true, characterData: true, subtree: true });
+  new MutationObserver(() => {
+    const note = $('g-save-note'); if (note) note.textContent = saveWatcher.textContent || 'Ready';
+    const appNote = $('g-app-save'); if (appNote) appNote.textContent = saveWatcher.textContent || 'Ready';
+  }).observe(saveWatcher, { childList: true, characterData: true, subtree: true });
 }
 
 if (!editable) {
@@ -2353,6 +2701,9 @@ $('g-scripts')?.addEventListener('contextmenu', (event) => {
       script.enabled = script.enabled === false;
       changed({ rebuild: false, history: false });
     } },
+    '-',
+    { label: 'Convert visual → Lua', disabled: !editable || script.type !== 'visual', action: convertVisualToLua },
+    { label: 'Restore visual graph', disabled: !editable || script.type !== 'code' || script.language !== 'lua', action: convertLuaToVisual },
     '-',
     { label: 'Delete script', danger: true, disabled: !editable || project.scripts.length <= 1, action: () => {
       pushHistory();

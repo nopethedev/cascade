@@ -347,7 +347,10 @@ export const NODE_LIBRARY = [
   node('custom-code', 'Custom JavaScript', 'Logic', 'script.custom', {
     special: 'data', icon: 'JS', inputs: [pin('args', 'Arguments', 'json')],
     outputs: [pin('result', 'Result', 'any')],
-    fields: [field('code', 'Async function body', 'textarea', { rows: 9, code: true, default: 'return { result: args };', warn: 'Runs with full server access when the exported bot runs.' })],
+    fields: [
+      field('language', 'Language', 'select', { options: ['javascript', 'lua'], default: 'javascript' }),
+      field('code', 'Async function body', 'textarea', { rows: 9, code: true, default: 'return { result: args };', warn: 'Runs with full server access when the exported bot runs.' }),
+    ],
   }),
 
   // --------------------------------------------------------------------- data

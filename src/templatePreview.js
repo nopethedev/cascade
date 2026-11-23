@@ -1,4 +1,5 @@
 import { computeSheet } from './formula.js';
+import { photoToSvg } from './photo.js';
 import { renderSiteBody, siteCss } from '../public/site-render.mjs';
 
 const esc = (value) =>
@@ -197,7 +198,14 @@ function flowPreview(content) {
   </div>`;
 }
 
+function photoPreview(content) {
+  const svg = photoToSvg({ filename: 'preview' }, content || {});
+  const uri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+  return `<div class="photo-preview"><img src="${uri}" alt="Photo document preview" /></div>`;
+}
+
 export function templatePreviewBody(kind, content) {
+  if (kind === 'photo') return photoPreview(content);
   if (kind === 'flow') return flowPreview(content || {});
   if (kind === 'game') return gamePreview(content || {});
   if (kind === 'roblox') return robloxPreview(content || {});
@@ -318,6 +326,8 @@ export function templatePreviewDocument({ kind, content, title, theme }) {
   .rbx-tree span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:3px 5px; border-radius:3px; color:#b8b8c5; font-size:9px; }
   .rbx-tree i { display:inline-block; width:21px; color:#f59e0b; font:700 7px ui-monospace,monospace; font-style:normal; }
   .rbx-tree em { color:#777; font-size:9px; }
+  .photo-preview { height:100vh; display:grid; place-items:center; background:#0a0b0f; padding:18px; }
+  .photo-preview img { max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 24px 70px rgba(0,0,0,.6); }
   .flow-preview { height:100vh; display:flex; flex-direction:column; background:#09090c; color:#f4f4f5; font-family:Inter,system-ui,sans-serif; overflow:hidden; }
   .flp-head { padding:13px 16px; border-bottom:1px solid rgba(255,255,255,.08); display:flex; justify-content:space-between; align-items:center; gap:8px; }
   .flp-kicker { font:700 8px/1 ui-monospace,monospace; letter-spacing:.1em; color:#f472b6; }
