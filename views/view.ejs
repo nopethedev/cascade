@@ -8,6 +8,7 @@
   const size = prettyBytes(file.size);
   const copies = (file.replicas || []).length;
   const created = new Date(file.createdAt);
+  const isPptx = /\.pptx$/i.test(file.filename) || /presentationml\.presentation/i.test(mime);
 %>
 
 <a class="back" href="/">← All files</a>
@@ -19,6 +20,9 @@
     <p class="lede"><%= mime %> · <%= size %> · stored on <%= copies %> node<%= copies === 1 ? '' : 's' %></p>
   </div>
   <div class="actions">
+    <% if (isPptx) { %>
+      <button class="btn" type="button" onclick="cascadeImportDeck('<%= file.id %>', this)">Edit as presentation</button>
+    <% } %>
     <a class="btn" href="/f/<%= file.id %>/raw">Download</a>
     <% if (file.isPublic) { %>
       <button class="btn btn-ghost" type="button" onclick="cascadeToggleShare('<%= file.id %>', false)">Make private</button>
@@ -49,7 +53,7 @@
             <div class="preview-none">
               <span class="file-ico"><%= ext %></span>
               <strong>No inline preview</strong>
-              <span>Download the file to open it locally.</span>
+              <span><% if (isPptx) { %>Convert this presentation to slides and edit it in your workspace, or download the original.<% } else { %>Download the file to open it locally.<% } %></span>
             </div>
           <% } %>
         </div>

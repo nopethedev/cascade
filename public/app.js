@@ -169,6 +169,8 @@ async function cascadeUpload(form, statusEl) {
     });
 
     const uploaded = result.files || [];
+    const notices = uploaded.filter((f) => f.notice).map((f) => `${f.filename}: ${f.notice}`);
+    if (notices.length) toast(notices.join(' · '));
     const failed = uploaded.filter((f) => f.error);
     if (failed.length) {
       setStatus(`Uploaded ${uploaded.length - failed.length}, skipped ${failed.length}.`);
@@ -177,10 +179,33 @@ async function cascadeUpload(form, statusEl) {
     }
     setStatus(`Uploaded ${uploaded.length} file${uploaded.length === 1 ? '' : 's'}.`);
     toast('Upload complete');
-    setTimeout(() => location.reload(), 650);
+    // Leave import notices on screen long enough to read before refreshing.
+    setTimeout(() => location.reload(), notices.length ? 4000 : 650);
   } catch (err) {
     setStatus('Upload failed.');
     toast(err.message, 'bad');
+  }
+}
+
+// Convert an uploaded .pptx blob into an editable presentation. The original
+// file stays in place; the editor opens the converted copy.
+async function cascadeImportDeck(id, button) {
+  if (button) {
+    button.disabled = true;
+    button.dataset.label = button.textContent;
+    button.textContent = 'Importing…';
+  }
+  try {
+    const result = await api(`/api/files/${id}/import-deck`, { method: 'POST' });
+    const count = Number(result.slides) || 0;
+    toast(result.notice || `Imported ${count} slide${count === 1 ? '' : 's'} — opening the editor`);
+    setTimeout(() => { location.href = result.url || `/edit/${result.id}`; }, 450);
+  } catch (err) {
+    toast(err.message, 'bad');
+    if (button) {
+      button.disabled = false;
+      button.textContent = button.dataset.label || 'Edit as presentation';
+    }
   }
 }
 
@@ -325,6 +350,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 window.cascadeUpload = cascadeUpload;
+window.cascadeImportDeck = cascadeImportDeck;
 window.cascadeToggleShare = cascadeToggleShare;
 window.cascadeDelete = cascadeDelete;
 window.cascadeRename = cascadeRename;

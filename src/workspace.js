@@ -40,6 +40,7 @@ import { allowFormSubmission } from './formRateLimit.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
 import { readFileWithFallback } from './storage.js';
 import { docToDocx, sheetToXlsx, deckToPptx, inlineImageSource } from './office.js';
+import { pptxToDeck } from './pptx-import.js';
 import { photoToSvg } from './photo.js';
 import { PDFDocument as ServerPDF, rgb } from 'pdf-lib';
 import JSZip from 'jszip';
@@ -1145,10 +1146,70 @@ export function createWorkspaceRouter() {
     return Buffer.from(await doc.save());
   }
 
+  // Turn an already-uploaded .pptx blob into an editable presentation without
+  // touching the original file. This is the recovery path for files uploaded
+  // before uploads converted presentations automatically.
+  r.post('/api/files/:id/import-deck', requireLogin, wrap(async (req, res) => {
+    const file = await FileRecord.findByPk(req.params.id);
+    if (!file || (file.ownerId !== req.user.id && req.user.role !== 'admin')) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    if (!/\.pptx$/i.test(file.filename || '')) {
+      return res.status(400).json({ error: 'Only .pptx files can be imported as presentations.' });
+    }
+    let imported;
+    try {
+      const { buffer } = await readFileWithFallback(file);
+      imported = await pptxToDeck(buffer);
+    } catch (err) {
+      return res.status(422).json({ error: err.message || 'Could not read this presentation.' });
+    }
+    const serialized = JSON.stringify(imported.content);
+    const bytes = Buffer.byteLength(serialized);
+    if (bytes > MAX_CONTENT) return res.status(413).json({ error: 'The presentation is too large to import.' });
+
+    const me = await User.findByPk(req.user.id);
+    const owned = await FileRecord.findAll({ where: { ownerId: file.ownerId }, attributes: ['size', 'filename'] });
+    const used = owned.reduce((sum, row) => sum + (Number(row.size) || 0), 0);
+    if (used + bytes > (Number(me?.quotaBytes) || 0)) return res.status(413).json({ error: 'Not enough storage left to import this presentation.' });
+
+    const base = String(file.filename).replace(/\.pptx$/i, '');
+    const taken = new Set(owned.map((row) => row.filename));
+    let filename = `${base}.pptx`;
+    for (let n = 2; taken.has(filename); n += 1) filename = `${base} (${n}).pptx`;
+
+    const deck = await FileRecord.create({
+      id: nanoid(12),
+      slug: nanoid(10),
+      filename,
+      mime: 'application/x-cascade-deck',
+      size: bytes,
+      ownerId: file.ownerId,
+      ownerName: file.ownerName,
+      isPublic: false,
+      replicas: [],
+      content: serialized,
+      kind: 'deck',
+      folderId: file.folderId || null,
+    });
+    res.json({
+      ok: true,
+      id: deck.id,
+      url: `/edit/${deck.id}`,
+      slides: imported.slides,
+      ...(imported.skippedImages
+        ? { notice: `${imported.skippedImages} image${imported.skippedImages === 1 ? ' was' : 's were'} too large to import.` }
+        : {}),
+    });
+  }));
+
   // ---------- Export ----------
   async function exportPayload(file) {
     const content = parseContent(file);
-    const base = String(file.filename || 'document').replace(/[^\w.-]+/g, '-').replace(/\.pdf$/i, '');
+    // Strip the extension the export is about to add, so re-exporting an
+    // imported Quarterly.pptx produces Quarterly.docx/.xlsx/.pptx rather than
+    // Quarterly.pptx.pptx.
+    const base = String(file.filename || 'document').replace(/[^\w.-]+/g, '-').replace(/\.(pdf|docx?|xlsx?|pptx?)$/i, '');
     const resolveImage = (src) => resolveDocImage(src, file.ownerId);
     if (file.kind === 'doc') {
       return {

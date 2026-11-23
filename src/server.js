@@ -18,6 +18,7 @@ import { nodeStat } from './nodeClient.js';
 import { recordEvent, analyticsSummary } from './analytics.js';
 import { extractApiToken, authenticateApiKey, createApiKey, listApiKeys, revokeApiKey } from './apiKeys.js';
 import { createWorkspaceRouter } from './workspace.js';
+import { pptxToDeck } from './pptx-import.js';
 import { createImageRouter } from './images.js';
 import { createMcpRouter } from './mcp.js';
 import { KIND_BY_ID, KINDS } from './templates.js';
@@ -553,6 +554,60 @@ export function createMainApp() {
     let uploadedBytes = 0;
     for (const f of req.files || []) {
       const originalName = decodeUploadFilename(f.originalname);
+      // A .pptx is not useful as an opaque blob: convert it to an editable
+      // presentation so uploading and editing are the same action. If the
+      // import fails (or the result is too large to save) the original file is
+      // stored normally and the reason is returned as a notice.
+      let importNotice = '';
+      const isPptx = /\.pptx$/i.test(originalName) || /presentationml\.presentation/i.test(String(f.mimetype || ''));
+      if (isPptx) {
+        try {
+          const imported = await pptxToDeck(f.buffer);
+          const serialized = JSON.stringify(imported.content);
+          const bytes = Buffer.byteLength(serialized);
+          if (used + bytes > (Number(me.quotaBytes) || 0)) {
+            results.push({ filename: originalName, error: 'quota exceeded' });
+            continue;
+          }
+          if (bytes <= 11 * 1024 * 1024) {
+            const id = nanoid(12);
+            const slug = nanoid(10);
+            const filename = uniqueFileName(originalName, takenNames);
+            takenNames.push(filename);
+            await FileRecord.create({
+              id,
+              slug,
+              filename,
+              mime: 'application/x-cascade-deck',
+              size: bytes,
+              ownerId: me.id,
+              ownerName: me.username,
+              isPublic: false,
+              replicas: [],
+              content: serialized,
+              kind: 'deck',
+              folderId: folder?.id || null,
+            });
+            used += bytes;
+            uploadedBytes += bytes;
+            results.push({
+              filename,
+              id,
+              slug,
+              kind: 'deck',
+              imported: true,
+              folderId: folder?.id || null,
+              ...(imported.skippedImages
+                ? { notice: `${imported.skippedImages} image${imported.skippedImages === 1 ? ' was' : 's were'} too large to import.` }
+                : {}),
+            });
+            continue;
+          }
+          importNotice = 'The presentation is too large to import; the original file was kept.';
+        } catch (err) {
+          importNotice = `Could not read this presentation (${err.message}); the original file was kept.`;
+        }
+      }
       if (used + f.size > (Number(me.quotaBytes) || 0)) {
         results.push({ filename: originalName, error: 'quota exceeded' });
         continue;
@@ -590,7 +645,7 @@ export function createMainApp() {
       });
       used += f.size;
       uploadedBytes += f.size;
-      results.push({ filename, id, slug, replicas: stored, folderId: folder?.id || null });
+      results.push({ filename, id, slug, replicas: stored, folderId: folder?.id || null, ...(importNotice ? { notice: importNotice } : {}) });
     }
     if (uploadedBytes) recordEvent(req, 'upload', { bytes: uploadedBytes });
     res.json({ ok: true, files: results, targets: targets.map((t) => t.id) });
