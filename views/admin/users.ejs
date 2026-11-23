@@ -35,8 +35,9 @@
         </select>
       </div>
       <div class="field">
-        <label class="label" for="nq">Quota (GB)</label>
-        <input id="nq" name="quotaGB" type="number" min="1" value="5" />
+        <label class="label" for="nq">Quota (MB)</label>
+        <input id="nq" name="quotaMB" type="number" min="1" step="1" value="5120" inputmode="numeric" />
+        <div class="hint">100 MB = 0.1 GB. Fractions are allowed, e.g. 102.4 MB.</div>
       </div>
       <div class="span-2"><button class="btn" type="submit">Create user</button></div>
     </form>
@@ -61,7 +62,7 @@
             <td>
               <div class="meter-row" style="font-size:12px;margin-bottom:6px">
                 <span><%= (u.used / 1048576).toFixed(1) %> MB</span>
-                <span><%= (u.quotaBytes / 1073741824).toFixed(1) %> GB</span>
+                <span><%= prettyBytes(u.quotaBytes) %></span>
               </div>
               <div class="meter"><div class="meter-fill" style="width:<%= pct %>%"></div></div>
             </td>
@@ -69,7 +70,7 @@
             <td>
               <div class="row" style="justify-content:flex-end;gap:6px">
                 <form method="post" action="/admin/users/<%= u.id %>/quota" class="row" style="gap:6px">
-                  <input name="quotaGB" type="number" min="1" value="<%= Math.round(u.quotaBytes / 1073741824) %>" style="width:62px;height:30px" title="Quota in GB" aria-label="Quota in GB for <%= u.username %>" />
+                  <input name="quotaMB" type="number" min="1" step="0.1" value="<%= Number((u.quotaBytes / 1048576).toFixed(1)) %>" style="width:86px;height:30px" title="Quota in MB" aria-label="Quota in MB for <%= u.username %>" inputmode="decimal" />
                   <select name="role" style="width:86px;height:30px" aria-label="Role for <%= u.username %>">
                     <option value="user" <%= u.role === 'user' ? 'selected' : '' %>>user</option>
                     <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>admin</option>

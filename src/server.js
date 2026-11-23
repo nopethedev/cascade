@@ -43,6 +43,22 @@ function prettyBytes(bytes) {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+// Quotas are entered in megabytes (0.1 GB = 102.4 MB). Keep accepting the old
+// quotaGB field so existing forms, API clients and tests continue to work.
+function quotaBytesFromBody(body) {
+  const mbRaw = body?.quotaMB;
+  if (mbRaw !== undefined && mbRaw !== null && String(mbRaw).trim() !== '') {
+    const mb = Number(mbRaw);
+    if (Number.isFinite(mb)) return Math.max(1, Math.round(mb * 1024 * 1024));
+  }
+  const gbRaw = body?.quotaGB;
+  if (gbRaw !== undefined && gbRaw !== null && String(gbRaw).trim() !== '') {
+    const gb = Number(gbRaw);
+    if (Number.isFinite(gb)) return Math.max(1, Math.round(gb * 1024 * 1024 * 1024));
+  }
+  return null;
+}
+
 function prettyDate(value) {
   if (!value) return '—';
   return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -882,7 +898,7 @@ export function createMainApp() {
   }));
 
   app.post('/admin/users', requireAdmin, wrap(async (req, res) => {
-    const { username, password, role, quotaGB } = req.body;
+    const { username, password, role } = req.body;
     if (!username || !password || password.length < 6) {
       return res.status(400).send('username + password (6+ chars) required');
     }
@@ -895,7 +911,7 @@ export function createMainApp() {
       username: String(username).trim(),
       passwordHash: await hashPassword(password),
       role: role === 'admin' ? 'admin' : 'user',
-      quotaBytes: Math.max(1, Number(quotaGB) || 5) * 1024 * 1024 * 1024,
+      quotaBytes: quotaBytesFromBody(req.body) ?? 5 * 1024 * 1024 * 1024,
     });
     res.redirect('/admin/users');
   }));
@@ -903,7 +919,9 @@ export function createMainApp() {
   app.post('/admin/users/:id/quota', requireAdmin, wrap(async (req, res) => {
     const u = await User.findByPk(req.params.id);
     if (!u) return res.status(404).send('not found');
-    const patch = { quotaBytes: Math.max(1, Number(req.body.quotaGB) || 1) * 1024 * 1024 * 1024 };
+    const patch = {};
+    const quotaBytes = quotaBytesFromBody(req.body);
+    if (quotaBytes !== null) patch.quotaBytes = quotaBytes;
     if (req.body.role === 'admin' || req.body.role === 'user') patch.role = req.body.role;
     await u.update(patch);
     res.redirect('/admin/users');

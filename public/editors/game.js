@@ -208,13 +208,13 @@ function renderHierarchy() {
     }
     const children = entities.filter((child) => child.parentId === item.id);
     const isCollapsed = collapsedTree.has(item.id);
-    html.push(`<div class="gs-tree-row${selectedId === item.id ? ' sel' : ''}" data-id="${esc(item.id)}" draggable="${editable}" style="--depth:${depth}" role="treeitem" aria-selected="${selectedId === item.id}">
+    html.push(`<div class="gs-tree-row${selectedId === item.id ? ' sel' : ''}${item.locked ? ' locked' : ''}" data-id="${esc(item.id)}" draggable="${editable}" style="--depth:${depth}" role="treeitem" aria-selected="${selectedId === item.id}">
       <button class="gs-tree-toggle" type="button" data-toggle="${esc(item.id)}" aria-label="Toggle children">${children.length ? (isCollapsed ? '▸' : '▾') : ''}</button>
       <span class="gs-tree-icon">${entityIcon(item)}</span>
       <span class="gs-tree-name" title="${esc(item.name)}">${esc(item.name)}</span>
       <span class="gs-tree-meta">${esc(entityMeta(item))}</span>
       <button class="gs-tree-act${item.visible === false ? ' off' : ''}" type="button" data-eye="${esc(item.id)}" title="Show/hide">${item.visible === false ? '◌' : '◉'}</button>
-      <button class="gs-tree-act${item.locked ? ' off' : ''}" type="button" data-lock="${esc(item.id)}" title="Lock/unlock">${item.locked ? '▣' : '▢'}</button>
+      <button class="gs-tree-act${item.locked ? ' on' : ''}" type="button" data-lock="${esc(item.id)}" title="${item.locked ? 'Locked — select it in the Hierarchy' : 'Lock object'}" aria-pressed="${item.locked ? 'true' : 'false'}">${item.locked ? '▣' : '▢'}</button>
     </div>`);
     if (!isCollapsed) children.forEach((child) => renderRow(child, depth + 1));
   };
@@ -425,8 +425,14 @@ function hit2d(x, y) {
   }) || null;
 }
 
+function closeMobilePanels() {
+  document.querySelector('.gs-left')?.classList.remove('open');
+  document.querySelector('.gs-right')?.classList.remove('open');
+}
+
 if (canvas2d) {
   canvas2d.addEventListener('pointerdown', (event) => {
+    closeMobilePanels();
     canvas2d.setPointerCapture(event.pointerId);
     const rect = canvas2d.getBoundingClientRect();
     const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -581,7 +587,7 @@ function renderEntityInspector(item) {
       <button class="gs-mini" type="button" data-object-action="lock">${item.locked ? 'Unlock' : 'Lock'}</button>
       <button class="gs-mini" type="button" data-object-action="hide">${item.visible === false ? 'Show' : 'Hide'}</button>
       <button class="gs-mini" type="button" data-object-action="delete">Delete</button>
-    </div><div class="gs-insp-note">Changes autosave. Locked objects cannot be picked in the viewport.</div></div>`;
+    </div><div class="gs-insp-note">Changes autosave. Locked objects are ignored by viewport clicks; select them from the Hierarchy instead.</div></div>`;
 }
 
 function renderNodeInspector(node) {
@@ -1336,7 +1342,12 @@ function pick3D(event) {
   for (const hit of hits) {
     let object = hit.object;
     while (object && !object.userData.entityId) object = object.parent;
-    if (object?.userData.entityId) return { entity: findEntity(object.userData.entityId) };
+    if (!object?.userData.entityId) continue;
+    const entity = findEntity(object.userData.entityId);
+    // Locked and hidden objects are not pickable in the viewport. They stay
+    // selectable from the Hierarchy so they can be inspected or unlocked.
+    if (!entity || entity.locked || entity.visible === false) continue;
+    return { entity };
   }
   return null;
 }
@@ -1346,6 +1357,7 @@ function bind3DControls() {
   if (!canvas) return;
   canvas.addEventListener('pointerdown', (event) => {
     if (project.mode !== '3d') return;
+    closeMobilePanels();
     canvas.setPointerCapture(event.pointerId);
     const hit = pick3D(event);
     drag3 = { startX: event.clientX, startY: event.clientY, moved: false, mode: 'orbit' };

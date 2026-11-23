@@ -58,7 +58,7 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 - Live collaboration rooms, comments, roles and capability links across every editor
 - Published websites with forms, analytics, sitemap/robots and custom-domain Host routing
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (5-minute revalidating public cache)
-- Roles: `admin` / `user`, per-user quota (GB)
+- Roles: `admin` / `user`, per-user quota (MB, with 0.1 GB = 102.4 MB)
 - Admin panel: overview, **analytics**, users, all files, nodes + replication, **API keys**, appearance
 - **Analytics** — views, downloads, uploads, unique visitors, traffic chart, top files and recent events, all stored in SQLite (no third-party scripts)
 - **API keys** — SHA-256-hashed, revocable keys with read-only, read/write or full-owner scopes; create/revoke in the admin panel

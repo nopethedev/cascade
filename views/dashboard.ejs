@@ -20,7 +20,7 @@
       <% } %>
     </nav>
     <h1 class="page-title"><%= currentFolder ? currentFolder.name : 'Your files' %></h1>
-    <p class="lede"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %><%= q ? ' matching “' + query + '”' : '' %> · <%= prettyBytes(used) %> of <%= (quota / 1073741824).toFixed(1) %> GB used</p>
+    <p class="lede"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %><%= q ? ' matching “' + query + '”' : '' %> · <%= prettyBytes(used) %> of <%= prettyBytes(quota) %> used</p>
   </div>
   <div class="actions fm-head-actions">
     <button class="btn btn-ghost" type="button" id="fm-new-folder">New folder</button>
