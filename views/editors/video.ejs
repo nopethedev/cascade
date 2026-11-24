@@ -1,0 +1,418 @@
+<%- include('../partials/head', { title: file.filename, appMode: true, app: kind.id, shellClass: 'shell shell-motion' }) %>
+<link rel="stylesheet" href="/public/motion/motion.css" />
+<%- include('../partials/editor-bar', { file, kind }) %>
+
+<div class="mo-app" id="mo-app">
+  <header class="mo-menubar">
+    <div class="mo-brand"><span class="mo-brand-mark">M</span><b>MOTION</b><span class="mo-beta">STUDIO</span></div>
+    <nav class="mo-menus" aria-label="Motion application menu">
+      <div class="mo-menu">
+        <button type="button" data-menu="file">File</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="new-project">New project…</button>
+          <button type="button" data-cmd="import">Import media…<kbd>Ctrl+I</kbd></button>
+          <button type="button" data-cmd="import-url">Import from URL…</button>
+          <button type="button" data-cmd="import-cloud">Import from Cascade Files…</button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="save">Save<kbd>Ctrl+S</kbd></button>
+          <button type="button" data-cmd="duplicate-project">Duplicate project</button>
+          <button type="button" data-cmd="export-project">Export project file (.cascade-motion)</button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="export">Export video…<kbd>Ctrl+E</kbd></button>
+          <button type="button" data-cmd="export-audio">Export audio…</button>
+        </div>
+      </div>
+      <div class="mo-menu">
+        <button type="button" data-menu="edit">Edit</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="undo">Undo<kbd>Ctrl+Z</kbd></button>
+          <button type="button" data-cmd="redo">Redo<kbd>Ctrl+Shift+Z</kbd></button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="cut">Cut<kbd>Ctrl+X</kbd></button>
+          <button type="button" data-cmd="copy">Copy<kbd>Ctrl+C</kbd></button>
+          <button type="button" data-cmd="paste">Paste<kbd>Ctrl+V</kbd></button>
+          <button type="button" data-cmd="duplicate">Duplicate<kbd>Ctrl+D</kbd></button>
+          <button type="button" data-cmd="delete">Delete<kbd>Del</kbd></button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="select-all">Select all<kbd>Ctrl+A</kbd></button>
+          <button type="button" data-cmd="add-marker">Add marker<kbd>M</kbd></button>
+          <button type="button" data-cmd="split">Split at playhead<kbd>S</kbd></button>
+          <button type="button" data-cmd="ripple-delete">Ripple delete<kbd>Shift+Del</kbd></button>
+        </div>
+      </div>
+      <div class="mo-menu">
+        <button type="button" data-menu="clip">Clip</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="speed">Speed / duration…</button>
+          <button type="button" data-cmd="reverse">Reverse clip</button>
+          <button type="button" data-cmd="freeze">Freeze frame<kbd>F</kbd></button>
+          <button type="button" data-cmd="detach-audio">Detach audio</button>
+          <button type="button" data-cmd="link">Link selected clips</button>
+          <button type="button" data-cmd="group">Group clips<kbd>Ctrl+G</kbd></button>
+          <button type="button" data-cmd="ungroup">Ungroup</button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="replace">Replace media…</button>
+          <button type="button" data-cmd="relink">Relink missing media…</button>
+          <button type="button" data-cmd="nest">Create nested composition</button>
+        </div>
+      </div>
+      <div class="mo-menu">
+        <button type="button" data-menu="sequence">Sequence</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="add-track-video">Add video track</button>
+          <button type="button" data-cmd="add-track-audio">Add audio track</button>
+          <button type="button" data-cmd="add-track-text">Add text track</button>
+          <button type="button" data-cmd="add-track-subtitle">Add subtitle track</button>
+          <button type="button" data-cmd="sequence-settings">Sequence settings…</button>
+          <button type="button" data-cmd="transcribe">Transcribe audio…</button>
+          <button type="button" data-cmd="detect-beats">Detect beats</button>
+        </div>
+      </div>
+      <div class="mo-menu">
+        <button type="button" data-menu="view">View</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="toggle-left">Toggle media panel</button>
+          <button type="button" data-cmd="toggle-right">Toggle inspector</button>
+          <button type="button" data-cmd="toggle-timeline">Toggle timeline</button>
+          <button type="button" data-cmd="fullscreen">Fullscreen preview<kbd>Shift+F</kbd></button>
+          <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="quality-1">Preview: Full</button>
+          <button type="button" data-cmd="quality-half">Preview: 1/2</button>
+          <button type="button" data-cmd="quality-quarter">Preview: 1/4</button>
+          <button type="button" data-cmd="guides">Toggle safe guides</button>
+          <button type="button" data-cmd="compare">Compare with export</button>
+          <button type="button" data-cmd="theme">Light / dark theme</button>
+        </div>
+      </div>
+      <div class="mo-menu">
+        <button type="button" data-menu="help">Help</button>
+        <div class="mo-menu-pop">
+          <button type="button" data-cmd="shortcuts">Keyboard shortcuts…<kbd>?</kbd></button>
+          <a href="/docs" target="_blank" rel="noopener">Motion documentation</a>
+        </div>
+      </div>
+    </nav>
+    <div class="mo-menu-spacer"></div>
+    <div class="mo-history-btns">
+      <button type="button" class="mo-iconbtn" data-cmd="undo" title="Undo (Ctrl+Z)">↶</button>
+      <button type="button" class="mo-iconbtn" data-cmd="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+    </div>
+    <div class="mo-timecode" id="mo-timecode" title="Playhead position">00:00:00:00</div>
+    <button type="button" class="mo-iconbtn mo-theme-btn" data-cmd="theme" title="Toggle light/dark theme" aria-label="Toggle light or dark theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <button type="button" class="mo-export-btn" data-cmd="export"><span>Export</span><small id="mo-export-summary">MP4 · 1080p</small></button>
+  </header>
+
+  <div class="mo-workspace" id="mo-workspace">
+    <aside class="mo-panel mo-left" id="mo-left" aria-label="Media and asset library">
+      <div class="mo-panel-tabs" id="mo-left-tabs" role="tablist">
+        <button type="button" class="is-active" data-tab="media" role="tab" title="Media">Media</button>
+        <button type="button" data-tab="audio" role="tab" title="Audio">Audio</button>
+        <button type="button" data-tab="effects" role="tab" title="Effects">Effects</button>
+        <button type="button" data-tab="transitions" role="tab" title="Transitions">Transitions</button>
+        <button type="button" data-tab="subtitles" role="tab" title="Subtitles">Subtitles</button>
+        <button type="button" data-tab="text" role="tab" title="Titles">Titles</button>
+        <button type="button" data-tab="colors" role="tab" title="Color presets">Color</button>
+      </div>
+      <div class="mo-panel-toolbar" id="mo-left-toolbar"></div>
+      <div class="mo-panel-body" id="mo-left-body"></div>
+    </aside>
+    <div class="mo-splitter mo-splitter-left" id="mo-split-left" title="Drag to resize"></div>
+
+    <section class="mo-center" aria-label="Preview monitor and timeline">
+      <div class="mo-monitor">
+        <div class="mo-monitor-bar">
+          <div class="mo-monitor-tab is-active"><span class="mo-dot"></span><span id="mo-seq-name">Sequence 01</span></div>
+          <div class="mo-monitor-meta" id="mo-monitor-meta"></div>
+          <div class="mo-monitor-actions">
+            <button type="button" class="mo-chip" data-cmd="quality" title="Preview quality" id="mo-quality">Full</button>
+            <button type="button" class="mo-chip" data-cmd="guides" title="Safe area guides">Guides</button>
+            <button type="button" class="mo-chip" data-cmd="before-after" title="Compare current frame with exported/previous frame">Compare</button>
+            <button type="button" class="mo-chip" data-cmd="capture" title="Capture still to Cascade Files">Still</button>
+            <button type="button" class="mo-iconbtn" data-cmd="fullscreen" title="Fullscreen preview (Shift+F)">⛶</button>
+          </div>
+        </div>
+        <div class="mo-monitor-body" id="mo-monitor-body">
+          <div class="mo-monitor-stage" id="mo-monitor-stage">
+            <canvas id="mo-canvas" width="1280" height="720" aria-label="Video preview"></canvas>
+            <div class="mo-canvas-overlay" id="mo-overlay">
+              <div class="mo-safe-guides" id="mo-guides" hidden></div>
+              <div class="mo-preview-badge" id="mo-preview-badge" hidden>EXPORT</div>
+              <div class="mo-loading" id="mo-loading" hidden><span class="mo-spinner"></span>Loading media…</div>
+              <div class="mo-drop-hint" id="mo-drop-hint">Drop media to import</div>
+            </div>
+          </div>
+          <div class="mo-monitor-side">
+            <div class="mo-meters" title="Audio levels">
+              <div class="mo-meter"><span id="mo-meter-l"></span></div>
+              <div class="mo-meter"><span id="mo-meter-r"></span></div>
+              <div class="mo-meter-scale"><i>0</i><i>-6</i><i>-12</i><i>-24</i><i>-48</i></div>
+            </div>
+            <div class="mo-monitor-info">
+              <div><span>FPS</span><b id="mo-stat-fps">—</b></div>
+              <div><span>Dropped</span><b id="mo-stat-dropped">0</b></div>
+              <div><span>Playhead</span><b id="mo-stat-time">0.00s</b></div>
+            </div>
+          </div>
+        </div>
+        <div class="mo-transport">
+          <button type="button" class="mo-iconbtn" data-cmd="go-start" title="Go to start (Home)">⏮</button>
+          <button type="button" class="mo-iconbtn" data-cmd="step-back" title="Previous frame (←)">◀|</button>
+          <button type="button" class="mo-play" data-cmd="play" title="Play / pause (Space)">▶</button>
+          <button type="button" class="mo-iconbtn" data-cmd="step-fwd" title="Next frame (→)">|▶</button>
+          <button type="button" class="mo-iconbtn" data-cmd="go-end" title="Go to end (End)">⏭</button>
+          <span class="mo-transport-sep"></span>
+          <button type="button" class="mo-chip" data-cmd="loop" id="mo-loop">Loop</button>
+          <button type="button" class="mo-chip" data-cmd="mute" id="mo-mute">Audio</button>
+          <select class="mo-select mo-rate" id="mo-rate" aria-label="Playback speed">
+            <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="4">4×</option>
+          </select>
+          <span class="mo-transport-sep"></span>
+          <div class="mo-zoom-control"><span>Timeline</span><input id="mo-timeline-zoom" type="range" min="8" max="320" value="72" aria-label="Timeline zoom"><button type="button" class="mo-iconbtn" data-cmd="fit" title="Fit timeline (Shift+Z)">Fit</button></div>
+        </div>
+      </div>
+
+      <div class="mo-timeline" id="mo-timeline">
+        <div class="mo-timeline-toolbar">
+          <div class="mo-tl-tools">
+            <button type="button" class="mo-tool is-active" data-tool="select" title="Selection tool (V)">↖</button>
+            <button type="button" class="mo-tool" data-tool="razor" title="Razor tool (C)">✂</button>
+            <button type="button" class="mo-tool" data-tool="slip" title="Slip tool (Y)">⇔</button>
+            <button type="button" class="mo-tool" data-tool="hand" title="Hand tool (H)">✋</button>
+          </div>
+          <span class="mo-tl-sep"></span>
+          <button type="button" class="mo-chip is-active" data-cmd="snap" id="mo-snap" title="Magnetic snapping (N)">Snap</button>
+          <button type="button" class="mo-chip" data-cmd="linked" id="mo-linked" title="Linked selection">Linked</button>
+          <span class="mo-tl-sep"></span>
+          <button type="button" class="mo-chip" data-cmd="split" title="Split (S)">Split</button>
+          <button type="button" class="mo-chip" data-cmd="delete" title="Delete">Delete</button>
+          <button type="button" class="mo-chip" data-cmd="add-marker" title="Marker (M)">Marker</button>
+          <span class="mo-tl-sep"></span>
+          <button type="button" class="mo-chip" data-cmd="zoom-out" title="Zoom out">−</button>
+          <button type="button" class="mo-chip" data-cmd="zoom-in" title="Zoom in">+</button>
+          <div class="mo-tl-spacer"></div>
+          <button type="button" class="mo-chip" data-cmd="add-track-video">+ Video</button>
+          <button type="button" class="mo-chip" data-cmd="add-track-audio">+ Audio</button>
+          <button type="button" class="mo-chip" data-cmd="mixer" id="mo-mixer-toggle">Mixer</button>
+          <button type="button" class="mo-chip" data-cmd="timeline-settings" title="Timeline settings">⚙</button>
+        </div>
+        <div class="mo-timeline-scroll" id="mo-timeline-scroll">
+          <div class="mo-timeline-content" id="mo-timeline-content">
+            <div class="mo-ruler-corner"><span id="mo-ruler-label">00:00</span></div>
+            <div class="mo-ruler" id="mo-ruler"></div>
+            <div class="mo-track-heads" id="mo-track-heads"></div>
+            <div class="mo-tracks" id="mo-tracks"></div>
+            <div class="mo-playhead" id="mo-playhead" title="Drag to scrub"><span></span></div>
+            <div class="mo-marquee" id="mo-marquee" hidden></div>
+          </div>
+        </div>
+        <div class="mo-mixer" id="mo-mixer" hidden></div>
+      </div>
+    </section>
+
+    <div class="mo-splitter mo-splitter-right" id="mo-split-right" title="Drag to resize"></div>
+    <aside class="mo-panel mo-right" id="mo-right" aria-label="Inspector">
+      <div class="mo-panel-tabs" id="mo-right-tabs" role="tablist">
+        <button type="button" class="is-active" data-tab="inspector" role="tab">Inspector</button>
+        <button type="button" data-tab="color" role="tab">Color</button>
+        <button type="button" data-tab="audio" role="tab">Audio</button>
+        <button type="button" data-tab="keyframes" role="tab">Keyframes</button>
+        <button type="button" data-tab="history" role="tab">History</button>
+      </div>
+      <div class="mo-panel-toolbar" id="mo-right-toolbar"></div>
+      <div class="mo-panel-body mo-inspector" id="mo-right-body"></div>
+    </aside>
+    <div class="mo-splitter mo-splitter-bottom" id="mo-split-bottom" title="Drag to resize timeline"></div>
+  </div>
+
+  <footer class="mo-statusbar">
+    <span id="mo-status">Ready</span>
+    <span class="mo-status-spacer"></span>
+    <span id="mo-collab-status">Solo session</span>
+    <span id="mo-project-stat"></span>
+    <span id="mo-render-stat"></span>
+    <span class="mo-status-theme">Cascade Motion</span>
+  </footer>
+</div>
+
+<!-- Import media -->
+<dialog class="mo-dialog" id="mo-import-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Import media</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <div class="mo-import-grid">
+        <label class="mo-dropzone" id="mo-upload-zone">
+          <input type="file" id="mo-file-input" multiple accept="video/*,audio/*,image/*,.srt,.vtt,.ass" hidden>
+          <strong>Drop files or click to browse</strong>
+          <span>MP4, MOV, MKV, WebM, AVI, MP3, WAV, FLAC, AAC, OGG, PNG, JPEG, WebP, GIF, SVG, SRT, VTT, ASS</span>
+          <span class="mo-fine">Uploads are resumable and processed in the background. Originals are never modified.</span>
+        </label>
+        <div class="mo-import-options">
+          <button type="button" class="mo-option-card" data-cmd="record-screen"><b>Screen recording</b><span>Capture a window, tab or display</span></button>
+          <button type="button" class="mo-option-card" data-cmd="record-camera"><b>Webcam recording</b><span>Record from a connected camera</span></button>
+          <button type="button" class="mo-option-card" data-cmd="record-mic"><b>Microphone</b><span>Voice-over or podcast audio</span></button>
+          <button type="button" class="mo-option-card" data-cmd="import-cloud-dlg"><b>Cascade Files</b><span>Reuse media already in your library</span></button>
+          <button type="button" class="mo-option-card" data-cmd="import-url-dlg"><b>Authorized URL</b><span>Import a remote media file with SSRF protection</span></button>
+        </div>
+      </div>
+      <div class="mo-url-row" id="mo-url-row" hidden>
+        <input id="mo-url-input" type="url" placeholder="https://example.com/media.mp4" aria-label="Media URL">
+        <button type="button" class="btn btn-sm" data-cmd="import-url-go">Import</button>
+      </div>
+      <div class="mo-upload-progress" id="mo-upload-progress" hidden><div><span></span></div><p></p></div>
+    </div>
+  </form>
+</dialog>
+
+<!-- Export -->
+<dialog class="mo-dialog mo-dialog-wide" id="mo-export-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Export</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body mo-export-body">
+      <div class="mo-export-main">
+        <div class="mo-preset-strip" id="mo-export-presets"></div>
+        <div class="mo-form-grid">
+          <label>File name<input id="mo-export-name" type="text" value="cascade-motion"></label>
+          <label>Container<select id="mo-export-container"></select></label>
+          <label>Video codec<select id="mo-export-vcodec"></select></label>
+          <label>Audio codec<select id="mo-export-acodec"></select></label>
+          <label>Resolution<select id="mo-export-resolution"></select></label>
+          <label>Frame rate<select id="mo-export-fps"></select></label>
+          <label>Quality mode<select id="mo-export-qualitymode"><option value="crf">Quality (CRF)</option><option value="bitrate">Target bitrate</option></select></label>
+          <label id="mo-export-crf-wrap">CRF<input id="mo-export-crf" type="number" min="0" max="51" step="1" value="18"></label>
+          <label id="mo-export-bitrate-wrap" hidden>Bitrate (kbps)<input id="mo-export-bitrate" type="number" min="100" step="100" value="12000"></label>
+          <label>Encoder preset<select id="mo-export-encoder"><option value="medium">Balanced (medium)</option><option value="slow">High quality (slow)</option><option value="fast">Fast</option><option value="veryfast">Very fast</option></select></label>
+          <label>Audio bitrate<select id="mo-export-abitrate"><option>128k</option><option selected>192k</option><option>256k</option><option>320k</option></select></label>
+          <label>Sample rate<select id="mo-export-arate"><option>44100</option><option selected>48000</option><option>96000</option></select></label>
+          <label>Channels<select id="mo-export-channels"><option value="1">Mono</option><option value="2" selected>Stereo</option><option value="6">5.1 surround</option></select></label>
+          <label>Color space<select id="mo-export-colorspace"><option value="bt709">Rec.709 SDR</option><option value="bt2020">Rec.2020 (HDR input)</option></select></label>
+          <label class="mo-check"><input type="checkbox" id="mo-export-faststart" checked> Web-optimized (faststart)</label>
+        </div>
+        <div class="mo-export-warning" id="mo-export-warning" hidden></div>
+      </div>
+      <aside class="mo-export-side">
+        <div class="mo-summary-card">
+          <h3>Render summary</h3>
+          <dl id="mo-export-summary-list"></dl>
+        </div>
+        <div class="mo-summary-card">
+          <h3>Hardware</h3>
+          <p id="mo-export-hw" class="mo-fine">Detecting encoders…</p>
+        </div>
+        <div class="mo-summary-card">
+          <h3>Export queue</h3>
+          <div id="mo-job-list" class="mo-job-list"><p class="mo-fine">No renders yet.</p></div>
+        </div>
+      </aside>
+    </div>
+    <div class="mo-dialog-foot">
+      <span id="mo-export-estimate" class="mo-fine"></span>
+      <span class="mo-spacer"></span>
+      <button class="btn btn-ghost" value="cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="mo-export-run" data-requires-edit>Start render</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Transcription -->
+<dialog class="mo-dialog" id="mo-transcribe-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Automatic subtitles</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <p class="mo-fine">Transcribe the selected clip, its audio, or the full sequence. Configure the provider in Admin → Motion or use the server environment.</p>
+      <div class="mo-form-grid">
+        <label>Source<select id="mo-tr-source"><option value="sequence">Entire sequence</option><option value="clip">Selected clip</option><option value="track">Selected audio track</option></select></label>
+        <label>Language<select id="mo-tr-language"><option value="auto">Detect automatically</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="pt">Portuguese</option><option value="ar">Arabic</option><option value="hi">Hindi</option></select></label>
+        <label>Model<input id="mo-tr-model" type="text" placeholder="Server default"></label>
+        <label class="mo-check"><input type="checkbox" id="mo-tr-translate"> Translate to English</label>
+        <label class="mo-check"><input type="checkbox" id="mo-tr-replace" checked> Replace existing subtitle track</label>
+      </div>
+      <div class="mo-provider-note" id="mo-provider-note"></div>
+    </div>
+    <div class="mo-dialog-foot">
+      <span class="mo-spacer"></span>
+      <button class="btn btn-ghost" value="cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="mo-transcribe-run" data-requires-edit>Start transcription</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Recording -->
+<dialog class="mo-dialog" id="mo-record-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2 id="mo-record-title">Record</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <video id="mo-record-preview" class="mo-record-preview" autoplay muted playsinline></video>
+      <div class="mo-record-controls">
+        <div><span>Duration</span><b id="mo-record-time">00:00</b></div>
+        <div><span>Input</span><b id="mo-record-device">Default</b></div>
+        <button type="button" class="btn btn-danger" id="mo-record-stop">Stop &amp; import</button>
+      </div>
+      <p class="mo-fine" id="mo-record-note"></p>
+    </div>
+  </form>
+</dialog>
+
+<!-- Cascade files picker -->
+<dialog class="mo-dialog" id="mo-cloud-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Import from Cascade Files</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <div class="mo-cloud-toolbar"><input id="mo-cloud-search" placeholder="Search files…"><select id="mo-cloud-kind"><option value="media">Media</option><option value="video">Video</option><option value="audio">Audio</option><option value="image">Images</option></select></div>
+      <div class="mo-cloud-list" id="mo-cloud-list"><p class="mo-fine">Loading…</p></div>
+    </div>
+  </form>
+</dialog>
+
+<!-- Speed -->
+<dialog class="mo-dialog" id="mo-speed-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Speed and duration</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <div class="mo-form-grid">
+        <label>Speed<input id="mo-speed-value" type="number" min="0.1" max="10" step="0.01" value="1"></label>
+        <label>Duration (seconds)<input id="mo-speed-duration" type="number" min="0.1" step="0.01"></label>
+        <label class="mo-check"><input type="checkbox" id="mo-speed-reverse"> Reverse playback</label>
+        <label class="mo-check"><input type="checkbox" id="mo-speed-optical"> Optical-flow interpolation (where available)</label>
+      </div>
+    </div>
+    <div class="mo-dialog-foot"><span class="mo-spacer"></span><button class="btn btn-ghost" value="cancel">Cancel</button><button type="button" class="btn btn-primary" id="mo-speed-apply">Apply</button></div>
+  </form>
+</dialog>
+
+<!-- Sequence settings -->
+<dialog class="mo-dialog" id="mo-sequence-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Sequence settings</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body">
+      <div class="mo-form-grid">
+        <label>Name<input id="mo-seq-title" type="text"></label>
+        <label>Width<input id="mo-seq-width" type="number" min="16" max="7680" step="2"></label>
+        <label>Height<input id="mo-seq-height" type="number" min="16" max="4320" step="2"></label>
+        <label>Frame rate<select id="mo-seq-fps"><option value="23.976">23.976</option><option value="24">24</option><option value="25">25</option><option value="29.97">29.97</option><option value="30">30</option><option value="50">50</option><option value="59.94">59.94</option><option value="60">60</option></select></label>
+        <label>Background<input id="mo-seq-bg" type="color" value="#000000"></label>
+        <label>Color space<select id="mo-seq-space"><option value="bt709">Rec.709</option><option value="bt2020">Rec.2020</option></select></label>
+        <label class="mo-check"><input type="checkbox" id="mo-seq-vfr"> Variable frame rate</label>
+      </div>
+    </div>
+    <div class="mo-dialog-foot"><span class="mo-spacer"></span><button class="btn btn-ghost" value="cancel">Cancel</button><button type="button" class="btn btn-primary" id="mo-seq-apply">Apply</button></div>
+  </form>
+</dialog>
+
+<!-- Shortcuts -->
+<dialog class="mo-dialog mo-dialog-wide" id="mo-shortcuts-dlg">
+  <form method="dialog" class="mo-dialog-inner">
+    <div class="mo-dialog-head"><h2>Keyboard shortcuts</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
+    <div class="mo-dialog-body" id="mo-shortcuts-body"></div>
+  </form>
+</dialog>
+
+<script>
+  window.__DOC__ = <%- JSON.stringify({ id: file.id, version: file.version, isPublic: !!file.isPublic, filename: file.filename, content }).replace(/</g, '\\u003c') %>;
+  window.__MOTION__ = <%- JSON.stringify({ kind: kind.id, title: file.filename }).replace(/</g, '\\u003c') %>;
+</script>
+<script src="/public/editors/common.js"></script>
+<script type="module" src="/public/motion/editor.js"></script>
+<%- include('../partials/foot', { appMode: true }) %>

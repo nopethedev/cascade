@@ -74,6 +74,8 @@ export function connect(options) {
     }
     const selection = (() => {
       try {
+        const custom = window.__cascadePresenceSelection;
+        if (typeof custom === 'string' && custom.trim()) return custom.trim().slice(0, 100);
         return String(window.getSelection?.()?.toString() || '').trim().slice(0, 100);
       } catch {
         return '';

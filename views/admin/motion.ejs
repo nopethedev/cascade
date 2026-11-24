@@ -1,0 +1,64 @@
+<%- include('../partials/head', { title: 'Admin · Motion' }) %>
+<%- include('../partials/admin-tabs', { tab: 'motion' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Cascade Motion</h1>
+    <p class="lede">Render limits, FFmpeg paths, media policy and transcription providers. Stored in settings with environment defaults.</p>
+  </div>
+</div>
+
+<% if (m.enabled) { %><p class="badge badge-accent">Motion enabled</p><% } else { %><p class="badge">Motion disabled</p><% } %>
+
+<form method="post" action="/admin/motion" class="split" style="align-items:start">
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Rendering</div></div>
+    <div class="panel-body stack">
+      <label class="check-row"><input type="checkbox" name="enabled" <%= m.enabled ? 'checked' : '' %>> Enable Cascade Motion</label>
+      <div class="form-grid">
+        <div class="field"><label class="label" for="m-res">Maximum export width (px)</label><input id="m-res" name="maxResolution" type="number" min="480" max="7680" value="<%= m.maxResolution %>"></div>
+        <div class="field"><label class="label" for="m-conc">Concurrent render jobs</label><input id="m-conc" name="renderConcurrency" type="number" min="1" max="8" value="<%= m.renderConcurrency %>"></div>
+        <div class="field"><label class="label" for="m-proj">Max project JSON (MB)</label><input id="m-proj" name="maxProjectMB" type="number" min="1" max="100" value="<%= Math.round(m.maxProjectBytes / 1048576) %>"></div>
+        <div class="field"><label class="label" for="m-asset">Max asset upload (MB)</label><input id="m-asset" name="maxAssetMB" type="number" min="64" max="8192" value="<%= Math.round(m.maxAssetBytes / 1048576) %>"></div>
+        <div class="field"><label class="label" for="m-count">Assets per project</label><input id="m-count" name="maxAssetsPerProject" type="number" min="1" max="5000" value="<%= m.maxAssetsPerProject %>"></div>
+        <div class="field"><label class="label" for="m-timeout">Job timeout (seconds)</label><input id="m-timeout" name="renderTimeoutSeconds" type="number" min="30" max="86400" value="<%= m.renderTimeoutSeconds %>"></div>
+      </div>
+      <div class="field"><label class="label" for="m-ffmpeg">FFmpeg binary path</label><input id="m-ffmpeg" name="ffmpegPath" value="<%= m.ffmpegPath %>" placeholder="/usr/bin/ffmpeg (bundled at /usr/local/bin/ffmpeg in Docker)"></div>
+      <div class="field"><label class="label" for="m-ffprobe">FFprobe binary path</label><input id="m-ffprobe" name="ffprobePath" value="<%= m.ffprobePath %>" placeholder="/usr/bin/ffprobe"></div>
+      <label class="check-row"><input type="checkbox" name="proxyEnabled" <%= m.proxyEnabled ? 'checked' : '' %>> Generate editing proxies for large media</label>
+      <div class="panel-sub">
+        <b>Detected:</b> <%= caps.available ? `FFmpeg ${caps.version || ''}` : 'FFmpeg is not available' %>
+
+        <% if (caps.encoders?.length) { %><br><span class="tiny muted"><%= caps.encoders.filter((e) => /^(libx264|libx265|libvpx-vp9|libaom-av1|libsvtav1|h264_|hevc_|av1_|aac|libopus|libmp3lame|flac|eac3|pcm_s16le)/.test(e)).join(', ') %></span><% } %>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div class="panel-title">Media &amp; transcription</div></div>
+    <div class="panel-body stack">
+      <label class="check-row"><input type="checkbox" name="allowRemoteMedia" <%= m.allowRemoteMedia ? 'checked' : '' %>> Allow remote URL imports (DNS/private-IP checks still apply)</label>
+      <div class="field"><label class="label" for="m-hosts">Remote host allowlist</label><input id="m-hosts" name="remoteHostAllowlist" value="<%= (m.remoteHostAllowlist || []).join(', ') %>" placeholder="empty = any public host"><span class="tiny muted">Comma-separated hostnames. Empty allows any public host.</span></div>
+      <div class="field"><label class="label" for="m-audio">Audio catalogue URL</label><input id="m-audio" name="audioCatalogUrl" type="url" value="<%= m.audioCatalogUrl || '' %>" placeholder="https://example.com/music.json"></div>
+      <hr>
+      <div class="field"><label class="label" for="m-whisper">Whisper provider</label>
+        <select id="m-whisper" name="whisperProvider">
+          <% for (const p of [['disabled','Disabled'],['openai','OpenAI transcription API'],['compatible','Compatible hosted API'],['local','Local whisper.cpp']]) { %>
+          <option value="<%= p[0] %>" <%= m.whisper.provider === p[0] ? 'selected' : '' %>><%= p[1] %></option><% } %>
+        </select>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label class="label" for="m-wmodel">Model</label><input id="m-wmodel" name="whisperModel" value="<%= m.whisper.model %>"></div>
+        <div class="field"><label class="label" for="m-wendpoint">Endpoint</label><input id="m-wendpoint" name="whisperEndpoint" type="url" value="<%= m.whisper.endpoint %>" placeholder="https://api.openai.com/v1/audio/transcriptions"></div>
+        <div class="field"><label class="label" for="m-wbin">whisper.cpp binary</label><input id="m-wbin" name="whisperBinary" value="<%= m.whisper.binary %>"></div>
+        <div class="field"><label class="label" for="m-wpath">Model path</label><input id="m-wpath" name="whisperModelPath" value="<%= m.whisper.modelPath %>" placeholder="/models/ggml-base.en.bin"></div>
+        <div class="field"><label class="label" for="m-wthreads">Threads</label><input id="m-wthreads" name="whisperThreads" type="number" min="1" max="64" value="<%= m.whisper.threads %>"></div>
+        <div class="field"><label class="label" for="m-wminutes">Max job minutes</label><input id="m-wminutes" name="whisperMaxMinutes" type="number" min="1" max="600" value="<%= m.whisper.maxMinutes %>"></div>
+      </div>
+      <div class="field"><label class="label" for="m-wtrans">Translation provider</label><input id="m-wtrans" name="whisperTranslateProvider" value="<%= m.whisper.translateProvider %>" placeholder="openai"><span class="tiny muted">Hosted provider keys come from OPENAI_API_KEY / WHISPER_API_KEY on the server; they are never stored here.</span></div>
+      <div class="row"><button class="btn" type="submit">Save Motion settings</button><a class="btn btn-ghost" href="/admin/motion">Reset form</a></div>
+    </div>
+  </section>
+</form>
+<%- include('../partials/foot') %>

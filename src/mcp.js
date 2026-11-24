@@ -1,13 +1,17 @@
 import express from 'express';
 import { nanoid } from 'nanoid';
 import { Op } from 'sequelize';
-import { FileRecord, DocVersion, Folder, Template, FormResponse, StudioCommand, StudioSnapshot, sequelize } from './db.js';
+import { FileRecord, DocVersion, Folder, Template, FormResponse, StudioCommand, StudioSnapshot, MotionAsset, MotionJob, sequelize, getSettings } from './db.js';
 import { validateCommand, applyCommandToContent } from './studio.js';
 import { KIND_BY_ID, TEMPLATES, buildContent } from './templates.js';
 import { blankScript, normalizeFlow } from '../public/flow/schema.mjs';
 import { redactFlowSecrets, scanFlowSecrets } from '../public/flow/secrets.mjs';
 import { compileFlow, renderExport, validateFlow } from './flow/compiler.js';
 import { buildPdfTemplate } from './pdfTemplates.js';
+import { newProject, normalizeProject, applyEdits, timelineDuration, TICKS } from '../public/motion/schema.mjs';
+import { loadMotionProject, ingestFile, assetJson } from './motion/assets.js';
+import { enqueueJob, renderStill } from './motion/render.js';
+import { capabilities } from './motion/ffmpeg.js';
 import { recordEvent } from './analytics.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -32,6 +36,12 @@ const READ_TOOLS = new Set([
   'flow_get_project',
   'flow_compile',
   'flow_export',
+  'motion_list_projects',
+  'motion_get_project',
+  'motion_list_media',
+  'motion_job_status',
+  'motion_history',
+  'motion_capture_frame',
 ]);
 
 class ToolError extends Error {}
@@ -419,6 +429,94 @@ const tools = [
     name: 'studio_create_snapshot',
     description: 'Create a labeled backup snapshot of an owned Roblox project before a batch of changes.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 }, label: { type: 'string', maxLength: 160 } }, required: ['id'] },
+  },
+  {
+    name: 'motion_list_projects',
+    description: 'List Cascade Motion video projects owned by the caller (metadata only, no timeline JSON).',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT } } },
+  },
+  {
+    name: 'motion_get_project',
+    description: 'Read a Motion project timeline: tracks, clips, keyframes, effects, subtitles, markers and media. Use this before editing.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'motion_create_project',
+    description: 'Create a Motion video project with a standard video/overlay/title/subtitle/audio track set.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 120 },
+        width: { type: 'integer', minimum: 16, maximum: 7680 },
+        height: { type: 'integer', minimum: 16, maximum: 4320 },
+        fps: { type: 'number', minimum: 1, maximum: 240 },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'motion_apply_edits',
+    description: 'Transactionally apply structured timeline edits to a Motion project. Operations include add_track, update_track, remove_track, add_clip, move_clip, trim_clip, split_clip, remove_clip, duplicate_clip, set_clip, set_keyframes, add_effect, remove_effect, set_effect_params, add_transition, set_audio, set_color, add_text, add_subtitle, add_marker, remove_marker, set_master, add_composition. Use dryRun to validate without saving. Pass expectedVersion to prevent overwriting a concurrent edit.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        ops: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object' } },
+        dryRun: { type: 'boolean' },
+        expectedVersion: { type: 'integer', minimum: 1 },
+      },
+      required: ['id', 'ops'],
+    },
+  },
+  {
+    name: 'motion_list_media',
+    description: 'List media already attached to a Motion project plus unused audio/video/image files owned by the caller that can be attached.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'motion_import_media',
+    description: 'Attach an existing Cascade Files audio/video/image file to a Motion project. FFprobe metadata, thumbnail and waveform are generated server-side. Does not modify the source file.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: { id: { type: 'string', minLength: 1 }, fileId: { type: 'string', minLength: 1 }, name: { type: 'string', maxLength: 200 } },
+      required: ['id', 'fileId'],
+    },
+  },
+  {
+    name: 'motion_job_status',
+    description: 'Check a Motion export or transcription job, including progress, stage, warnings, error and download URL.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'motion_history',
+    description: 'List saved timeline versions of a Motion project so an agent can inspect or undo changes.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 }, limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT } }, required: ['id'] },
+  },
+  {
+    name: 'motion_undo',
+    description: 'Restore the previous saved version of a Motion project as a new version. This is reversible through history.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', minLength: 1 }, expectedVersion: { type: 'integer', minimum: 1 } }, required: ['id'] },
+  },
+  {
+    name: 'motion_render',
+    description: 'Queue a real FFmpeg render of the complete Motion timeline. Output is saved to Cascade Files and the job keeps running if the editor closes. Supports MP4/MOV/WebM/MKV/audio-only, H.264/H.265/VP9/AV1, AAC/Opus/MP3/FLAC/PCM/E-AC-3 and hardware encoders when installed.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        settings: { type: 'object' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'motion_capture_frame',
+    description: 'Render a PNG frame of the current project at a given timeline tick for visual inspection. Returns an image plus timing metadata.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: { id: { type: 'string', minLength: 1 }, time: { type: 'integer', minimum: 0 }, width: { type: 'integer', minimum: 64, maximum: 1920 } },
+      required: ['id'],
+    },
   },
   {
     name: 'list_form_responses',
@@ -1028,6 +1126,168 @@ async function callTool(name, args, ctx) {
       return textResult({ created: true, snapshotId: snap.id });
     }
 
+    if (name === 'motion_list_projects') {
+      const files = await FileRecord.findAll({
+        where: { kind: 'video', ownerId: ctx.user.id },
+        order: [['updatedAt', 'DESC']], limit: clampLimit(input.limit),
+        attributes: ['id', 'filename', 'version', 'updatedAt', 'createdAt'],
+      });
+      return textResult({ projects: files.map((f) => ({ id: f.id, name: f.filename, version: Number(f.version) || 0, updatedAt: f.updatedAt, url: `/edit/${f.id}` })) });
+    }
+
+    if (name === 'motion_get_project') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'viewer');
+      if (!file) return errorResult('project not found');
+      const assets = await MotionAsset.findAll({ where: { projectId: file.id } });
+      const project = normalizeProject(parseContent(file));
+      return textResult({
+        project,
+        assets: assets.map(assetJson),
+        version: Number(file.version) || 0,
+        role: file.accessRole,
+        durationSeconds: timelineDuration(project) / TICKS,
+      });
+    }
+
+    if (name === 'motion_create_project') {
+      const width = Math.max(16, Math.min(7680, Number(input.width) || 1920));
+      const height = Math.max(16, Math.min(4320, Number(input.height) || 1080));
+      const fps = Math.max(1, Math.min(240, Number(input.fps) || 30));
+      const project = newProject({ name: String(input.name).slice(0, 120), width, height, fps });
+      const serialized = JSON.stringify(project);
+      const file = await FileRecord.create({
+        id: nanoid(12), slug: nanoid(10), filename: String(input.name).slice(0, 120),
+        mime: 'application/vnd.cascade.motion+json', size: Buffer.byteLength(serialized),
+        ownerId: ctx.user.id, ownerName: ctx.user.username, kind: 'video', content: serialized, version: 1,
+      });
+      await snapshot(file, ctx.user.id);
+      recordEvent(ctx.req, 'create', { fileId: file.id });
+      return textResult({ document: docMeta(file), tracks: project.tracks.map((t) => ({ id: t.id, name: t.name, type: t.type })) });
+    }
+
+    if (name === 'motion_apply_edits') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'editor');
+      if (!file) return errorResult('project not found');
+      if (input.expectedVersion && Number(input.expectedVersion) !== Number(file.version)) {
+        return errorResult(`version conflict: current version is ${file.version}`);
+      }
+      const base = normalizeProject(parseContent(file));
+      let next;
+      try { next = normalizeProject(applyEdits(base, input.ops)); } catch (err) { return errorResult(`invalid edit: ${err.message}`); }
+      const assets = await MotionAsset.findAll({ where: { projectId: file.id }, attributes: ['id'] });
+      const assetIds = new Set(assets.map((a) => a.id));
+      const missing = next.clips.filter((c) => c.assetId && !assetIds.has(c.assetId));
+      if (missing.length) return errorResult(`unknown assetId on clip(s): ${missing.map((c) => c.name).join(', ')}. Import media first.`);
+      const summary = {
+        clips: next.clips.length, tracks: next.tracks.length, effects: next.clips.reduce((n, c) => n + (c.effects?.length || 0), 0),
+        durationSeconds: timelineDuration(next) / TICKS, changed: JSON.stringify(base) !== JSON.stringify(next),
+      };
+      if (input.dryRun) return textResult({ dryRun: true, summary, project: next });
+      const serialized = serializedSize(next);
+      const [affected] = await FileRecord.update({ content: serialized, size: Buffer.byteLength(serialized), version: sequelize.literal('version + 1'), updatedAt: new Date() }, { where: { id: file.id, version: file.version } });
+      if (!affected) {
+        const latest = await FileRecord.findByPk(file.id, { attributes: ['version'] });
+        return errorResult(`version conflict: current version is ${latest?.version ?? 'unknown'}`);
+      }
+      await snapshot(file, ctx.user.id);
+      recordEvent(ctx.req, 'edit', { fileId: file.id });
+      await file.reload();
+      return textResult({ saved: true, version: file.version, summary });
+    }
+
+    if (name === 'motion_list_media') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'viewer');
+      if (!file) return errorResult('project not found');
+      const attached = await MotionAsset.findAll({ where: { projectId: file.id }, order: [['createdAt', 'ASC']] });
+      const attachedFileIds = attached.map((a) => a.fileId);
+      const library = await FileRecord.findAll({
+        where: { ownerId: ctx.user.id, mime: { [Op.or]: [{ [Op.like]: 'video/%' }, { [Op.like]: 'audio/%' }, { [Op.like]: 'image/%' }] }, ...(attachedFileIds.length ? { id: { [Op.notIn]: attachedFileIds } } : {}) },
+        attributes: ['id', 'filename', 'mime', 'size', 'createdAt'], order: [['createdAt', 'DESC']], limit: 100,
+      });
+      return textResult({ attached: attached.map(assetJson), library: library.map((f) => ({ fileId: f.id, name: f.filename, mime: f.mime, size: f.size })) });
+    }
+
+    if (name === 'motion_import_media') {
+      const project = await loadMotionProject(String(input.id), ctx.user, 'editor');
+      if (!project) return errorResult('project not found');
+      const file = await FileRecord.findByPk(String(input.fileId));
+      if (!file || (file.ownerId !== ctx.user.id && ctx.user.role !== 'admin')) return errorResult('file not found');
+      if (!/^(video|audio|image)\//.test(file.mime || '')) return errorResult('only audio, video and image files can be imported');
+      const existing = await MotionAsset.findOne({ where: { projectId: project.id, fileId: file.id } });
+      if (existing) return textResult({ asset: assetJson(existing), duplicate: true });
+      try {
+        const owner = await ctx.user;
+        const settings = await getSettings();
+        const { asset, duplicate } = await ingestFile({ file, project, owner, settings: settings.motion });
+        recordEvent(ctx.req, 'edit', { fileId: project.id });
+        return textResult({ asset: assetJson(asset), duplicate });
+      } catch (err) { return errorResult(err.message); }
+    }
+
+    if (name === 'motion_job_status') {
+      const job = await MotionJob.findByPk(String(input.id));
+      if (!job) return errorResult('job not found');
+      const project = await loadMotionProject(job.projectId, ctx.user, 'viewer');
+      if (!project) return errorResult('job not found');
+      return textResult({ job: {
+        id: job.id, type: job.type, status: job.status, progress: Math.round(Number(job.progress) || 0),
+        stage: job.stage, error: job.error, warnings: job.result?.warnings || [],
+        downloadUrl: job.outputFileId ? `/api/motion/jobs/${job.id}/download` : null,
+        result: job.result ? { duration: job.result.duration, width: job.result.width, height: job.result.height, size: job.result.size } : null,
+      } });
+    }
+
+    if (name === 'motion_history') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'viewer');
+      if (!file) return errorResult('project not found');
+      const versions = await DocVersion.findAll({ where: { fileId: file.id }, order: [['version', 'DESC']], limit: clampLimit(input.limit), attributes: ['version', 'createdAt', 'createdBy'] });
+      return textResult({ currentVersion: file.version, versions });
+    }
+
+    if (name === 'motion_undo') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'editor');
+      if (!file) return errorResult('project not found');
+      if (input.expectedVersion && Number(input.expectedVersion) !== Number(file.version)) return errorResult(`version conflict: current version is ${file.version}`);
+      const snap = await DocVersion.findOne({ where: { fileId: file.id, version: { [Op.lt]: file.version } }, order: [['version', 'DESC']] });
+      if (!snap) return errorResult('no earlier version');
+      const content = normalizeProject(JSON.parse(snap.content || '{}'));
+      const serialized = JSON.stringify(content);
+      const [affected] = await FileRecord.update({ content: serialized, size: Buffer.byteLength(serialized), version: sequelize.literal('version + 1'), updatedAt: new Date() }, { where: { id: file.id, version: file.version } });
+      if (!affected) return errorResult('version conflict');
+      await snapshot(file, ctx.user.id);
+      await file.reload();
+      return textResult({ restoredFrom: snap.version, version: file.version });
+    }
+
+    if (name === 'motion_render') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'editor');
+      if (!file) return errorResult('project not found');
+      if (file.accessRole !== 'owner' && ctx.user.role !== 'admin') return errorResult('only the project owner can render');
+      const project = normalizeProject(parseContent(file));
+      if (timelineDuration(project) <= 0) return errorResult('the timeline is empty');
+      const settings = await (await import('./db.js')).getSettings();
+      const caps = await capabilities(settings.motion);
+      if (!caps.available) return errorResult('FFmpeg is not available on the server');
+      const job = await enqueueJob({ type: 'export', projectId: file.id, ownerId: ctx.user.id, params: { exportSettings: input.settings || {}, project, ownerName: ctx.user.username, projectName: project.name } });
+      return textResult({ jobId: job.id, status: job.status, statusTool: 'motion_job_status' });
+    }
+
+    if (name === 'motion_capture_frame') {
+      const file = await loadMotionProject(String(input.id), ctx.user, 'viewer');
+      if (!file) return errorResult('project not found');
+      const project = normalizeProject(parseContent(file));
+      const time = Math.max(0, Math.min(Number(input.time) || 0, timelineDuration(project)));
+      try {
+        const png = await renderStill({ project, projectId: file.id, time, width: Math.min(1920, Number(input.width) || 960) });
+        return {
+          content: [
+            { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+            { type: 'text', text: JSON.stringify({ time, timeSeconds: time / TICKS, width: project.width, height: project.height, version: file.version }) },
+          ],
+        };
+      } catch (err) { return errorResult(err.message); }
+    }
+
     if (name === 'list_form_responses') {
       const file = await loadDoc(input.id, ctx.user);
       if (file.kind !== 'form') return errorResult('document is not a form');
@@ -1100,7 +1360,7 @@ async function handleMessage(message, ctx) {
           resources: { subscribe: false, listChanged: false },
         },
         serverInfo: { name: 'cascade-workspace', version: '1.1.0' },
-        instructions: 'Use your Cascade API key. Start with whoami, list_folders, list_templates, and list_documents. Read a document before update_document, pass its version, use restore_version for history, and pass confirm:true only when deletion is intended. Every tool is owner-scoped; read-only keys cannot mutate.',
+        instructions: 'Use your Cascade API key. Start with whoami, list_folders, list_templates, and list_documents. Read a document before update_document, pass its version, use restore_version for history, and pass confirm:true only when deletion is intended. For video, use motion_get_project before motion_apply_edits, then motion_render. Every tool is owner-scoped; read-only keys cannot mutate.',
       });
     }
 

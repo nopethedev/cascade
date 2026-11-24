@@ -26,6 +26,10 @@ import { computeSheet } from './formula.js';
 import { startCollabServer } from './collab.js';
 import { createSitesRouter, customDomainSiteMiddleware } from './sites.js';
 import { createStudioRouter } from './studio.js';
+import { createMotionRouter } from './motion/router.js';
+import { startRenderQueue } from './motion/render.js';
+import { normalizeMotionSettings } from './motion/config.js';
+import { capabilities } from './motion/ffmpeg.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -1182,6 +1186,50 @@ export function createMainApp() {
     res.render('admin/appearance', { s: await getSettings() });
   }));
 
+  app.get('/admin/motion', requireAdmin, wrap(async (req, res) => {
+    const settings = await getSettings();
+    const caps = await capabilities(settings.motion).catch(() => ({ available: false }));
+    res.render('admin/motion', { m: settings.motion, caps });
+  }));
+
+  app.post('/admin/motion', requireAdmin, wrap(async (req, res) => {
+    const current = (await getSettings()).motion;
+    const b = req.body || {};
+    const num = (value, fallback) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const next = normalizeMotionSettings({
+      ...current,
+      enabled: b.enabled === 'on',
+      proxyEnabled: b.proxyEnabled === 'on',
+      allowRemoteMedia: b.allowRemoteMedia === 'on',
+      maxResolution: num(b.maxResolution, current.maxResolution),
+      maxProjectBytes: Math.max(1, num(b.maxProjectMB, current.maxProjectBytes / 1024 / 1024)) * 1024 * 1024,
+      maxAssetBytes: Math.max(64, num(b.maxAssetMB, current.maxAssetBytes / 1024 / 1024)) * 1024 * 1024,
+      maxAssetsPerProject: num(b.maxAssetsPerProject, current.maxAssetsPerProject),
+      renderConcurrency: num(b.renderConcurrency, current.renderConcurrency),
+      renderTimeoutSeconds: num(b.renderTimeoutSeconds, current.renderTimeoutSeconds),
+      ffmpegPath: String(b.ffmpegPath || '').trim(),
+      ffprobePath: String(b.ffprobePath || '').trim(),
+      audioCatalogUrl: String(b.audioCatalogUrl || '').trim(),
+      remoteHostAllowlist: String(b.remoteHostAllowlist || '').split(',').map((v) => v.trim()).filter(Boolean),
+      whisper: {
+        ...current.whisper,
+        provider: ['disabled', 'openai', 'compatible', 'local'].includes(b.whisperProvider) ? b.whisperProvider : current.whisper.provider,
+        endpoint: String(b.whisperEndpoint || '').trim(),
+        model: String(b.whisperModel || current.whisper.model).trim(),
+        binary: String(b.whisperBinary || current.whisper.binary).trim(),
+        modelPath: String(b.whisperModelPath || '').trim(),
+        threads: num(b.whisperThreads, current.whisper.threads),
+        maxMinutes: num(b.whisperMaxMinutes, current.whisper.maxMinutes),
+        translateProvider: String(b.whisperTranslateProvider || '').trim(),
+      },
+    });
+    await saveSettings({ motion: next });
+    res.redirect('/admin/motion?saved=1');
+  }));
+
   app.post('/admin/appearance', requireAdmin, wrap(async (req, res) => {
     const { siteName, accent, bg, surface, text } = req.body;
     const patch = {};
@@ -1226,6 +1274,9 @@ export function createMainApp() {
 
   // Image library: keyless Wikimedia Commons search plus a constrained proxy.
   app.use('/api/images', createImageRouter());
+
+  // Cascade Motion: media ingest, render queue, stills and transcription.
+  app.use('/api/motion', createMotionRouter());
 
   // MCP: stateless Streamable HTTP JSON-RPC, same auth/owner checks as the app.
   app.use('/mcp', createMcpRouter());
@@ -1277,5 +1328,6 @@ export function startMain() {
     console.log(`[cascade] sqlite database at ${path.resolve(config.dbPath)}`);
   });
   startCollabServer(server);
+  startRenderQueue().catch((err) => console.warn('[cascade] motion render queue:', err.message));
   return server;
 }

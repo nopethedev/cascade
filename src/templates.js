@@ -3,6 +3,7 @@
 // `POST /api/workspace/docs` can resolve a template by id.
 import { blankFlow, blankScript, flowId } from '../public/flow/schema.mjs';
 import { GAME_TEMPLATES } from './game/templates.js';
+import { newProject } from '../public/motion/schema.mjs';
 
 export const KINDS = [
   { id: 'doc', label: 'Document', tag: 'Rich text', icon: 'DOC' },
@@ -17,6 +18,7 @@ export const KINDS = [
   { id: 'flow', label: 'Discord bot', tag: 'Visual bot IDE', icon: 'FLOW' },
   { id: 'game', label: 'Game', tag: '2D + 3D game studio', icon: 'GAME' },
   { id: 'photo', label: 'Photo', tag: 'Layers & PSD', icon: 'IMG' },
+  { id: 'video', label: 'Video', tag: 'Timeline & effects', icon: 'VID' },
 ];
 
 export const CATEGORIES = ['blank', 'development', 'business', 'education', 'personal', 'blog', 'ecommerce', 'community', 'game', 'custom'];
@@ -793,6 +795,7 @@ export function buildContent(templateId, kind) {
   if (kind === 'flow') return blankFlow();
   if (kind === 'game') return GAME_TEMPLATES.find((x) => x.id === 'game-blank-2d').build();
   if (kind === 'photo') return blankPhoto();
+  if (kind === 'video') return newProject();
   const blank = TEMPLATES.find((x) => x.kind === kind && x.category === 'blank');
   return blank ? blank.build() : null;
 }

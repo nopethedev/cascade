@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DataTypes, Sequelize, QueryTypes } from 'sequelize';
 import { config } from './config.js';
+import { normalizeMotionSettings } from './motion/config.js';
 
 // ---------------------------------------------------------------------------
 // Sequelize + SQLite
@@ -332,6 +333,47 @@ export const AnalyticsEvent = sequelize.define(
   },
 );
 
+// Motion media and render jobs. Blobs remain in the normal file storage; the
+// motion tables only keep the editing metadata, waveform cache and job state.
+export const MotionAsset = sequelize.define(
+  'motionAsset',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    projectId: { type: DataTypes.STRING(32), allowNull: false },
+    ownerId: { type: DataTypes.STRING(36), allowNull: false },
+    fileId: { type: DataTypes.STRING(32), allowNull: false },
+    kind: { type: DataTypes.STRING(12), allowNull: false, defaultValue: 'video' },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    source: { type: DataTypes.STRING(24), allowNull: false, defaultValue: 'upload' },
+    meta: { type: DataTypes.JSON, allowNull: true },
+    waveform: { type: DataTypes.TEXT, allowNull: true },
+    thumbnailFileId: { type: DataTypes.STRING(32), allowNull: true },
+    proxyFileId: { type: DataTypes.STRING(32), allowNull: true },
+    sha256: { type: DataTypes.STRING(64), allowNull: true },
+  },
+  { tableName: 'motion_assets', indexes: [{ fields: ['projectId'] }, { fields: ['ownerId'] }, { fields: ['fileId'] }, { fields: ['sha256'] }] },
+);
+
+export const MotionJob = sequelize.define(
+  'motionJob',
+  {
+    id: { type: DataTypes.STRING(36), primaryKey: true },
+    projectId: { type: DataTypes.STRING(32), allowNull: false },
+    ownerId: { type: DataTypes.STRING(36), allowNull: false },
+    type: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'export' },
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'queued' },
+    progress: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    stage: { type: DataTypes.STRING(80), allowNull: true },
+    params: { type: DataTypes.JSON, allowNull: true },
+    result: { type: DataTypes.JSON, allowNull: true },
+    outputFileId: { type: DataTypes.STRING(32), allowNull: true },
+    error: { type: DataTypes.TEXT, allowNull: true },
+    startedAt: { type: DataTypes.DATE, allowNull: true },
+    finishedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  { tableName: 'motion_jobs', indexes: [{ fields: ['projectId'] }, { fields: ['ownerId'] }, { fields: ['status'] }, { fields: ['createdAt'] }] },
+);
+
 export const Setting = sequelize.define(
   'setting',
   {
@@ -347,6 +389,9 @@ export const Setting = sequelize.define(
     replicationSelectedNodeIds: { type: DataTypes.JSON, defaultValue: [] },
     replicationDefaultNodeId: { type: DataTypes.STRING(32), defaultValue: 'local' },
     replicationReplicaCount: { type: DataTypes.INTEGER, defaultValue: 2 },
+    // Motion render/transcription limits and provider configuration. JSON keeps
+    // adding an option from requiring another database migration.
+    motion: { type: DataTypes.JSON, defaultValue: {} },
   },
   { tableName: 'settings' },
 );
@@ -378,6 +423,7 @@ function toSettings(row) {
       defaultNodeId: row.replicationDefaultNodeId || 'local',
       replicaCount: Number(row.replicationReplicaCount) || 1,
     },
+    motion: normalizeMotionSettings(row.motion),
   };
 }
 
@@ -495,6 +541,9 @@ async function migrateSchema() {
     if (!have.has('allowPublicSignup')) {
       await sequelize.query('ALTER TABLE `settings` ADD COLUMN `allowPublicSignup` BOOLEAN NOT NULL DEFAULT 0');
     }
+    if (!have.has('motion')) {
+      await sequelize.query("ALTER TABLE `settings` ADD COLUMN `motion` TEXT NOT NULL DEFAULT '{}'");
+    }
   }
 }
 
@@ -518,7 +567,7 @@ export async function initDb() {
 export async function getSettings() {
   if (settingsCache) return settingsCache;
   const row = await Setting.findByPk(1);
-  settingsCache = row ? toSettings(row) : { ...ENV_DEFAULTS, setupDone: false, allowPublicSignup: false, replication: { mode: 'n', selectedNodeIds: [], defaultNodeId: 'local', replicaCount: 2 } };
+  settingsCache = row ? toSettings(row) : { ...ENV_DEFAULTS, motion: normalizeMotionSettings({}), setupDone: false, allowPublicSignup: false, replication: { mode: 'n', selectedNodeIds: [], defaultNodeId: 'local', replicaCount: 2 } };
   return settingsCache;
 }
 
@@ -540,6 +589,7 @@ export async function saveSettings(patch = {}) {
     replicationSelectedNodeIds: next.replication.selectedNodeIds,
     replicationDefaultNodeId: next.replication.defaultNodeId,
     replicationReplicaCount: next.replication.replicaCount,
+    motion: next.motion,
   });
   settingsCache = toSettings(row);
   if (next.setupDone) adminSeen = true;

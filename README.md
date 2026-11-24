@@ -22,6 +22,7 @@ Beyond uploads, Cascade is a small productivity suite. **+ Create** (dashboard s
 | **Website** | visual section builder, layers/reorder, responsive previews, theme + SEO, sandboxed custom code, SQLite CMS collections and dynamic pages, staging/production deployments with rollback, publishing with forms/analytics/sitemap, custom domains, HTML/React export |
 | **Roblox Studio** | installable Luau plugin, one-time pairing, live Explorer, properties, Luau/Monaco scripts, GUI designer, Three.js approximation viewport, snapshots, MCP tools and live collaboration |
 | **Game Studio** | real 2D (Canvas + Matter.js) and 3D (Three.js + Cannon-es) runtimes, scene hierarchy, transform gizmos, inspector/components, visual graph scripting, JavaScript scripts, GLB/glTF/OBJ/FBX/STL import, lighting, particles, terrain, prefabs, play/pause/step, HTML5/ZIP/standalone exports and public `/games/:slug` publishing |
+| **Cascade Motion** | frame-accurate multitrack NLE: media library, Canvas2D compositor, trim/split/ripple/slip/slide, 62 transitions, 50 subtitle styles, 105 effects, 51 motion templates, 30 colour presets and scopes, keyframes, masks, nested compositions, Whisper/OpenAI subtitles, render queue and real FFmpeg H.264/H.265/VP9/AV1 + AAC/Opus/E-AC-3 exports |
 
 Shared behaviour: Yjs/WebSocket live collaboration with cursors, selections, presence and reconnect recovery; offline draft merge; debounced autosave; version history (last 25 snapshots, restorable); server-enforced Owner/Editor/Commenter/Viewer roles; expiring capability links; threaded comments with @mentions; "save as template"; a global `/search` across file names and document contents; and an image library for documents, spreadsheets, decks and websites. Template cards render the actual template content, not placeholders.
 
@@ -45,6 +46,21 @@ The exported game is a single self-contained HTML file (engine, runtime, project
 
 Current 3D limits: terrain is a procedural heightfield with a simple collider; navigation/behavior trees, skeletal animation blending, networked 3D play, mesh editing/sculpting and advanced post-processing are not implemented yet. Imported model animations are not played by the runtime. The editor reports unsupported projects rather than pretending those systems exist.
 
+### Cascade Motion
+
+**Cascade Motion** is the workspace video editor. It is a real nonlinear editor backed by the same SQLite file records, collaboration rooms, history and MCP server as the rest of Cascade; heavy editor modules and FFmpeg are loaded only when a video project is open.
+
+- **Timeline** — integer-microsecond ticks, unlimited tracks, linked A/V, trim, split, ripple, roll, slip, slide, snapping, markers, groups, multi-select, frame stepping, speed/reverse/freeze, virtualised clip DOM and full undo/redo.
+- **Compositor** — Canvas2D preview with simultaneous video layers, transforms, opacity, blend modes, masks, text, karaoke/word-level subtitles, transitions, colour curves/selective colour and deterministic particles. WebCodecs/WebGL2 are feature-detected; unsupported codecs use generated proxies.
+- **Audio** — waveforms, music library, fades, gain/pan, EQ, compression, limiter, denoise/enhance, reverb/echo, pitch, ducking preview, beat markers, peak meters and master mix.
+- **Colour and graphics** — lift/gamma/gain, temperature/tint, RGB curves, hue/sat/luma selective colour, `.cube` LUT imports with intensity, histogram/waveform/parade/vectorscope, 50 editable caption presets, 51 motion templates and shape/text layers.
+- **Export** — a persistent render queue runs outside the Express process with progress, cancellation, retry and error logs. FFmpeg validates container/codec/encoder support before rendering, detects hardware encoders, and uses a shared filter graph plus deterministic particle/composition layers so exported frames match the preview. Outputs are stored in Cascade Files and downloadable from the job.
+- **Automation** — `motion_*` MCP tools expose project inspection, transactional edit batches with dry-run/CAS, media import, frame capture, render progress, history and undo. The editor and MCP use the same validation and edit operations.
+
+Docker installs `ffmpeg`, `ffprobe` and DejaVu fonts; set `FFMPEG_PATH`/`FFPROBE_PATH` when using a custom binary. Whisper is configured in **Admin → Motion** (disabled by default) and can use OpenAI, a compatible endpoint or local whisper.cpp.
+
+Current export limits are reported in the job warnings rather than hidden: animated scale/rotation/opacity and animated effect parameters use their first-frame value, selective/lift/gamma/gain grades have preview-only components, HDR source conversions are not tone-mapped, and nested compositions are flattened one level (audio inside a composition is not mixed). Particle, text, colour, keyframed x/y transforms, transitions and subtitles are rendered into the export.
+
 ### Cascade Sites CMS and deployments
 
 The website editor's **CMS** panel stores collections and items in SQLite and renders real dynamic `/c/:collection` and `/c/:collection/:slug` pages. **Deployments** keeps immutable staging and production snapshots, and **Staging** previews the next build without touching production. Publishing remains available at `/sites/:slug` with sitemap/robots, SEO, forms, analytics and custom-domain routing; HTML and React exports are self-contained.
@@ -54,7 +70,7 @@ Document, sheet and deck exports are real Office Open XML files (`.docx`, `.xlsx
 ## Features
 
 - Upload (multi-file, drag & drop, progress), view (images / video / audio inline), edit text files, rename, delete
-- Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms, code and websites (see above)
+- Workspace editors for documents, spreadsheets, presentations, PDFs, whiteboards, forms, code, websites, Roblox Studio, Game Studio and Cascade Motion video editing (see above)
 - Live collaboration rooms, comments, roles and capability links across every editor
 - Published websites with forms, analytics, sitemap/robots and custom-domain Host routing
 - Share publicly: pretty page `/c/:slug` + raw CDN URL `/raw/:slug` (5-minute revalidating public cache)
@@ -92,7 +108,7 @@ docker compose up -d
 SERVER_MODE=node NODE_ACCESS_KEY=my-secret-key CASCADE_PORT=3001 docker compose up -d
 ```
 
-The image is pulled from GHCR (`ghcr.io/nopethedev/cascade:latest`, built by `.github/workflows/docker.yml`).
+The image is pulled from GHCR (`ghcr.io/nopethedev/cascade:latest`, built by `.github/workflows/docker.yml`) and includes FFmpeg/FFprobe and fonts for Cascade Motion exports.
 Add `--build` to build from source instead, or set `CASCADE_IMAGE` to use another tag. Data (SQLite + uploads) lives in the `cascade-data` volume.
 
 > When `NODE_ACCESS_KEY` is empty, the node generates a key and saves it to `data/node-key.txt` (mode 0600) without printing the value. Read it from that file to register the node.
@@ -171,7 +187,7 @@ Back up the SQLite file and `uploads/` together. In Docker both live in `cascade
 
 ## Env
 
-See `.env.example`. Main knobs: `PORT`, `SERVER_MODE`, `SESSION_SECRET`, `DB_PATH`, `STORAGE_DIR`, `SITE_NAME`, `THEME_*`, `NODE_ACCESS_KEY` (node mode), `HEALTHCHECK_INTERVAL_MS`.
+See `.env.example`. Main knobs: `PORT`, `SERVER_MODE`, `SESSION_SECRET`, `DB_PATH`, `STORAGE_DIR`, `SITE_NAME`, `THEME_*`, `NODE_ACCESS_KEY` (node mode), `HEALTHCHECK_INTERVAL_MS`, `FFMPEG_PATH`, `FFPROBE_PATH`, `WHISPER_*` (Motion).
 
 ## GitHub Actions
 
