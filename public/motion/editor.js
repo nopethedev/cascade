@@ -6,7 +6,7 @@ import {
   formatSrt, formatVtt, formatAss, parseSrt, parseAss, wordsToCues, subtitleStyleById, effectById,
   transitionById, frameOf, snapToFrame,
 } from './schema.mjs';
-import { MotionEngine } from './engine.js';
+import { MotionEngine, drawEffectPreview, drawTransitionPreview } from './engine.js';
 import { parseCube } from './animations.mjs';
 
 const $ = (s, root = document) => root.querySelector(s);
@@ -390,7 +390,7 @@ function renderMediaPanel() {
       e.dataTransfer.setData('application/x-cascade-asset', a.id);
       e.dataTransfer.effectAllowed = 'copy';
     });
-    card.querySelector('[data-asset-menu]').addEventListener('click', () => assetMenu(a));
+    card.querySelector('[data-asset-menu]').addEventListener('click', (e) => assetMenu(a, e.clientX, e.clientY));
     grid.append(card);
   }
   const tile = document.createElement('button');
@@ -411,7 +411,7 @@ function renderMediaPanel() {
   }
 }
 
-function assetMenu(asset) {
+function assetMenu(asset, x, y) {
   closeContext();
   const menu = document.createElement('div');
   menu.className = 'mo-context';
@@ -422,11 +422,8 @@ function assetMenu(asset) {
     <button type="button" data-a="download">Download original</button>
     <div class="mo-menu-sep"></div>
     <button type="button" data-a="delete">Remove from project</button>`;
-  document.body.append(menu);
-  const rect = { x: window.innerWidth - 260, y: 120 };
-  menu.style.left = `${rect.x}px`; menu.style.top = `${rect.y}px`;
+  placeContext(menu, x, y);
   const close = () => menu.remove();
-  setTimeout(() => document.addEventListener('pointerdown', close, { once: true }), 0);
   menu.querySelector('[data-a="add"]').onclick = () => { addAssetToTimeline(asset.id); close(); };
   menu.querySelector('[data-a="download"]').onclick = () => { window.open(asset.url, '_blank'); close(); };
   menu.querySelector('[data-a="select"]').onclick = () => {
@@ -513,7 +510,29 @@ async function addLibraryAudio(track) {
   } catch (err) { toast(err.message, true); }
 }
 
+let libraryPreviewAnim = null;
+function stopLibraryPreview(canvas = null) {
+  if (!libraryPreviewAnim || (canvas && libraryPreviewAnim.canvas !== canvas)) return;
+  cancelAnimationFrame(libraryPreviewAnim.raf);
+  libraryPreviewAnim = null;
+}
+function animateLibraryPreview(canvas, draw) {
+  stopLibraryPreview();
+  const start = performance.now();
+  let last = 0;
+  const tick = (now) => {
+    if (!canvas.isConnected) { libraryPreviewAnim = null; return; }
+    if (now - last >= 33) {
+      last = now;
+      draw(((now - start) % 2400) / 2400);
+    }
+    libraryPreviewAnim = { canvas, raf: requestAnimationFrame(tick) };
+  };
+  libraryPreviewAnim = { canvas, raf: requestAnimationFrame(tick) };
+}
+
 function renderEffectsPanel() {
+  stopLibraryPreview();
   const body = $('#mo-left-body');
   const cats = ['All', ...new Set(EFFECTS.map((e) => e.category))];
   const currentCat = body.dataset.cat || 'All';
@@ -538,9 +557,12 @@ function renderEffectsPanel() {
     card.className = 'mo-preset';
     card.draggable = true;
     card.dataset.effectId = fx.id;
-    const glyph = fx.primitive === 'particles' ? '✺' : fx.category === 'Motion' ? '↝' : fx.category === 'Color' ? '◑' : fx.category === 'Light' ? '✧' : '◈';
-    card.innerHTML = `<div class="mo-preset-visual"><span class="mo-fx-icon">${glyph}</span></div><div class="mo-preset-label">${esc(fx.name)}<span>${esc(fx.category)}</span></div>`;
+    card.innerHTML = `<div class="mo-preset-visual"><canvas class="mo-library-preview" width="264" height="96" aria-hidden="true"></canvas></div><div class="mo-preset-label">${esc(fx.name)}<span>${esc(fx.category)}</span></div>`;
     card.title = `${fx.name} — ${fx.category}${fx.ffmpeg ? ' · FFmpeg-backed' : ' · canvas renderer'}`;
+    const preview = card.querySelector('canvas');
+    drawEffectPreview(preview, fx.id, 400);
+    card.addEventListener('pointerenter', () => animateLibraryPreview(preview, (progress) => drawEffectPreview(preview, fx.id, progress * 2600)));
+    card.addEventListener('pointerleave', () => { stopLibraryPreview(preview); drawEffectPreview(preview, fx.id, 400); });
     card.addEventListener('click', () => applyEffectToSelection(fx.id));
     card.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('application/x-cascade-effect', fx.id);
@@ -550,7 +572,7 @@ function renderEffectsPanel() {
   });
   body.append(grid);
   if (!filtered.length) body.insertAdjacentHTML('beforeend', '<div class="mo-empty"><b>No matching effects</b>Try another category.</div>');
-  body.insertAdjacentHTML('beforeend', '<p class="mo-fine" style="margin-top:8px">Select a clip, then click an effect or drag it onto a clip. Every parameter is editable in the inspector.</p>');
+  body.insertAdjacentHTML('beforeend', '<p class="mo-fine" style="margin-top:8px">Select a clip, then click an effect or drag it onto a clip. Hover a card to play its preview; every parameter is editable in the inspector.</p>');
   bindSearch(renderEffectsPanel);
 }
 
@@ -568,6 +590,7 @@ function applyEffectToSelection(effectId, clipId = null) {
 }
 
 function renderTransitionsPanel() {
+  stopLibraryPreview();
   leftToolbar(simpleSearchToolbar('Search transitions…', '<input id="mo-tr-duration" type="number" min="0.1" max="8" step="0.1" value="0.6" title="Transition duration (seconds)" style="width:54px;height:26px;background:var(--mo-panel-2);border:1px solid var(--mo-line);border-radius:4px;padding:0 4px">'));
   const body = $('#mo-left-body');
   const cats = ['All', ...new Set(TRANSITIONS.map((t) => t.category))];
@@ -598,12 +621,17 @@ function renderTransitionsPanel() {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = `mo-preset mo-transition-card${active?.type === tr.id ? ' is-active' : ''}`;
-    card.innerHTML = `<div class="mo-preset-visual"><span>${esc(tr.category)}</span></div><div class="mo-preset-label">${esc(tr.name)}<span>${tr.defaultDuration}s · ${esc(tr.engine)}</span></div>`;
+    card.innerHTML = `<div class="mo-preset-visual"><canvas class="mo-library-preview" width="296" height="116" aria-hidden="true"></canvas></div><div class="mo-preset-label">${esc(tr.name)}<span>${tr.defaultDuration}s · ${esc(tr.engine)}</span></div>`;
+    const preview = card.querySelector('canvas');
+    drawTransitionPreview(preview, tr.id, 0.55);
+    card.addEventListener('pointerenter', () => animateLibraryPreview(preview, (progress) => drawTransitionPreview(preview, tr.id, progress)));
+    card.addEventListener('pointerleave', () => { stopLibraryPreview(preview); drawTransitionPreview(preview, tr.id, 0.55); });
     card.addEventListener('click', () => applyTransition(tr.id));
     grid.append(card);
   });
   body.append(grid);
   if (!filtered.length) body.insertAdjacentHTML('beforeend', '<div class="mo-empty"><b>No matching transitions</b></div>');
+  body.insertAdjacentHTML('beforeend', '<p class="mo-fine" style="margin-top:8px">Hover a transition to preview it against the sample frames, then click to apply it to the selected incoming clip.</p>');
   info.querySelector('[data-tr="remove"]').addEventListener('click', () => {
     if (!selection.size) return toast('Select a clip first', true);
     const next = deep(project);
@@ -1458,21 +1486,28 @@ function compositionInspector(clip) {
 /* Clip menu and batch actions                                               */
 /* ------------------------------------------------------------------------- */
 
-function clipMenu(clip) {
+function clipMenu(clip, x, y) {
   closeContext();
   const menu = document.createElement('div');
   menu.className = 'mo-context';
   menu.innerHTML = `<button data-c="split">Split at playhead</button><button data-c="duplicate">Duplicate</button><button data-c="copy">Copy</button><button data-c="detach">Detach audio</button><button data-c="replace">Replace media…</button><button data-c="nest">Nest selection</button><div class="mo-menu-sep"></div><button data-c="delete">Delete</button>`;
-  document.body.append(menu);
-  menu.style.right = '20px'; menu.style.top = '120px';
-  setTimeout(() => document.addEventListener('pointerdown', () => menu.remove(), { once: true }), 0);
+  placeContext(menu, x, y);
   menu.querySelector('[data-c="split"]').onclick = () => { selection = new Set([clip.id]); splitSelection(); menu.remove(); };
   menu.querySelector('[data-c="duplicate"]').onclick = () => { selection = new Set([clip.id]); duplicateSelection(); menu.remove(); };
   menu.querySelector('[data-c="copy"]').onclick = () => { selection = new Set([clip.id]); copySelection(); menu.remove(); };
   menu.querySelector('[data-c="detach"]').onclick = () => { detachAudio(clip.id); menu.remove(); };
   menu.querySelector('[data-c="replace"]').onclick = () => { selection = new Set([clip.id]); replaceMedia(); menu.remove(); };
-  menu.querySelector('[data-c="nest"]').onclick = () => nestSelection(); 
+  menu.querySelector('[data-c="nest"]').onclick = () => { nestSelection(); menu.remove(); };
   menu.querySelector('[data-c="delete"]').onclick = () => { selection = new Set([clip.id]); deleteSelection(); menu.remove(); };
+}
+
+function placeContext(menu, x, y) {
+  document.body.append(menu);
+  const rect = menu.getBoundingClientRect();
+  const left = Number.isFinite(x) ? x : window.innerWidth - rect.width - 16;
+  const top = Number.isFinite(y) ? y : 120;
+  menu.style.left = `${Math.max(6, Math.min(left, window.innerWidth - rect.width - 6))}px`;
+  menu.style.top = `${Math.max(6, Math.min(top, window.innerHeight - rect.height - 6))}px`;
 }
 
 function closeContext() { $$('.mo-context').forEach((m) => m.remove()); }
@@ -2418,11 +2453,12 @@ function renderClips(width) {
     const asset = assetMap.get(clip.assetId);
     const widthPx = Math.max(2, (clip.duration / TICKS) * zoom);
     let inner = '';
+    const hasAudio = clip.type === 'audio' || (clip.type === 'video' && !!asset?.hasAudio);
+    if (hasAudio && clip.type === 'video') el.classList.add('has-audio');
     if (asset && ['video', 'image'].includes(clip.type) && asset.thumbnailUrl) {
-      const count = Math.min(10, Math.max(1, Math.round(widthPx / 74)));
-      inner += `<div class="mo-clip-thumbs">${Array.from({ length: count }, () => `<img src="${asset.thumbnailUrl}" alt="">`).join('')}</div>`;
+      inner += `<div class="mo-clip-thumbs" style="background-image:url('${asset.thumbnailUrl}')" aria-hidden="true"></div>`;
     }
-    if (clip.type === 'audio' || (asset?.hasAudio && clip.type === 'video')) inner += `<canvas class="mo-clip-wave" width="${Math.min(1200, Math.round(widthPx))}" height="32" data-wave="${clip.id}"></canvas>`;
+    if (hasAudio) inner += `<canvas class="mo-clip-wave" width="${Math.min(1200, Math.round(widthPx))}" height="32" data-wave="${clip.id}"></canvas>`;
     inner += `<div class="mo-clip-label"><i>${clip.type === 'video' ? '▶' : clip.type === 'audio' ? '♪' : clip.type === 'text' ? 'T' : clip.type === 'subtitle' ? 'CC' : clip.type === 'shape' ? '◆' : clip.type === 'composition' ? '◇' : 'FX'}</i>${esc(clip.name)}</div>`;
     inner += `<div class="mo-clip-badges">${Math.abs(clip.speed - 1) > 0.01 ? `<span>${clip.speed.toFixed(2)}×</span>` : ''}${clip.reverse ? '<span>REV</span>' : ''}${clip.freeze ? '<span>FREEZE</span>' : ''}</div>`;
     if (clip.effects?.length) inner += `<span class="mo-clip-fx">FX ${clip.effects.length}</span>`;
@@ -2438,7 +2474,7 @@ function renderClips(width) {
       engine.setTime(clip.start);
       renderAll();
     });
-    el.addEventListener('contextmenu', (e) => { e.preventDefault(); selection = new Set([clip.id]); renderAll(); clipMenu(clip); });
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); selection = new Set([clip.id]); renderAll(); clipMenu(clip, e.clientX, e.clientY); });
     el.addEventListener('dragover', (e) => { e.preventDefault(); });
     el.addEventListener('drop', (e) => {
       e.preventDefault(); e.stopPropagation();

@@ -1709,13 +1709,158 @@ class PreviewAudio {
   }
 }
 
-export function drawEffectPreview(canvas, effectId) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width; const H = canvas.height;
+/* ------------------------------------------------------------------------- */
+/* Library previews                                                          */
+/* ------------------------------------------------------------------------- */
+
+/* One lightweight compositor is reused for every card: previews are drawn
+ * synchronously, so the host canvas/project can be swapped between calls. The
+ * same transition compositing and effect primitives as the real preview are
+ * used, which keeps the library honest about what a preset actually does. */
+let libraryEngine = null;
+
+function previewHost(canvas) {
+  if (!libraryEngine) {
+    libraryEngine = new MotionEngine({
+      canvas,
+      project: { width: canvas.width || 264, height: canvas.height || 96, fps: 30, duration: 2000, tracks: [], clips: [], compositions: [] },
+      assets: [],
+    });
+    libraryEngine.audio = { ensure() {}, start() {}, stop() {}, sync() {}, setMuted() {}, setRate() {}, update() {}, peak: 0 };
+  }
+  libraryEngine.canvas = canvas;
+  libraryEngine.ctx = canvas.getContext('2d');
+  libraryEngine.project = { ...libraryEngine.project, width: canvas.width, height: canvas.height };
+  return libraryEngine;
+}
+
+function paintPreviewScene(ctx, W, H, variant = 'a') {
+  const warm = variant === 'b';
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, warm ? '#3b0d3a' : '#07243d');
+  sky.addColorStop(0.55, warm ? '#b91c4b' : '#0e7490');
+  sky.addColorStop(1, warm ? '#fb923c' : '#facc15');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  const sx = warm ? W * 0.72 : W * 0.28;
+  const sy = H * 0.34;
+  const sun = ctx.createRadialGradient(sx, sy, 0, sx, sy, H * 0.34);
+  sun.addColorStop(0, warm ? 'rgba(255,237,213,.95)' : 'rgba(254,249,195,.95)');
+  sun.addColorStop(0.4, warm ? 'rgba(251,146,60,.55)' : 'rgba(250,204,21,.5)');
+  sun.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sun;
+  ctx.beginPath(); ctx.arc(sx, sy, H * 0.34, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = warm ? '#7c2d12' : '#164e63';
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.62);
+  ctx.lineTo(W * 0.18, H * 0.4); ctx.lineTo(W * 0.36, H * 0.62);
+  ctx.lineTo(W * 0.56, H * 0.34); ctx.lineTo(W * 0.78, H * 0.62);
+  ctx.lineTo(W, H * 0.46); ctx.lineTo(W, H); ctx.lineTo(0, H);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = warm ? '#431407' : '#0b1f2a';
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.78);
+  ctx.lineTo(W * 0.22, H * 0.6); ctx.lineTo(W * 0.44, H * 0.8);
+  ctx.lineTo(W * 0.66, H * 0.58); ctx.lineTo(W * 0.86, H * 0.76);
+  ctx.lineTo(W, H * 0.66); ctx.lineTo(W, H); ctx.lineTo(0, H);
+  ctx.closePath(); ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,.55)';
+  ctx.lineWidth = Math.max(1, H * 0.012);
+  ctx.beginPath(); ctx.moveTo(0, H * 0.86); ctx.lineTo(W, H * 0.86); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.beginPath(); ctx.arc(W * 0.5, H * 0.44, H * 0.1, 0, Math.PI * 2); ctx.fill();
+
+  // Frame tag keeps a transition's A/B direction readable.
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.beginPath(); ctx.roundRect(W * 0.04, H * 0.08, W * 0.13, H * 0.18, H * 0.04); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `700 ${Math.max(6, H * 0.12)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(warm ? 'B' : 'A', W * 0.105, H * 0.172);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+}
+
+const MOTION_PREVIEWS = new Set(['shake', 'zoom', 'motion-rotate', 'perspective', 'parallax', 'bounce', 'elastic', 'motion-blur']);
+
+function drawMotionPreview(engine, clip, preset, timeMs) {
+  const { canvas, ctx } = engine;
+  const W = canvas.width;
+  const H = canvas.height;
+  const t = timeMs / 1000;
+  const p = { ...(preset.params || {}), ...(clip.effects[0].params || {}) };
+  const src = engine.buffer(W, H);
+  src.ctx.clearRect(0, 0, W, H);
+  src.ctx.drawImage(canvas, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  const g = ctx.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, '#0ea5e9'); g.addColorStop(0.5, '#f43f5e'); g.addColorStop(1, '#f59e0b');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255,255,255,.85)';
-  ctx.beginPath(); ctx.arc(W * 0.5, H * 0.5, H * 0.24, 0, Math.PI * 2); ctx.fill();
+  ctx.save();
+  if (preset.primitive === 'motion-blur') {
+    const amount = clamp(p.amount ?? 0.5, 0.1, 1);
+    for (let i = 3; i >= 0; i -= 1) {
+      ctx.globalAlpha = i === 0 ? 1 : 0.22;
+      ctx.drawImage(src.canvas, (i - 1) * amount * W * 0.02, 0);
+    }
+    ctx.restore();
+    return;
+  }
+  ctx.translate(W / 2, H / 2);
+  if (preset.primitive === 'zoom') {
+    const from = p.from ?? 1;
+    const to = p.to ?? 1;
+    ctx.scale(from + (to - from) * clamp(t / 2.2, 0, 1), from + (to - from) * clamp(t / 2.2, 0, 1));
+  } else if (preset.primitive === 'motion-rotate') {
+    ctx.rotate((p.amount ?? 6) * Math.PI / 180 * Math.sin(t * (p.speed ?? 0.4) * 4));
+  } else if (preset.primitive === 'perspective') {
+    const k = (p.amount ?? 0.25) * Math.sin(t * (p.speed ?? 0.3) * 3);
+    ctx.transform(1, k * 0.3, -k * 0.3, 1, 0, 0);
+  } else if (preset.primitive === 'parallax') {
+    ctx.translate(Math.sin(t * (p.speed ?? 0.2) * 5) * W * (p.amount ?? 0.05), 0);
+  } else if (preset.primitive === 'bounce') {
+    ctx.translate(0, -Math.abs(Math.sin(t * (p.speed ?? 1.2) * 4)) * H * (p.amount ?? 0.03));
+  } else if (preset.primitive === 'elastic') {
+    const k = 1 + Math.sin(t * (p.speed ?? 0.8) * 5) * (p.amount ?? 0.06);
+    ctx.scale(k, k);
+  } else {
+    ctx.translate(Math.sin(t * 8.3) * W * (p.amount ?? 0.01), Math.cos(t * 6.7) * H * (p.amount ?? 0.01));
+    ctx.rotate((p.rotation ?? 0.4) * 0.01 * Math.sin(t * (p.speed ?? 6)));
+  }
+  ctx.drawImage(src.canvas, -W / 2, -H / 2);
+  ctx.restore();
+}
+
+export function drawEffectPreview(canvas, effectId, timeMs = 400) {
+  if (!canvas) return;
+  const engine = previewHost(canvas);
+  const W = canvas.width;
+  const H = canvas.height;
+  const ctx = engine.ctx;
+  paintPreviewScene(ctx, W, H, 'a');
+  const preset = effectById(effectId);
+  if (!preset) return;
+  engine.time = timeMs * 1000;
+  const clip = {
+    id: `library-${effectId}`, start: 0, duration: 5 * TICKS, originalDuration: 5 * TICKS,
+    effects: [{ id: `library-${effectId}`, type: effectId, enabled: true, params: {} }],
+  };
+  if (MOTION_PREVIEWS.has(preset.primitive)) drawMotionPreview(engine, clip, preset, timeMs);
+  else if (preset.primitive === 'particles') engine.drawParticles(ctx, clip.effects[0], clip, engine.project, W / 320, {});
+  else engine.applyEffect(ctx, canvas, clip.effects[0], clip, W / 320, {}, timeMs * 1000);
+}
+
+export function drawTransitionPreview(canvas, transitionId, progress = 0.55) {
+  if (!canvas) return;
+  const engine = previewHost(canvas);
+  const preset = transitionById(transitionId);
+  if (!preset) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  paintPreviewScene(engine.ctx, W, H, 'a');
+  const layer = engine.buffer(W, H);
+  layer.ctx.clearRect(0, 0, W, H);
+  paintPreviewScene(layer.ctx, W, H, 'b');
+  engine.time = 0;
+  engine.compositeLayer(engine.ctx, layer.canvas, { id: 'library-transition' }, {}, 1, { preset, progress: clamp(progress, 0, 1) }, 1);
 }
