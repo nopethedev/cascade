@@ -770,6 +770,10 @@ TEMPLATES.push(
 );
 
 TEMPLATES.push(
+  { id: 'video-blank', name: 'Blank motion project', kind: 'video', category: 'blank', description: 'An empty 1080p timeline with video, overlay, title, subtitle and audio tracks.', build: () => newProject() },
+);
+
+TEMPLATES.push(
   { id: 'flow-blank', name: 'Blank Discord bot', kind: 'flow', category: 'blank', description: 'An empty visual bot with a ready graph and no commands.', build: () => blankFlow('My Discord Bot') },
   { id: 'flow-ping', name: 'Slash command starter', kind: 'flow', category: 'development', description: 'A working /ping command compiled to JavaScript.', build: flowPing },
   { id: 'flow-utility', name: 'Utility bot', kind: 'flow', category: 'development', description: 'Ping and server information commands.', build: flowUtility },
