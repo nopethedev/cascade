@@ -321,15 +321,19 @@
   <form method="dialog" class="mo-dialog-inner">
     <div class="mo-dialog-head"><h2>Automatic subtitles</h2><button class="mo-iconbtn" value="cancel" aria-label="Close">✕</button></div>
     <div class="mo-dialog-body">
-      <p class="mo-fine">Transcribe the selected clip, its audio, or the full sequence. Configure the provider in Admin → Motion or use the server environment.</p>
+      <p class="mo-fine">Transcribe the selected clip, its audio track, or the loudest clip in the sequence. Whisper runs locally on this device; nothing is uploaded.</p>
       <div class="mo-form-grid">
         <label>Source<select id="mo-tr-source"><option value="sequence">Entire sequence</option><option value="clip">Selected clip</option><option value="track">Selected audio track</option></select></label>
-        <label>Language<select id="mo-tr-language"><option value="auto">Detect automatically</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="pt">Portuguese</option><option value="ar">Arabic</option><option value="hi">Hindi</option></select></label>
-        <label>Model<input id="mo-tr-model" type="text" placeholder="Server default"></label>
+        <label>Language<select id="mo-tr-language"><option value="en" selected>English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="pt">Portuguese</option><option value="ar">Arabic</option><option value="hi">Hindi</option></select></label>
+        <label>Model<select id="mo-tr-model"><option value="onnx-community/whisper-tiny">Tiny · fastest (~40 MB)</option><option value="onnx-community/whisper-base" selected>Base · balanced (~80 MB)</option><option value="onnx-community/whisper-small">Small · most accurate (~250 MB)</option><option value="onnx-community/whisper-tiny.en">Tiny English</option><option value="onnx-community/whisper-base.en">Base English</option></select></label>
         <label class="mo-check"><input type="checkbox" id="mo-tr-translate"> Translate to English</label>
         <label class="mo-check"><input type="checkbox" id="mo-tr-replace" checked> Replace existing subtitle track</label>
       </div>
       <div class="mo-provider-note" id="mo-provider-note"></div>
+      <div class="mo-upload-progress" id="mo-transcribe-progress" hidden>
+        <div><span></span></div>
+        <p id="mo-transcribe-status">Preparing…</p>
+      </div>
     </div>
     <div class="mo-dialog-foot">
       <span class="mo-spacer"></span>

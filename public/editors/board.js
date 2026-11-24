@@ -5,6 +5,17 @@
   if (!DOC) return;
   const data = DOC.content && Array.isArray(DOC.content.elements) ? DOC.content : { elements: [], view: { x: 40, y: 40, zoom: 1 } };
   data.view = data.view && typeof data.view.zoom === 'number' ? data.view : { x: 40, y: 40, zoom: 1 };
+  try {
+    const storedView = JSON.parse(localStorage.getItem(`cascade:board-view:${DOC.id}`) || 'null');
+    if (storedView && typeof storedView.zoom === 'number') data.view = storedView;
+  } catch { /* private mode */ }
+  let viewTimer = null;
+  function rememberView() {
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(() => {
+      try { localStorage.setItem(`cascade:board-view:${DOC.id}`, JSON.stringify(data.view)); } catch { /* ignore */ }
+    }, 250);
+  }
 
   const wrap = document.getElementById('board-wrap');
   const canvas = document.getElementById('board');
@@ -175,27 +186,38 @@
   }
 
   function positionStickies() {
-    overlay.textContent = '';
+    // Reuse the existing textareas instead of rebuilding them. A remote update
+    // used to replace the overlay and steal focus while someone was typing.
+    const existing = new Map([...overlay.querySelectorAll('textarea.board-sticky')].map((ta) => [ta.dataset.id, ta]));
+    const seen = new Set();
     for (const e of data.elements) {
       if (e.type !== 'sticky') continue;
-      const ta = document.createElement('textarea');
-      ta.className = 'board-sticky';
-      ta.value = e.text || '';
-      ta.placeholder = 'Type…';
+      seen.add(String(e.id));
+      let ta = existing.get(String(e.id));
+      if (!ta) {
+        ta = document.createElement('textarea');
+        ta.className = 'board-sticky';
+        ta.dataset.id = String(e.id);
+        ta.placeholder = 'Type…';
+        ta.addEventListener('input', () => {
+          const live = data.elements.find((item) => String(item.id) === ta.dataset.id);
+          if (!live) return;
+          live.text = ta.value;
+          draw();
+          ws.schedule();
+        });
+        ta.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      }
+      if (ta !== document.activeElement) ta.value = e.text || '';
       ta.style.left = `${e.x * view().zoom + view().x}px`;
       ta.style.top = `${e.y * view().zoom + view().y}px`;
       ta.style.width = `${e.w * view().zoom}px`;
       ta.style.height = `${e.h * view().zoom}px`;
       ta.style.background = e.color || '#fde68a';
       ta.style.fontSize = `${Math.max(9, 14 * view().zoom)}px`;
-      ta.addEventListener('input', () => {
-        e.text = ta.value;
-        draw();
-        ws.schedule();
-      });
-      ta.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-      overlay.append(ta);
+      if (ta !== document.activeElement) overlay.append(ta);
     }
+    for (const [id, ta] of existing) if (!seen.has(id)) ta.remove();
   }
 
   function resize() {
@@ -225,6 +247,7 @@
     view().x = mx - ((mx - view().x) / view().zoom) * next;
     view().y = my - ((my - view().y) / view().zoom) * next;
     view().zoom = next;
+    rememberView();
     draw();
     positionStickies();
   }, { passive: false });
@@ -286,7 +309,13 @@
     } else if (tool === 'arrow') {
       action = { mode: 'draw', el: { id: uid(), type: 'line', x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: colorInput.value, width: Number(widthSelect.value) } };
     }
-    if (action) data.elements.push(action.el);
+    if (action) {
+      data.elements.push(action.el);
+      // Publish the new element immediately. If a collaborator edits before
+      // this stroke finishes, the shared patch log already contains it and the
+      // remote merge can keep the same object alive.
+      ws.schedule();
+    }
     draw();
   });
 
@@ -295,6 +324,7 @@
     if (action.mode === 'pan') {
       view().x = action.vx + (ev.clientX - action.sx);
       view().y = action.vy + (ev.clientY - action.sy);
+      rememberView();
       draw();
       positionStickies();
       return;
@@ -375,11 +405,13 @@
   document.getElementById('board-redo').addEventListener('click', redo);
   document.getElementById('board-zoom-in').addEventListener('click', () => {
     view().zoom = Math.min(4, view().zoom * 1.2);
+    rememberView();
     draw();
     positionStickies();
   });
   document.getElementById('board-zoom-out').addEventListener('click', () => {
     view().zoom = Math.max(0.2, view().zoom / 1.2);
+    rememberView();
     draw();
     positionStickies();
   });
@@ -402,6 +434,7 @@
       const zoom = Math.min(2, Math.max(0.2, Math.min(r.width / (maxX - minX + 120), r.height / (maxY - minY + 120))));
       data.view = { x: 60 - minX * zoom, y: 60 - minY * zoom, zoom };
     }
+    rememberView();
     draw();
     positionStickies();
     ws.schedule();
@@ -412,20 +445,38 @@
     id: DOC.id,
     kind: 'board',
     version: DOC.version,
-    content: { elements: data.elements, view: data.view },
+    content: { elements: data.elements },
     isPublic: DOC.isPublic,
     filename: DOC.filename,
     apply(content) {
-      if (content && Array.isArray(content.elements)) {
-        data.elements = content.elements;
-        data.view = content.view || { x: 40, y: 40, zoom: 1 };
-        selected = null;
-        draw();
-        positionStickies();
+      if (!content || !Array.isArray(content.elements)) return;
+      // Merge by stable element id and reuse existing objects. A remote update
+      // must never replace the array underneath an in-progress stroke or drag.
+      const existing = new Map(data.elements.map((element) => [String(element.id), element]));
+      const activeId = action?.el ? String(action.el.id) : null;
+      const editing = document.activeElement?.classList?.contains('board-sticky') ? document.activeElement.dataset.id : null;
+      data.elements = content.elements.map((element) => {
+        const id = String(element.id);
+        const previous = existing.get(id);
+        if (!previous) return element;
+        // Never overwrite the item that is being drawn, moved or typed into.
+        // The remote snapshot was taken before those local points/text existed.
+        if (id === activeId || id === editing) return previous;
+        for (const key of Object.keys(previous)) if (!(key in element)) delete previous[key];
+        Object.assign(previous, element);
+        return previous;
+      });
+      if (action?.el && !data.elements.some((element) => String(element.id) === activeId)) {
+        data.elements.push(action.el);
       }
+      if (selected && !data.elements.some((element) => element.id === selected)) selected = null;
+      draw();
+      positionStickies();
     },
     collect() {
-      return { elements: data.elements, view: data.view };
+      // Pan/zoom is a personal view preference, not document data. Sharing it
+      // made one collaborator's wheel gesture yank everyone else's canvas.
+      return { elements: data.elements };
     },
   });
 

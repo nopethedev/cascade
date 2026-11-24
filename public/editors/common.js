@@ -297,7 +297,9 @@
         if (state.live && !force) {
           // Live rooms persist via the WebSocket. The server broadcasts the new
           // version after its debounce, so there is no competing HTTP write.
-          if (collab?.connected) collab.publish(opts.collect());
+          const content = opts.collect();
+          if (collab?.connected) collab.publish(content);
+          state.content = content;
           state.dirty = false;
           status('Saved · live', 'badge-ok');
           return;
@@ -342,6 +344,7 @@
         saveDraft();
         if (collab?.connected) {
           collab.publish(content);
+          state.content = content;
           status('Live edit…', '');
           return;
         }
@@ -433,7 +436,7 @@
               state.participants = users || [];
               renderPresence(state.participants);
               renderCursors(state.participants);
-              if (accessDialog?.open) renderShareDialog();
+              if (accessDialog?.open) window.__cascadeShareLive?.(state.participants);
             },
             onSaved(info) {
               if (info.version) state.version = Number(info.version);
@@ -602,6 +605,13 @@
         return accessDialog;
       }
 
+      function shareLiveHtml(users) {
+        const list = Array.isArray(users) ? users : [];
+        return `<div class="live-head"><span class="dot ${state.live ? 'dot-ok' : ''}"></span><strong>${state.live ? 'Live collaboration is on' : 'Live collaboration unavailable'}</strong></div>
+          ${list.length ? list.map((p) => `<div class="share-person"><span class="share-avatar" style="color:${p.color || 'var(--accent)'}">${escapeHtml(initials(p.username))}</span><span class="share-person-main"><strong>${escapeHtml(p.username)}${state.me?.user?.id && p.userId === state.me.user.id ? ' (you)' : ''}</strong><small>${p.guest ? 'share-link guest' : escapeHtml(p.role || 'viewer')}</small></span></div>`).join('') : '<p class="side-note">No one is editing right now.</p>'}
+          <p class="hint">Each change is merged as it happens, so simultaneous drawings and edits are preserved. Everything saves automatically and reconnects after a dropped connection.</p>`;
+      }
+
       function renderShareDialog() {
         if (!accessDialog) return;
         const host = accessDialog.querySelector('#share-dlg-in');
@@ -662,12 +672,16 @@
               ${links.length ? `<div class="share-link-list">${links.map((l) => `<div class="share-link-row"><span><strong>${escapeHtml(l.role)}</strong><small>expires ${new Date(l.expiresAt).toLocaleDateString()}</small></span><span class="row"><button class="btn btn-quiet btn-sm" type="button" data-copy-cap="${escapeHtml(l.token)}">Copy</button><button class="btn btn-quiet btn-sm" type="button" data-revoke-cap="${l.id}">Revoke</button></span></div>`).join('')}</div>` : ''}
             </div>` : ''}` : ''}
           ${shareTab === 'live' ? `
-            <div class="share-live">
-              <div class="live-head"><span class="dot ${state.live ? 'dot-ok' : ''}"></span><strong>${state.live ? 'Live collaboration is on' : 'Live collaboration unavailable'}</strong></div>
-              ${state.participants.length ? state.participants.map((p) => `<div class="share-person"><span class="share-avatar" style="color:${p.color || 'var(--accent)'}">${escapeHtml(initials(p.username))}</span><span class="share-person-main"><strong>${escapeHtml(p.username)}${state.me?.user?.id && p.userId === state.me.user.id ? ' (you)' : ''}</strong><small>${p.guest ? 'share-link guest' : escapeHtml(p.role || 'viewer')}</small></span></div>`).join('') : '<p class="side-note">No one is editing right now.</p>'}
-              <p class="hint">Changes merge through a Yjs document, save automatically, and reconnect after a dropped connection.</p>
-            </div>` : ''}`;
+            <div class="share-live" data-share-live>${shareLiveHtml(state.participants)}</div>` : ''}`;
 
+        // Presence packets arrive while this dialog is open. Re-rendering the
+        // whole dialog on every packet wiped invite text, reset selects and
+        // stole focus. Update only the live-people block instead.
+        window.__cascadeShareLive = (users) => {
+          if (!accessDialog?.open) return;
+          const live = accessDialog.querySelector('[data-share-live]');
+          if (live) live.innerHTML = shareLiveHtml(users || []);
+        };
         host.querySelector('[data-share-close]')?.addEventListener('click', () => accessDialog.close());
         host.querySelectorAll('[data-share-tab]').forEach((tab) => tab.addEventListener('click', () => {
           shareTab = tab.dataset.shareTab;

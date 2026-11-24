@@ -144,7 +144,9 @@ export async function renderParticleEffects({ project, settings, jobDir, warning
     }
   }
   if (!assets.length) return null;
-  tracks.push({ id: 'fx_track', type: 'overlay', name: 'Particles', hidden: false, muted: true, locked: false, opacity: 1, volume: 1, effects: [], height: 54 });
+  // Track 0 is the top visual layer; the particle overlay belongs above the
+  // footage it decorates, matching the live preview compositor.
+  tracks.unshift({ id: 'fx_track', type: 'overlay', name: 'Particles', hidden: false, muted: true, locked: false, opacity: 1, volume: 1, effects: [], height: 54 });
   return {
     project: { ...project, tracks, clips: [...project.clips, ...clips].map((clip) => ({ ...clip, effects: (clip.effects || []).filter((fx) => effectById(fx.type)?.primitive !== 'particles') })) },
     assets,

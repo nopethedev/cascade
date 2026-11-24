@@ -5,7 +5,7 @@
   <div>
     <div class="eyebrow">Admin</div>
     <h1 class="page-title">Cascade Motion</h1>
-    <p class="lede">Render limits, FFmpeg paths, media policy and transcription providers. Stored in settings with environment defaults.</p>
+    <p class="lede">Render limits, FFmpeg paths, media policy and server-side transcription providers. The Motion editor's Automatic subtitles run Whisper on the user's device; these providers are for automation and MCP jobs. Stored in settings with environment defaults.</p>
   </div>
 </div>
 
@@ -47,6 +47,7 @@
           <% for (const p of [['disabled','Disabled'],['openai','OpenAI transcription API'],['compatible','Compatible hosted API'],['local','Local whisper.cpp']]) { %>
           <option value="<%= p[0] %>" <%= m.whisper.provider === p[0] ? 'selected' : '' %>><%= p[1] %></option><% } %>
         </select>
+        <span class="tiny muted">Server jobs only. The editor downloads and runs its model locally in the browser.</span>
       </div>
       <div class="form-grid">
         <div class="field"><label class="label" for="m-wmodel">Model</label><input id="m-wmodel" name="whisperModel" value="<%= m.whisper.model %>"></div>

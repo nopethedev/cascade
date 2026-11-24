@@ -35,7 +35,9 @@ export function outputDuration(project) {
 }
 
 function trackOrder(project) {
-  return project.tracks.filter((t) => !t.hidden);
+  // The first timeline row is the topmost layer. FFmpeg composites filters in
+  // array order, so reverse the rows to match the editor preview.
+  return [...project.tracks].reverse().filter((t) => !t.hidden);
 }
 
 function clipsFor(project, trackId) {
@@ -344,7 +346,9 @@ export function buildAss(project, warnings) {
   const lines = [];
   const textTracks = new Set(project.tracks.filter((t) => t.type === 'text' || t.type === 'subtitle').map((t) => t.id));
   const clips = project.clips.filter((c) => textTracks.has(c.trackId) && c.enabled !== false);
-  for (const clip of clips.sort((a, b) => a.start - b.start)) {
+  const rank = new Map(project.tracks.map((track, index) => [track.id, index]));
+  // ASS paints later events on top. Top timeline rows therefore sort last.
+  for (const clip of clips.sort((a, b) => (rank.get(b.trackId) - rank.get(a.trackId)) || (a.start - b.start))) {
     if (clip.type === 'text') lines.push(textEvent(clip, project, warnings));
     else if (clip.type === 'subtitle') lines.push(subtitleEvent(clip, project, warnings));
   }

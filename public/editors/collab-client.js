@@ -1,6 +1,13 @@
 /* Yjs transport for Cascade editors. The server is authoritative for roles and
-   persistence; this client only exchanges document updates and presence. */
+   persistence; this client exchanges incremental JSON patches and presence.
+
+   A Yjs map of whole documents was the source of a serious collaboration bug:
+   two people editing at once each replaced the entire map value, so the last
+   full snapshot erased the other person's work. The document is now a shared
+   base plus an append-only Yjs array of small patches. Yjs merges concurrent
+   patch insertions, and every client materializes the same document from them. */
 import * as Y from '../vendor/yjs.bundle.mjs';
+import { diffContent, materializeContent } from './collab-merge.mjs';
 
 export function connect(options) {
   const {
@@ -17,13 +24,13 @@ export function connect(options) {
 
   const doc = new Y.Doc();
   const map = doc.getMap('document');
+  const patches = doc.getArray('operations');
   let socket = null;
   let connected = false;
   let ready = false;
   let retry = 0;
   let retryTimer = null;
   let applying = false;
-  let localMutation = false;
   let pendingContent = null;
   let lastPublished = JSON.stringify(content || {});
   let closedByUser = false;
@@ -32,8 +39,29 @@ export function connect(options) {
   let pingTimer = null;
   let participants = [];
 
-  function localContent() {
-    return map.get('content');
+  function materialize() {
+    return materializeContent(map.get('content') || content || {}, patches.toArray());
+  }
+
+  function newPatchId() {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    }
+  }
+
+  function appendDiff(before, after) {
+    const operations = diffContent(before, after);
+    if (!operations.length) return false;
+    doc.transact(() => {
+      patches.push([{
+        id: newPatchId(),
+        version: 1,
+        ops: operations,
+      }]);
+    });
+    return true;
   }
 
   doc.on('update', (update, origin) => {
@@ -43,20 +71,13 @@ export function connect(options) {
     onStatus({ state: 'live', canWrite, participants });
   });
 
-  map.observe(() => {
-    if (applying || localMutation) {
-      localMutation = false;
-      return;
-    }
-    const next = localContent();
-    if (next) onRemoteContent(next);
-  });
-
   function applyRemote(update) {
     applying = true;
     try {
       Y.applyUpdate(doc, update, 'remote');
-      return localContent();
+      const next = materialize();
+      lastPublished = JSON.stringify(next);
+      return next;
     } finally {
       applying = false;
     }
@@ -149,25 +170,27 @@ export function connect(options) {
         ready = true;
         const update = Uint8Array.from(atob(message.update || ''), (c) => c.charCodeAt(0));
         applyRemote(update);
-        lastPublished = JSON.stringify(localContent() || {});
-        // A fresh room has no content item. Seed it with the editor's initial
-        // payload only after the server state has been applied, so a stale local
-        // copy can never outrank the authoritative document on connect.
-        if (!localContent() && content) {
-          applying = true;
-          try { map.set('content', content); } finally { applying = false; }
+        // A brand-new room may have an empty base object. Seed it from the
+        // editor's initial payload only after the server state is applied.
+        const serverBase = map.get('content');
+        if ((!serverBase || !Object.keys(serverBase).length) && !patches.length && content && Object.keys(content).length) {
+          doc.transact(() => map.set('content', content));
         }
-        onInit({ content: localContent(), version: message.version, role: message.role, canWrite: !!message.canWrite && canWrite, users: message.users || [] });
+        let next = materialize();
+        lastPublished = JSON.stringify(next);
+        onInit({ content: next, version: message.version, role: message.role, canWrite: !!message.canWrite && canWrite, users: message.users || [] });
         participants = message.users || [];
         onPresence(participants);
-        // Unsent local work survives a disconnect and is merged after re-init.
+        // Work produced while the socket was down is replayed as a patch
+        // against the server's current content, never as a full replacement.
         if (pendingContent && canWrite) {
           const value = pendingContent;
           pendingContent = null;
+          const current = materialize();
+          appendDiff(current, value);
           lastPublished = JSON.stringify(value);
-          localMutation = true;
-          map.set('content', value);
-          socket.send(Y.encodeStateAsUpdate(doc));
+          next = materialize();
+          onRemoteContent(next);
         }
         onStatus({ state: 'live', canWrite, participants });
       } else if (message.type === 'presence') {
@@ -202,16 +225,14 @@ export function connect(options) {
   function publish(value) {
     if (!canWrite) return;
     const serialized = JSON.stringify(value);
-    // Compare against a snapshot, not map.get(): the local map can hold the
-    // same object the editor mutates in place, which would make every publish
-    // look identical and silently skip the WebSocket update.
     if (serialized === lastPublished) return;
     pendingContent = value;
     if (!connected || !ready) return;
-    lastPublished = serialized;
-    localMutation = true;
-    map.set('content', value);
+    const current = materialize();
+    const changed = appendDiff(current, value);
     pendingContent = null;
+    if (!changed) return;
+    lastPublished = serialized;
   }
 
   document.addEventListener('pointermove', (e) => {

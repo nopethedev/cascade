@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { FileRecord, DocVersion, CollabRoom, User } from './db.js';
 import { accessFor, accessByShareToken, normalizeRole, roleAtLeast } from './access.js';
 import { redactFlowSecrets, scanFlowSecrets } from '../public/flow/secrets.mjs';
+import { materializeContent } from '../public/editors/collab-merge.mjs';
 
 const MAX_CONTENT = 12 * 1024 * 1024;
 const rooms = new Map();
@@ -57,6 +58,10 @@ function roomFor(file) {
     })();
     const safeContent = file.kind === 'flow' ? redactFlowSecrets(current) : current;
     doc.getMap('document').set('content', safeContent);
+    // Patch log. Each item is a small set of JSON operations produced from a
+    // local editor snapshot. Yjs merges concurrent insertions instead of
+    // replacing one full document value with another.
+    doc.getArray('operations');
     room = {
       fileId: file.id,
       kind: file.kind,
@@ -70,6 +75,13 @@ function roomFor(file) {
     rooms.set(file.id, room);
   }
   return room;
+}
+
+function roomContent(room) {
+  return materializeContent(
+    room.doc.getMap('document').get('content') || {},
+    room.doc.getArray('operations').toArray(),
+  );
 }
 
 function participants(room) {
@@ -112,11 +124,8 @@ async function persist(room) {
   room.timer = null;
   const file = await FileRecord.findByPk(room.fileId);
   if (!file) return;
-  const stored = room.doc.getMap('document').get('content');
+  const stored = roomContent(room);
   const content = room.kind === 'flow' ? redactFlowSecrets(stored || {}) : stored;
-  if (room.kind === 'flow' && JSON.stringify(content) !== JSON.stringify(stored)) {
-    room.doc.getMap('document').set('content', content);
-  }
   let serialized;
   try {
     serialized = JSON.stringify(content || {});
@@ -295,7 +304,10 @@ export function startCollabServer(httpServer) {
             try {
               Y.applyUpdate(probe, Y.encodeStateAsUpdate(room.doc));
               Y.applyUpdate(probe, update);
-              const candidate = probe.getMap('document').get('content');
+              const candidate = materializeContent(
+                probe.getMap('document').get('content') || {},
+                probe.getArray('operations').toArray(),
+              );
               if (scanFlowSecrets(candidate).length) {
                 ws.send(JSON.stringify({ type: 'error', error: 'Raw credentials are not allowed in Flow graphs; use an *Env field.' }));
                 return;

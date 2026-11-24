@@ -226,10 +226,7 @@ async function loadConfig() {
     config = j;
     const box = $('#mo-provider-note');
     if (box) {
-      const w = config.whisper || {};
-      box.innerHTML = w.enabled
-        ? `<b>Provider:</b> ${esc(w.provider)}${w.local ? ' (local whisper.cpp)' : ''}. Transcription jobs run on the server and continue if you close this tab.`
-        : 'Whisper is disabled. An administrator can configure a local, hosted, or OpenAI-compatible provider in Admin → Motion.';
+      box.innerHTML = '<b>On-device Whisper.</b> Models run in this browser with WebAssembly; audio never leaves this device. The first run downloads the selected model once and caches it.';
     }
     const hw = config.ffmpeg?.hardwareDevices?.length ? config.ffmpeg.hardwareDevices.join(', ') : 'No hardware encoder detected; CPU encoding will be used.';
     const hwEl = $('#mo-export-hw');
@@ -3287,7 +3284,112 @@ async function startRecording(kind) {
 /* Transcription                                                             */
 /* ------------------------------------------------------------------------- */
 
-let transcribeOffset = 0;
+let whisperWorker = null;
+let whisperRequest = null;
+let whisperRun = 0;
+
+function setTranscribeStatus(message, percent = null) {
+  const box = $('#mo-transcribe-progress');
+  const label = $('#mo-transcribe-status');
+  if (!box) return;
+  box.hidden = false;
+  if (label) label.textContent = message;
+  const bar = box.querySelector('span');
+  if (bar) bar.style.width = percent == null ? '15%' : `${Math.max(2, Math.min(100, percent))}%`;
+}
+
+function getWhisperWorker() {
+  if (whisperWorker) return whisperWorker;
+  whisperWorker = new Worker('/public/motion/whisper-worker.mjs', { type: 'module' });
+  whisperWorker.addEventListener('message', (event) => {
+    const message = event.data || {};
+    const request = whisperRequest;
+    if (!request) return;
+    if (message.id && message.id !== request.id) return;
+    if (message.type === 'progress') {
+      const name = String(message.file || 'model').split('/').pop();
+      setTranscribeStatus(`Downloading ${name} · ${Math.round(message.percent || 0)}%`, message.percent);
+    } else if (message.type === 'status') {
+      setTranscribeStatus(message.message || 'Preparing…');
+    } else if (message.type === 'ready') {
+      setTranscribeStatus('Model ready');
+    } else if (message.type === 'done') {
+      whisperRequest = null;
+      request.resolve(message.result);
+    } else if (message.type === 'error') {
+      whisperRequest = null;
+      request.reject(new Error(message.error || 'Local transcription failed'));
+    }
+  });
+  whisperWorker.addEventListener('error', (event) => {
+    const request = whisperRequest;
+    whisperRequest = null;
+    request?.reject(new Error(event.message || 'The local Whisper worker could not start.'));
+  });
+  return whisperWorker;
+}
+
+function transcribeOnDevice(audio, options) {
+  const worker = getWhisperWorker();
+  return new Promise((resolve, reject) => {
+    whisperRun += 1;
+    whisperRequest = { id: `whisper-${whisperRun}`, resolve, reject };
+    worker.postMessage({
+      type: 'transcribe',
+      id: whisperRequest.id,
+      audio,
+      model: options.model,
+      language: options.language,
+      translate: options.translate,
+    });
+  });
+}
+
+async function decodeClipAudio(asset, clip) {
+  const response = await fetch(asset.url, { credentials: 'same-origin' });
+  if (!response.ok) throw new Error('Could not read that media file.');
+  const buffer = await response.arrayBuffer();
+  let decoded;
+  try {
+    const ctx = new OfflineAudioContext(1, 1, 16000);
+    decoded = await ctx.decodeAudioData(buffer.slice(0));
+  } catch {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) throw new Error('This browser cannot decode audio for local transcription.');
+    const ctx = new Ctx();
+    try {
+      decoded = await ctx.decodeAudioData(buffer.slice(0));
+    } finally {
+      ctx.close?.();
+    }
+  }
+  const speed = Math.max(0.1, Number(clip.speed) || 1);
+  const sourceStart = Math.max(0, toSeconds(clip.inPoint || 0));
+  const requested = clip.duration ? toSeconds(clip.duration) * speed : decoded.duration;
+  const sourceDuration = Math.min(decoded.duration - sourceStart, requested);
+  if (!(sourceDuration > 0.05)) throw new Error('That clip has no audible section to transcribe.');
+  const rate = decoded.sampleRate;
+  const first = Math.floor(sourceStart * rate);
+  const frames = Math.min(decoded.length - first, Math.ceil(sourceDuration * rate));
+  const length = Math.max(1, Math.round((frames * 16000) / rate));
+  const out = new Float32Array(length);
+  const channels = [];
+  for (let c = 0; c < decoded.numberOfChannels; c += 1) channels.push(decoded.getChannelData(c));
+  for (let i = 0; i < length; i += 1) {
+    const position = (i * rate) / 16000;
+    const index = Math.min(frames - 1, Math.floor(position));
+    const fraction = position - index;
+    let sample = 0;
+    for (const data of channels) {
+      const a = data[first + index] || 0;
+      const b = data[first + index + 1] || a;
+      sample += a + (b - a) * fraction;
+    }
+    out[i] = sample / Math.max(1, channels.length);
+  }
+  return out;
+}
+
 function openTranscribe(cue = null) {
   const dlg = $('#mo-transcribe-dlg');
   const clip = cue || selectedClip();
@@ -3295,15 +3397,24 @@ function openTranscribe(cue = null) {
   if (!hasAudio) return toast('Import or record an audio-bearing clip first', true);
   $('#mo-tr-source').value = clip ? 'clip' : 'sequence';
   if (!dlg.open) dlg.showModal();
-  const w = config.whisper || {};
   const note = $('#mo-provider-note');
+  const supported = typeof Worker !== 'undefined' && typeof WebAssembly === 'object';
   if (note) {
-    note.innerHTML = w.enabled
-      ? `<b>Provider:</b> ${esc(w.provider)}${w.local ? ' · local whisper.cpp' : ''}. Jobs run on the server and keep running if you close the editor. ${config.limits?.maxUploadBytes ? '' : ''}`
-      : 'Whisper is disabled. Ask an administrator to enable a provider in Admin → Motion. You can still import SRT/VTT/ASS files.';
+    note.innerHTML = supported
+      ? '<b>On-device Whisper.</b> The model downloads once and is cached by this browser. Audio is decoded and transcribed on this device; it is never uploaded or sent to a provider. Inference uses the bundled WebAssembly runtime.'
+      : 'This browser cannot run the local Whisper model (WebAssembly or Web Workers are unavailable). You can still import SRT/VTT/ASS caption files.';
   }
-  $('#mo-tr-model').value = '';
-  $('#mo-transcribe-run').disabled = !w.enabled;
+  try {
+    const saved = localStorage.getItem('cascade:motion-whisper-model');
+    if (saved && $(`#mo-tr-model option[value="${saved}"]`)) $('#mo-tr-model').value = saved;
+  } catch { /* ignore */ }
+  const language = $('#mo-tr-language');
+  if (language && !language.value) language.value = 'en';
+  const progress = $('#mo-transcribe-progress');
+  if (progress) progress.hidden = true;
+  const run = $('#mo-transcribe-run');
+  run.disabled = !supported;
+  run.textContent = 'Start transcription';
 }
 
 async function runTranscription() {
@@ -3322,35 +3433,41 @@ async function runTranscription() {
   if (!clip?.assetId) return toast('No audio-bearing clip found for that source', true);
   const asset = assetMap.get(clip.assetId);
   if (!asset) return toast('Missing media for that clip', true);
-  transcribeOffset = Math.max(0, clip.start - Math.round(clip.inPoint / Math.max(0.01, clip.speed)));
+  const model = $('#mo-tr-model').value;
+  const run = $('#mo-transcribe-run');
   try {
-    $('#mo-transcribe-run').disabled = true;
-    $('#mo-transcribe-run').textContent = 'Starting…';
-    const job = await request(`${API}/transcribe`, {
-      method: 'POST',
-      body: JSON.stringify({
-        assetId: asset.id, language: $('#mo-tr-language').value, provider: null,
-        model: $('#mo-tr-model').value || undefined,
-        translate: $('#mo-tr-translate').checked,
-        translateTo: $('#mo-tr-translate').checked ? 'en' : '',
-      }),
+    run.disabled = true;
+    run.textContent = 'Preparing audio…';
+    setTranscribeStatus('Decoding audio on this device…');
+    try { localStorage.setItem('cascade:motion-whisper-model', model); } catch { /* ignore */ }
+    const audio = await decodeClipAudio(asset, clip);
+    run.textContent = 'Transcribing…';
+    setTranscribeStatus('Loading the local model…');
+    const result = await transcribeOnDevice(audio, {
+      model,
+      language: $('#mo-tr-language').value,
+      translate: $('#mo-tr-translate').checked,
     });
+    if (!result.words?.length) throw new Error('No speech was detected in that clip.');
+    const speed = Math.max(0.1, Number(clip.speed) || 1);
+    const words = result.words.map((word) => {
+      const sourceStart = Math.round((clip.inPoint || 0) + word.start * TICKS);
+      const start = Math.max(0, Math.round(clip.start + (sourceStart - (clip.inPoint || 0)) / speed));
+      const end = Math.max(start + 80, Math.round(clip.start + ((clip.inPoint || 0) + word.end * TICKS - (clip.inPoint || 0)) / speed));
+      return { text: word.text, start, end };
+    });
+    const cues = wordsToCues(words);
     dlg.close();
-    toast('Transcription queued. Subtitles appear when it completes.');
-    watchJob(job.job.id, async (done) => {
-      const result = done.result || {};
-      if (result.cues?.length) applyTranscript(result);
-      else toast('Transcription completed without words', true);
-    });
+    applyTranscript({ ...result, words, cues, mapped: true });
   } catch (err) {
+    setTranscribeStatus(err.message, null);
     toast(err.message, true);
-    $('#mo-transcribe-run').disabled = false;
-    $('#mo-transcribe-run').textContent = 'Start transcription';
+    run.disabled = false;
+    run.textContent = 'Start transcription';
   }
 }
 
 async function applyTranscript(result) {
-  const offset = transcribeOffset;
   const styleId = selectedClip()?.subtitle?.styleId || project.clips.find((c) => c.type === 'subtitle')?.subtitle?.styleId || 'classic-white';
   const replace = $('#mo-tr-replace').checked;
   let next = deep(project);
@@ -3359,8 +3476,8 @@ async function applyTranscript(result) {
   if (replace) next.clips = next.clips.filter((c) => c.trackId !== track.id);
   const cues = result.cues || wordsToCues(result.words || []);
   for (const cue of cues) {
-    const start = cue.start + offset;
-    const words = (cue.words || []).map((w) => ({ ...w, start: w.start + offset, end: w.end + offset }));
+    const start = cue.start;
+    const words = cue.words || [];
     next.clips.push({
       id: uid('clip'), trackId: track.id, type: 'subtitle', name: cue.text.slice(0, 40), start, duration: Math.max(1000, cue.end - cue.start),
       subtitle: { text: cue.text, words, styleId, speaker: null },

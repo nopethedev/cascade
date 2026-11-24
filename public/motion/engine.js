@@ -309,13 +309,16 @@ export class MotionEngine {
     this.ctx.fillRect(0, 0, W, H);
 
     const tracks = project.tracks.filter((t) => !t.hidden);
-    for (const track of tracks) {
+    // Timeline rows read top-to-bottom, so the first row is the topmost
+    // visual layer. Draw the array in reverse: later rows are underneath.
+    const visualTracks = [...tracks].reverse();
+    for (const track of visualTracks) {
       if (!['video', 'overlay', 'effect'].includes(track.type)) continue;
       const clips = project.clips.filter((c) => c.trackId === track.id && c.enabled !== false && this.clipActiveAt(c, this.time));
       for (const clip of clips) this.drawClip(ctx, draftClip(clip, this.time, project), scale, track);
     }
     // Titles and subtitles are composited over the video layers.
-    for (const track of tracks) {
+    for (const track of visualTracks) {
       if (!['text', 'subtitle'].includes(track.type)) continue;
       const clips = project.clips.filter((c) => c.trackId === track.id && c.enabled !== false && this.clipActiveAt(c, this.time));
       for (const clip of clips) {
@@ -323,7 +326,7 @@ export class MotionEngine {
         else this.drawSubtitle(ctx, clip, project, scale);
       }
     }
-    for (const track of tracks) {
+    for (const track of visualTracks) {
       if (track.type !== 'audio') continue;
       for (const clip of project.clips.filter((c) => c.trackId === track.id && c.enabled && this.clipActiveAt(c, this.time))) {
         for (const fx of clip.effects || []) if (fx.enabled !== false && effectById(fx.type)?.primitive === 'particles') this.drawParticles(ctx, fx, clip, project, scale);
@@ -1271,7 +1274,7 @@ export class MotionEngine {
   }
 
   drawTrackEffects(ctx, project, scale) {
-    for (const track of project.tracks) {
+    for (const track of [...project.tracks].reverse()) {
       if (track.hidden || !track.effects?.length) continue;
       for (const effect of track.effects) this.applyEffect(ctx, this.canvas, effect, { id: track.id, originalDuration: 1 }, scale, track);
     }

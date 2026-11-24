@@ -847,8 +847,10 @@
     const arrange = document.createElement('div');
     arrange.className = 'deck-prop-actions';
     arrange.append(
-      iconButton('Bring forward', 'Bring element to the front', () => arrangeLayer('front')),
-      iconButton('Send backward', 'Send element to the back', () => arrangeLayer('back')),
+      iconButton('To front', 'Bring element to the front', () => arrangeLayer('front')),
+      iconButton('Forward', 'Move element one layer forward', () => arrangeLayer('forward')),
+      iconButton('Backward', 'Move element one layer backward', () => arrangeLayer('backward')),
+      iconButton('To back', 'Send element to the back', () => arrangeLayer('back')),
       iconButton('Duplicate', 'Duplicate this element', duplicateElement),
       iconButton('Delete', 'Delete this element', deleteElement, 'btn btn-danger btn-sm'),
     );
@@ -862,13 +864,27 @@
   function arrangeLayer(mode) {
     const e = current();
     if (!e || readOnly()) return;
-    snapshot();
     const list = slide().elements;
     const i = list.findIndex((x) => x.id === e.id);
     if (i < 0) return;
-    list.splice(i, 1);
-    if (mode === 'front') list.push(e);
-    else list.unshift(e);
+    if (mode === 'front' && i === list.length - 1) return;
+    if (mode === 'back' && i === 0) return;
+    if (mode === 'forward' && i >= list.length - 1) return;
+    if (mode === 'backward' && i <= 0) return;
+    snapshot();
+    if (mode === 'front') {
+      list.splice(i, 1);
+      list.push(e);
+    } else if (mode === 'back') {
+      list.splice(i, 1);
+      list.unshift(e);
+    } else if (mode === 'forward' && i < list.length - 1) {
+      [list[i], list[i + 1]] = [list[i + 1], list[i]];
+    } else if (mode === 'backward' && i > 0) {
+      [list[i], list[i - 1]] = [list[i - 1], list[i]];
+    } else {
+      return;
+    }
     render();
     window.Workspace?.schedule?.();
   }
