@@ -582,6 +582,25 @@ export function validateToolInput(args, schema) {
 
 const toolByName = new Map(tools.map((tool) => [tool.name, tool]));
 
+/* Cascade AI calls the exact same tool implementations the MCP endpoint exposes,
+ * so an assistant-created document is validated and owner-scoped identically to
+ * one created by an external MCP client. */
+export const mcpTools = tools;
+
+export async function invokeMcpTool(name, args, user, scope = 'full', req = null) {
+  // AI tool calls have no Express request of their own; analytics uses this
+  // small shim while still attributing the action to the calling user.
+  const request = req || {
+    path: '/ai',
+    user,
+    apiKey: null,
+    ip: '',
+    socket: {},
+    get: () => '',
+  };
+  return callTool(name, args, { user, apiKey: { scope }, req: request });
+}
+
 function textResult(value) {
   return {
     content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],

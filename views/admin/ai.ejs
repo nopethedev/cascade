@@ -1,0 +1,201 @@
+<%- include('../partials/head', { title: 'Admin · Cascade AI' }) %>
+<%- include('../partials/admin-tabs', { tab: 'ai' }) %>
+
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Admin</div>
+    <h1 class="page-title">Cascade AI</h1>
+    <p class="lede">Providers, models, generation limits and MCP servers for the AI workspace. API keys are stored server-side and are never sent to browsers; a blank key keeps the existing value.</p>
+  </div>
+</div>
+
+<% if (a.enabled) { %><p class="badge badge-accent">Cascade AI enabled</p><% } else { %><p class="badge">Cascade AI disabled</p><% } %>
+<% if (saved) { %><p class="badge badge-accent">Settings saved</p><% } %>
+<% if (error) { %><div class="alert" role="alert"><%= error %></div><% } %>
+
+<form method="post" action="/admin/ai" class="split" style="align-items:start">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Workspace</div></div>
+      <div class="panel-body stack">
+        <label class="check-row"><input type="checkbox" name="enabled" <%= a.enabled ? 'checked' : '' %>> Enable Cascade AI for all users</label>
+        <div class="field">
+          <label class="label" for="ai-system">System prompt</label>
+          <textarea id="ai-system" name="systemPrompt" rows="6"><%= a.systemPrompt %></textarea>
+          <span class="tiny muted">Prepended to every conversation. Tool guidance already tells the model to create real Cascade projects instead of pasting files.</span>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label class="label" for="ai-default-provider">Default provider</label>
+            <select id="ai-default-provider" name="defaultProviderId">
+              <option value="">First enabled provider</option>
+              <% a.providers.forEach((p) => { %><option value="<%= p.id %>" <%= a.defaultProviderId === p.id ? 'selected' : '' %>><%= p.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label class="label" for="ai-default-model">Default model</label><input id="ai-default-model" name="defaultModel" value="<%= a.defaultModel %>" placeholder="provider default"></div>
+        </div>
+        <label class="check-row"><input type="checkbox" name="confirmDestructive" <%= a.confirmDestructive ? 'checked' : '' %>> Ask before destructive tools run (recommended)</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Providers</div></div>
+      <div class="panel-body stack">
+        <table class="table">
+          <thead><tr><th>Provider</th><th>Type</th><th>Key</th><th>Models</th><th>State</th></tr></thead>
+          <tbody>
+            <% providerRows.forEach((p) => { %>
+            <tr><td><code><%= p.id %></code> · <%= p.name %></td><td><%= p.type %></td><td><%= p.hasKey ? 'configured' : 'missing' %></td><td><%= p.models %></td><td><%= p.enabled ? 'enabled' : 'disabled' %></td></tr>
+            <% }) %>
+          </tbody>
+        </table>
+        <p class="tiny muted">OpenAI-compatible servers use <code>/chat/completions</code> and <code>/models</code>. Ollama uses <code>/api/chat</code> and <code>/api/tags</code>. <code>apiKeyEnv</code> reads a server environment variable when <code>apiKey</code> is empty.</p>
+        <div class="field">
+          <label class="label" for="ai-providers">Provider JSON</label>
+          <textarea id="ai-providers" name="providersJson" rows="16" spellcheck="false" style="font-family:var(--mono,monospace);font-size:12px"><%= providersJson %></textarea>
+          <span class="tiny muted">Array of providers. Set <code>apiKey</code> to a new value, or leave it <code>""</code> to keep the stored key. After editing a provider, use <em>Refresh models</em> below.</span>
+        </div>
+        <div class="row">
+          <select id="ai-refresh-provider">
+            <% a.providers.forEach((p) => { %><option value="<%= p.id %>"><%= p.name %></option><% }) %>
+          </select>
+          <button class="btn" type="button" id="ai-refresh-models">Refresh models</button>
+          <span class="tiny muted" id="ai-refresh-status"></span>
+        </div>
+        <p class="tiny muted">Save provider changes before refreshing: discovery reads the saved key.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Web search</div></div>
+      <div class="panel-body stack">
+        <div class="form-grid">
+          <div class="field"><label class="label" for="ai-search-provider">Provider</label>
+            <select id="ai-search-provider" name="searchProvider">
+              <% [['none','Disabled'],['searxng','SearXNG'],['tavily','Tavily']].forEach((p) => { %><option value="<%= p[0] %>" <%= a.search.provider === p[0] ? 'selected' : '' %>><%= p[1] %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label class="label" for="ai-search-results">Results per query</label><input id="ai-search-results" name="searchResults" type="number" min="1" max="10" value="<%= a.search.results %>"></div>
+          <div class="field"><label class="label" for="ai-search-endpoint">SearXNG endpoint</label><input id="ai-search-endpoint" name="searchEndpoint" type="url" value="<%= a.search.endpoint || '' %>" placeholder="https://searx.example.com"></div>
+          <div class="field"><label class="label" for="ai-search-key">Tavily API key</label><input id="ai-search-key" name="searchApiKey" type="password" value="" placeholder="<%= a.search.apiKey ? 'configured — leave blank to keep' : 'not configured' %>" autocomplete="off"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Images</div></div>
+      <div class="panel-body stack">
+        <div class="form-grid">
+          <div class="field"><label class="label" for="ai-image-provider">Provider</label>
+            <select id="ai-image-provider" name="imageProviderId">
+              <option value="">Auto</option>
+              <% a.providers.forEach((p) => { %><option value="<%= p.id %>" <%= a.image.providerId === p.id ? 'selected' : '' %>><%= p.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label class="label" for="ai-image-model">Image model</label><input id="ai-image-model" name="imageModel" value="<%= a.image.model %>" placeholder="gpt-image-1"></div>
+          <div class="field"><label class="label" for="ai-image-edit">Edit model</label><input id="ai-image-edit" name="imageEditModel" value="<%= a.image.editModel %>" placeholder="same as image model"></div>
+          <div class="field"><label class="label" for="ai-image-size">Default size</label><input id="ai-image-size" name="imageSize" value="<%= a.image.size %>"></div>
+          <div class="field"><label class="label" for="ai-image-quality">Quality</label><input id="ai-image-quality" name="imageQuality" value="<%= a.image.quality %>"></div>
+          <div class="field"><label class="label" for="ai-image-count">Images per request</label><input id="ai-image-count" name="imageCount" type="number" min="1" max="4" value="<%= a.image.count %>"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Speech, embeddings &amp; knowledge</div></div>
+      <div class="panel-body stack">
+        <div class="form-grid">
+          <div class="field"><label class="label" for="ai-speech-provider">Speech provider</label>
+            <select id="ai-speech-provider" name="speechProviderId">
+              <option value="">Browser fallback</option>
+              <% a.providers.forEach((p) => { %><option value="<%= p.id %>" <%= a.speech.providerId === p.id ? 'selected' : '' %>><%= p.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label class="label" for="ai-speech-model">Speech model</label><input id="ai-speech-model" name="speechModel" value="<%= a.speech.model %>"></div>
+          <div class="field"><label class="label" for="ai-speech-voice">Voice</label><input id="ai-speech-voice" name="speechVoice" value="<%= a.speech.voice %>"></div>
+          <div class="field"><label class="label" for="ai-speech-format">Format</label><input id="ai-speech-format" name="speechFormat" value="<%= a.speech.format %>"></div>
+          <div class="field"><label class="label" for="ai-embedding-provider">Embedding provider</label>
+            <select id="ai-embedding-provider" name="embeddingProviderId">
+              <option value="">Local lexical embeddings</option>
+              <% a.providers.forEach((p) => { %><option value="<%= p.id %>" <%= a.embedding.providerId === p.id ? 'selected' : '' %>><%= p.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label class="label" for="ai-embedding-model">Embedding model</label><input id="ai-embedding-model" name="embeddingModel" value="<%= a.embedding.model %>" placeholder="text-embedding-3-small"></div>
+          <div class="field"><label class="label" for="ai-embedding-dim">Local dimensions</label><input id="ai-embedding-dim" name="embeddingDimensions" type="number" min="32" max="1024" value="<%= a.embedding.localDimensions %>"></div>
+        </div>
+        <p class="tiny muted">Without an embedding provider, knowledge bases still work with a deterministic local lexical embedding, so search remains available offline.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">Limits</div></div>
+      <div class="panel-body stack">
+        <div class="form-grid">
+          <div class="field"><label class="label" for="ai-max-tokens">Max output tokens</label><input id="ai-max-tokens" name="maxTokens" type="number" min="64" max="200000" value="<%= a.limits.maxTokens %>"></div>
+          <div class="field"><label class="label" for="ai-daily">Daily tokens per user (0 = unlimited)</label><input id="ai-daily" name="dailyTokens" type="number" min="0" max="100000000" value="<%= a.limits.dailyTokens %>"></div>
+          <div class="field"><label class="label" for="ai-messages">Max messages per conversation</label><input id="ai-messages" name="maxMessages" type="number" min="2" max="5000" value="<%= a.limits.maxMessagesPerConversation %>"></div>
+          <div class="field"><label class="label" for="ai-attach">Max attachment (MB)</label><input id="ai-attach" name="maxAttachmentMB" type="number" min="1" max="100" value="<%= Math.round(a.limits.maxAttachmentBytes / 1048576) %>"></div>
+          <div class="field"><label class="label" for="ai-kb-bytes">Max knowledge document (MB)</label><input id="ai-kb-bytes" name="maxKnowledgeDocMB" type="number" min="1" max="50" value="<%= Math.round(a.limits.maxKnowledgeDocumentBytes / 1048576) %>"></div>
+          <div class="field"><label class="label" for="ai-kb-count">Knowledge documents per base</label><input id="ai-kb-count" name="maxKnowledgeDocuments" type="number" min="1" max="5000" value="<%= a.limits.maxKnowledgeDocuments %>"></div>
+          <div class="field"><label class="label" for="ai-tool-iter">Max tool iterations per turn</label><input id="ai-tool-iter" name="maxToolIterations" type="number" min="1" max="12" value="<%= a.limits.maxToolIterations %>"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div class="panel-title">MCP servers</div></div>
+      <div class="panel-body stack">
+        <p class="tiny muted">Remote MCP servers are called with JSON-RPC over HTTP. Cascade also exposes its own built-in tools (documents, decks, sheets, sites, games, flows, video and images) to every conversation, so generated work opens in its editor and is saved to Cascade Files.</p>
+        <div class="field">
+          <label class="label" for="ai-mcp">MCP server JSON</label>
+          <textarea id="ai-mcp" name="mcpJson" rows="10" spellcheck="false" style="font-family:var(--mono,monospace);font-size:12px"><%= mcpJson %></textarea>
+          <span class="tiny muted">Array of <code>{ id, name, url, token, enabled }</code>. Leave <code>token</code> blank to keep the stored token. Only public http(s) URLs are accepted.</span>
+        </div>
+        <div class="row">
+          <select id="ai-mcp-server">
+            <% a.mcpServers.forEach((s) => { %><option value="<%= s.id %>"><%= s.name %></option><% }) %>
+          </select>
+          <button class="btn" type="button" id="ai-test-mcp">Test MCP</button>
+          <span class="tiny muted" id="ai-mcp-status"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="row" style="position:sticky;bottom:12px;background:var(--bg);padding:10px 0;z-index:2">
+      <button class="btn" type="submit">Save Cascade AI settings</button>
+      <a class="btn btn-ghost" href="/admin/ai">Reset form</a>
+      <a class="btn btn-ghost" href="/ai">Open AI workspace</a>
+    </div>
+  </div>
+</form>
+
+<script>
+  (function () {
+    const status = document.getElementById('ai-refresh-status');
+    document.getElementById('ai-refresh-models')?.addEventListener('click', async () => {
+      const providerId = document.getElementById('ai-refresh-provider')?.value;
+      if (!providerId) return;
+      status.textContent = 'Refreshing…';
+      try {
+        const res = await fetch('/api/ai/admin/refresh-models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providerId }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'refresh failed');
+        status.textContent = `Found ${data.models.length} model${data.models.length === 1 ? '' : 's'}. Reload to see them in the JSON editor.`;
+      } catch (err) { status.textContent = err.message; }
+    });
+    const mcpStatus = document.getElementById('ai-mcp-status');
+    document.getElementById('ai-test-mcp')?.addEventListener('click', async () => {
+      const id = document.getElementById('ai-mcp-server')?.value;
+      if (!id) { mcpStatus.textContent = 'Save an MCP server first.'; return; }
+      mcpStatus.textContent = 'Testing…';
+      try {
+        const res = await fetch('/api/ai/admin/test-mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'test failed');
+        mcpStatus.textContent = `${data.server}: ${data.tools.length} tool${data.tools.length === 1 ? '' : 's'} (${data.tools.slice(0, 6).map((t) => t.name).join(', ')})`;
+      } catch (err) { mcpStatus.textContent = err.message; }
+    });
+  })();
+</script>
+<%- include('../partials/foot') %>

@@ -27,6 +27,8 @@ import { startCollabServer } from './collab.js';
 import { createSitesRouter, customDomainSiteMiddleware } from './sites.js';
 import { createStudioRouter } from './studio.js';
 import { createMotionRouter } from './motion/router.js';
+import { createAiRouter } from './ai/router.js';
+import { normalizeAiSettings, resolveApiKey } from './ai/config.js';
 import { startRenderQueue } from './motion/render.js';
 import { normalizeMotionSettings } from './motion/config.js';
 import { capabilities } from './motion/ffmpeg.js';
@@ -1230,6 +1232,113 @@ export function createMainApp() {
     res.redirect('/admin/motion?saved=1');
   }));
 
+  // ---------- Cascade AI ----------
+  function renderAiAdmin(res, ai, extra = {}) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.render('admin/ai', {
+      a: ai,
+      providerRows: ai.providers.map((p) => ({ id: p.id, name: p.name, type: p.type, enabled: p.enabled, hasKey: !!resolveApiKey(p), models: p.models.length })),
+      providersJson: JSON.stringify(ai.providers.map((p) => ({
+        id: p.id, name: p.name, type: p.type, baseUrl: p.baseUrl, apiKey: '', apiKeyEnv: p.apiKeyEnv,
+        headers: p.headers, enabled: p.enabled, discovery: p.discovery, models: p.models,
+      })), null, 2),
+      mcpJson: JSON.stringify(ai.mcpServers.map((s) => ({ ...s, token: '' })), null, 2),
+      saved: false,
+      error: null,
+      ...extra,
+    });
+  }
+
+  app.get('/admin/ai', requireAdmin, wrap(async (req, res) => {
+    const settings = await getSettings();
+    renderAiAdmin(res, settings.ai, { saved: req.query.saved === '1' });
+  }));
+
+  app.post('/admin/ai', requireAdmin, wrap(async (req, res) => {
+    const current = (await getSettings()).ai;
+    const b = req.body || {};
+    const num = (value, fallback) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    let providers = current.providers;
+    try {
+      if (String(b.providersJson || '').trim()) {
+        const parsed = JSON.parse(b.providersJson);
+        if (!Array.isArray(parsed)) throw new Error('Provider JSON must be an array.');
+        providers = parsed.map((p) => {
+          const prior = current.providers.find((c) => c.id === p.id);
+          return { ...p, apiKey: String(p.apiKey || '').trim() || prior?.apiKey || '' };
+        });
+      }
+    } catch (err) {
+      return renderAiAdmin(res, current, { error: `Providers were not saved: ${err.message}`, providersJson: b.providersJson });
+    }
+    let mcpServers = current.mcpServers;
+    try {
+      if (String(b.mcpJson || '').trim()) {
+        const parsed = JSON.parse(b.mcpJson);
+        if (!Array.isArray(parsed)) throw new Error('MCP JSON must be an array.');
+        mcpServers = parsed.map((server) => {
+          const prior = current.mcpServers.find((c) => c.id === server.id);
+          return { ...server, token: String(server.token || '').trim() || prior?.token || '' };
+        });
+      }
+    } catch (err) {
+      return renderAiAdmin(res, current, { error: `MCP servers were not saved: ${err.message}`, mcpJson: b.mcpJson });
+    }
+    const next = normalizeAiSettings({
+      ...current,
+      enabled: b.enabled === 'on',
+      systemPrompt: b.systemPrompt,
+      providers,
+      defaultProviderId: b.defaultProviderId,
+      defaultModel: b.defaultModel,
+      image: {
+        ...current.image,
+        providerId: b.imageProviderId,
+        model: b.imageModel,
+        editModel: b.imageEditModel,
+        size: b.imageSize,
+        quality: b.imageQuality,
+        count: num(b.imageCount, current.image.count),
+      },
+      speech: {
+        ...current.speech,
+        providerId: b.speechProviderId,
+        model: b.speechModel,
+        voice: b.speechVoice,
+        format: b.speechFormat,
+      },
+      search: {
+        provider: b.searchProvider,
+        endpoint: b.searchEndpoint,
+        results: num(b.searchResults, current.search.results),
+        apiKey: String(b.searchApiKey || '').trim() || current.search.apiKey,
+      },
+      embedding: {
+        ...current.embedding,
+        providerId: b.embeddingProviderId,
+        model: b.embeddingModel,
+        localDimensions: num(b.embeddingDimensions, current.embedding.localDimensions),
+      },
+      limits: {
+        ...current.limits,
+        maxTokens: num(b.maxTokens, current.limits.maxTokens),
+        dailyTokens: num(b.dailyTokens, current.limits.dailyTokens),
+        maxMessagesPerConversation: num(b.maxMessages, current.limits.maxMessagesPerConversation),
+        maxAttachmentBytes: Math.max(64, num(b.maxAttachmentMB, current.limits.maxAttachmentBytes / 1048576)) * 1048576,
+        maxKnowledgeDocumentBytes: Math.max(4, num(b.maxKnowledgeDocMB, current.limits.maxKnowledgeDocumentBytes / 1048576)) * 1048576,
+        maxKnowledgeDocuments: num(b.maxKnowledgeDocuments, current.limits.maxKnowledgeDocuments),
+        maxToolIterations: num(b.maxToolIterations, current.limits.maxToolIterations),
+      },
+      mcpServers,
+      confirmDestructive: b.confirmDestructive === 'on',
+    });
+    await saveSettings({ ai: next });
+    res.redirect('/admin/ai?saved=1');
+  }));
+
   app.post('/admin/appearance', requireAdmin, wrap(async (req, res) => {
     const { siteName, accent, bg, surface, text } = req.body;
     const patch = {};
@@ -1289,6 +1398,9 @@ export function createMainApp() {
 
   // Published websites: /sites/:slug, forms, SEO files and standalone exports.
   app.use(createSitesRouter());
+
+  // Cascade AI: /ai workspace plus streaming /api/ai chat, tools, images and RAG.
+  app.use(createAiRouter());
 
   // 404
   app.use((req, res) => res.status(404).render('error', { message: 'Page not found.', status: 404 }));

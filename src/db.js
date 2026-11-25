@@ -3,6 +3,7 @@ import path from 'node:path';
 import { DataTypes, Sequelize, QueryTypes } from 'sequelize';
 import { config } from './config.js';
 import { normalizeMotionSettings } from './motion/config.js';
+import { normalizeAiSettings } from './ai/config.js';
 
 // ---------------------------------------------------------------------------
 // Sequelize + SQLite
@@ -392,6 +393,9 @@ export const Setting = sequelize.define(
     // Motion render/transcription limits and provider configuration. JSON keeps
     // adding an option from requiring another database migration.
     motion: { type: DataTypes.JSON, defaultValue: {} },
+    // Cascade AI providers, limits, image/speech/search endpoints and MCP
+    // servers. Keys stay server-side; the browser only receives metadata.
+    ai: { type: DataTypes.JSON, defaultValue: {} },
   },
   { tableName: 'settings' },
 );
@@ -424,6 +428,7 @@ function toSettings(row) {
       replicaCount: Number(row.replicationReplicaCount) || 1,
     },
     motion: normalizeMotionSettings(row.motion),
+    ai: normalizeAiSettings(row.ai),
   };
 }
 
@@ -544,6 +549,9 @@ async function migrateSchema() {
     if (!have.has('motion')) {
       await sequelize.query("ALTER TABLE `settings` ADD COLUMN `motion` TEXT NOT NULL DEFAULT '{}'");
     }
+    if (!have.has('ai')) {
+      await sequelize.query("ALTER TABLE `settings` ADD COLUMN `ai` TEXT NOT NULL DEFAULT '{}'");
+    }
   }
 }
 
@@ -567,7 +575,7 @@ export async function initDb() {
 export async function getSettings() {
   if (settingsCache) return settingsCache;
   const row = await Setting.findByPk(1);
-  settingsCache = row ? toSettings(row) : { ...ENV_DEFAULTS, motion: normalizeMotionSettings({}), setupDone: false, allowPublicSignup: false, replication: { mode: 'n', selectedNodeIds: [], defaultNodeId: 'local', replicaCount: 2 } };
+  settingsCache = row ? toSettings(row) : { ...ENV_DEFAULTS, motion: normalizeMotionSettings({}), ai: normalizeAiSettings({}), setupDone: false, allowPublicSignup: false, replication: { mode: 'n', selectedNodeIds: [], defaultNodeId: 'local', replicaCount: 2 } };
   return settingsCache;
 }
 
@@ -577,6 +585,7 @@ export async function saveSettings(patch = {}) {
   const current = toSettings(row);
   const next = { ...current, ...patch };
   if (patch.replication) next.replication = { ...current.replication, ...patch.replication };
+  if (patch.ai) next.ai = normalizeAiSettings({ ...current.ai, ...patch.ai, providers: patch.ai.providers || current.ai.providers });
   await row.update({
     setupDone: !!next.setupDone,
     siteName: next.siteName,
@@ -590,6 +599,7 @@ export async function saveSettings(patch = {}) {
     replicationDefaultNodeId: next.replication.defaultNodeId,
     replicationReplicaCount: next.replication.replicaCount,
     motion: next.motion,
+    ai: next.ai,
   });
   settingsCache = toSettings(row);
   if (next.setupDone) adminSeen = true;

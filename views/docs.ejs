@@ -14,6 +14,7 @@
   <a href="/docs/game">Game Studio</a>
   <a href="/docs/flow">Discord bots</a>
   <a href="#workspace">Workspace</a>
+  <a href="#ai">Cascade AI</a>
   <a href="#auth">Authentication</a>
   <a href="#api">API</a>
   <a href="#sharing">Sharing &amp; CDN</a>
@@ -72,7 +73,7 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
       <li><strong>Image library</strong> in the document, spreadsheet and deck editors lists your own uploads, accepts new images, and searches free Wikimedia Commons images with author and license attribution. Spreadsheet images are exported as anchored XLSX drawings.</li>
     </ul>
     <h3>Current limits</h3>
-    <p class="hint">Implemented deliberately without external editing services. PDF pages are rendered with pdf.js and rewritten with pdf-lib in the browser; annotations are applied server-side. Documents, sheets and decks export to native DOCX/XLSX/PPTX with embedded images. PowerPoint files can be imported: upload a <span class="mono">.pptx</span> and it opens as an editable presentation, or use <em>Edit as presentation</em> on an uploaded file. DOCX/XLSX <em>import</em> is not included. Custom website code runs in a sandboxed iframe with no same-origin access and no network; the published page CSP allows only that inline frame code, not arbitrary top-level scripts. Custom domains need TLS termination at your reverse proxy. AI assistance is not included.</p>
+    <p class="hint">Implemented deliberately without external editing services. PDF pages are rendered with pdf.js and rewritten with pdf-lib in the browser; annotations are applied server-side. Documents, sheets and decks export to native DOCX/XLSX/PPTX with embedded images. PowerPoint files can be imported: upload a <span class="mono">.pptx</span> and it opens as an editable presentation, or use <em>Edit as presentation</em> on an uploaded file. DOCX/XLSX <em>import</em> is not included. Custom website code runs in a sandboxed iframe with no same-origin access and no network; the published page CSP allows only that inline frame code, not arbitrary top-level scripts. Custom domains need TLS termination at your reverse proxy. AI assistance is optional and configured in <a href="/admin/ai">Admin → Cascade AI</a>.</p>
     <h3>Cascade Game Studio</h3>
     <p class="hint">Game files are workspace documents with <span class="code">kind=game</span> and <span class="code">mode=2d|3d</span>. Compile via <span class="code">POST /api/workspace/docs/:id/game/compile</span>, preview via <span class="code">GET …/game/preview</span>, export via <span class="code">POST …/game/export</span> (<span class="code">mode=html|zip</span>), and publish through the normal <span class="code">…/publish</span> route. The exported game inlines the engine, runtime, project and data-URL assets and has no Cascade dependency. 3D terrain is a procedural heightfield; navigation/behavior trees, skeletal animation playback and blending, networked 3D play, mesh editing/sculpting, and advanced post-processing are not implemented yet. Use Play mode, the Problems tab and the browser QA flow before calling a game finished.</p>
     <h3>Cascade Flow bots</h3>
@@ -94,6 +95,23 @@ SERVER_MODE=node NODE_ACCESS_KEY=secret docker compose up -d   <span class="cmt"
       <li>Live collaboration uses the same Yjs room as the rest of the workspace; viewers watch, editors publish, and presence/cursors appear in the top bar.</li>
     </ul>
     <p>Authorized MCP agents use the Studio tools listed below. They can inspect the hierarchy and queue validated batches, but cannot execute arbitrary Luau through the relay.</p>
+  </div>
+</section>
+
+<section class="panel" id="ai">
+  <div class="panel-head">
+    <div>
+      <div class="panel-title">Cascade AI</div>
+      <div class="panel-sub">A native AI workspace at <span class="code">/ai</span> — not an embedded third-party UI.</div>
+    </div>
+  </div>
+  <div class="panel-body doc">
+    <p><span class="code">/ai</span> streams answers over SSE, renders Markdown, KaTeX and highlighted code, and keeps a branching conversation tree. The sidebar supports folders, search, pinning and deleting conversations. Messages can be regenerated; sibling branches are switchable with the arrow controls. Attachments are uploaded through the normal Cascade file store: images are passed to vision models and text/PDF/Office documents are extracted server-side for analysis. Knowledge bases chunk, embed and retrieve documents, and an assistant can pin its own system prompt, model and knowledge bases.</p>
+    <p>Provider credentials are stored server-side in settings (or read from <span class="code">apiKeyEnv</span>) and are never included in <span class="code">/api/ai/*</span> responses. The browser only receives provider names, model IDs and a <span class="code">hasKey</span> flag. Supported provider types are <strong>OpenAI-compatible</strong> (<span class="code">/chat/completions</span>, <span class="code">/models</span>) and <strong>Ollama</strong> (<span class="code">/api/chat</span>, <span class="code">/api/tags</span>). Image generation/editing, speech synthesis, web search (SearXNG/Tavily) and embeddings are configured independently; without an embedding provider, knowledge retrieval falls back to a deterministic local lexical embedding.</p>
+    <p><strong>Tools.</strong> Every conversation can call the same owner-scoped tools exposed at <span class="code">/mcp</span> — documents, decks, sheets, PDFs, boards, forms, code, websites, games, Flow projects, Roblox Studio and Cascade Motion — plus <span class="code">cascade_generate_image</span> for image generation. Generated artifacts are written to Cascade Files and the chat card links straight to <span class="code">/edit/:id</span>. External MCP servers can be added in Admin → Cascade AI with an optional bearer token; their tools are namespaced. Destructive tools (<span class="code">delete_document</span>, <span class="code">studio_queue_command</span>) pause the turn for an explicit Approve/Decline card and are never executed by the model on its own.</p>
+    <p><strong>Configuration.</strong> Admin → Cascade AI holds providers and models, the default assistant prompt, image/speech/search/embedding endpoints, MCP servers, per-user daily token limits and tool-iteration limits. Provider model discovery runs against the saved key; the JSON editor keeps an existing key when <span class="code">apiKey</span> is blank.</p>
+    <p><strong>Endpoints.</strong> <span class="code">POST /api/ai/chat</span> streams SSE (events: <span class="code">meta</span>, <span class="code">user</span>, <span class="code">assistant_start</span>, <span class="code">delta</span>, <span class="code">tool_start</span>, <span class="code">tool_result</span>, <span class="code">confirmation_required</span>, <span class="code">usage</span>, <span class="code">done</span>, <span class="code">error</span>); <span class="code">POST /api/ai/tool-confirm</span> continues a paused turn. Conversation CRUD, branching, assistants, knowledge bases, images, speech, web search and usage live under <span class="code">/api/ai/*</span> and require a signed-in session. Provider keys are never accepted from the browser.</p>
+    <p class="hint">There is no built-in hosted model: until an administrator configures a provider with a working key (or a reachable Ollama instance), <span class="code">/ai</span> opens normally and chat replies with a clear “no provider configured” error instead of pretending to answer.</p>
   </div>
 </section>
 
