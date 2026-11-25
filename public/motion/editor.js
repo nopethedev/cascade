@@ -55,13 +55,19 @@ let compareImage = null;
 let recording = null;
 let lastPreviewFrame = null;
 let prevSnapshotCanvas = null;
-let lastTimelineRender = 0;
 let collapseState = new Set();
 let curveDrag = null;
 let keyframeProperty = 'transform.x';
 let audioPreview = null;
 const waveCache = new Map();
 const mediaCache = new Map();
+const waveBitmapCache = new Map();
+const clipElements = new Map();
+let previewZoomMode = 'fit';
+let previewFitFrame = 0;
+let autoQuality = true;
+let autoQualityLast = 0;
+let timelineFrame = 0;
 
 /* ------------------------------------------------------------------------- */
 /* Toasts, API, save                                                         */
@@ -141,12 +147,17 @@ function commitOps(label, ops, options = {}) {
 }
 
 function afterProjectChange(time = null) {
+  // Suspend the compositor while the project and the playhead are updated so
+  // one edit paints exactly one preview frame instead of two.
+  engine.suspend();
   engine.setProject(project);
   if (time !== null) engine.setTime(time);
+  engine.resume();
   if (!project.tracks.find((t) => t.id === selectedTrackId)) selectedTrackId = project.tracks[0]?.id || null;
   selection = new Set([...selection].filter((id) => project.clips.some((c) => c.id === id)));
   renderAll();
   updateTimecode();
+  applyPreviewLayout();
 }
 
 function renderAll() {
@@ -154,6 +165,16 @@ function renderAll() {
   renderLeftPanel();
   renderInspector();
   renderMonitorMeta();
+  updateStatusbar();
+}
+
+/* Selection-only updates avoid rebuilding the timeline, the media grid and the
+ * effect previews (and therefore re-decoding thumbnails) on every click. */
+function refreshSelectionUI() {
+  $$('.mo-clip', tracksEl).forEach((el) => el.classList.toggle('is-selected', selection.has(el.dataset.clipId)));
+  $$('.mo-track-head', trackHeadsEl).forEach((el) => el.classList.toggle('is-selected', el.dataset.trackId === selectedTrackId));
+  $$('.mo-track-lane', tracksEl).forEach((el) => el.classList.toggle('is-selected', el.dataset.trackId === selectedTrackId));
+  renderInspector();
   updateStatusbar();
 }
 
@@ -1194,6 +1215,19 @@ function propField(label, value, type, step, key, clip) {
 
 let liveBefore = null;
 let liveKey = '';
+let liveRenderFrame = 0;
+
+/* Slider and colour-wheel drags fire many input events per frame. Mutating the
+ * project stays synchronous; the preview render is coalesced to one per frame. */
+function scheduleLiveRender() {
+  engine.project = project;
+  if (liveRenderFrame) return;
+  liveRenderFrame = requestAnimationFrame(() => {
+    liveRenderFrame = 0;
+    engine.setProject(project);
+  });
+}
+
 function liveClip(id, mutate) {
   const key = `${id}:${liveKey}`;
   if (liveBefore === null) liveBefore = deep(project);
@@ -1202,8 +1236,7 @@ function liveClip(id, mutate) {
   if (!clip) return;
   mutate(clip);
   project = next;
-  engine.setProject(project);
-  engine.invalidate();
+  scheduleLiveRender();
 }
 function finishLive(label, id) {
   if (liveBefore && JSON.stringify(liveBefore) !== JSON.stringify(project)) {
@@ -1340,7 +1373,7 @@ function liveEffect(clipId, effectId, key, value) {
   const fx = clip?.effects.find((f) => f.id === effectId);
   if (!fx) return;
   fx.params = { ...fx.params, [key]: value };
-  project = next; engine.setProject(project); engine.invalidate();
+  project = next; scheduleLiveRender();
 }
 function finishFx(clipId) {
   if (liveBefore) { bumpHistory('Effect parameter', project, engine.time); scheduleSave(); liveBefore = null; }
@@ -1427,7 +1460,7 @@ function textInspector(clip) {
   section.querySelector('[data-tx="template"]').onclick = () => { setLeftTab('text'); };
   const bgRow = section.querySelector('.mo-param');
   const bgSlider = bgRow.querySelector('input[type="range"]'); const bgNum = bgRow.querySelector('input[type="number"]');
-  bgSlider.addEventListener('input', () => { const next = deep(project); const c = next.clips.find((x) => x.id === clip.id); c.text.background = { ...c.text.background, opacity: Number(bgSlider.value) }; project = next; engine.setProject(project); engine.invalidate(); bgNum.value = bgSlider.value; });
+  bgSlider.addEventListener('input', () => { const next = deep(project); const c = next.clips.find((x) => x.id === clip.id); c.text.background = { ...c.text.background, opacity: Number(bgSlider.value) }; project = next; scheduleLiveRender(); bgNum.value = bgSlider.value; });
   bgSlider.addEventListener('change', () => { bumpHistory('Text background opacity', project, engine.time); scheduleSave(); renderInspector(); });
   return section;
 }
@@ -1865,7 +1898,7 @@ function liveGrade(clipId, patch, save = false) {
   const clip = next.clips.find((c) => c.id === clipId);
   if (!clip) return;
   clip.color = { ...clip.color, ...patch };
-  project = next; engine.setProject(project); engine.invalidate();
+  project = next; scheduleLiveRender();
   if (save) scheduleSave();
 }
 function finishGrade(clipId, label) {
@@ -2354,7 +2387,7 @@ function renderTrackHeads() {
     head.addEventListener('click', (e) => {
       if (e.target.closest('button')) return;
       selectedTrackId = track.id; selection = new Set();
-      renderAll();
+      refreshSelectionUI();
     });
     head.querySelector('.mo-track-name').addEventListener('dblclick', () => {
       const name = head.querySelector('.mo-track-name');
@@ -2389,44 +2422,65 @@ function renderTrackHeads() {
   if (!project.tracks.length) trackHeadsEl.innerHTML = '<div class="mo-empty" style="padding:16px 8px">No tracks</div>';
 }
 
+function laneFor(trackId) {
+  return tracksEl.querySelector(`.mo-track-lane[data-track-id="${trackId}"]`);
+}
+
+function bindLaneEvents(lane) {
+  lane.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.mo-clip')) return;
+    const track = trackById(project, lane.dataset.trackId);
+    if (!track) return;
+    selectedTrackId = track.id;
+    selection = new Set();
+    closeContext();
+    if (tool !== 'hand') {
+      if (engine.playing) engine.pause();
+      seek(timeFromClientX(e.clientX));
+    }
+    refreshSelectionUI();
+  });
+  lane.addEventListener('dragover', (e) => { e.preventDefault(); lane.classList.add('is-drop-target'); });
+  lane.addEventListener('dragleave', () => lane.classList.remove('is-drop-target'));
+  lane.addEventListener('drop', (e) => {
+    e.preventDefault();
+    lane.classList.remove('is-drop-target');
+    const track = trackById(project, lane.dataset.trackId);
+    if (!track) return;
+    const assetId = e.dataTransfer.getData('application/x-cascade-asset');
+    const effectId = e.dataTransfer.getData('application/x-cascade-effect');
+    if (assetId && !track.locked) {
+      const start = snapToFrame(project, timeFromClientX(e.clientX));
+      addAssetToTimeline(assetId, { trackId: track.id, start });
+    } else if (effectId) {
+      const clip = clipAtPoint(e.clientX, e.clientY);
+      if (clip) applyEffectToSelection(effectId, clip.id);
+    }
+  });
+}
+
+/* Lanes are reconciled, not rebuilt: clip elements and their decoded waveform
+ * bitmaps survive re-renders so selection/zoom changes stay cheap. */
 function renderLanes(width) {
-  const prevScroll = timelineScroll.scrollTop;
-  tracksEl.innerHTML = '';
-  project.tracks.forEach((track) => {
-    const lane = document.createElement('div');
+  const existing = new Map();
+  for (const lane of $$('.mo-track-lane', tracksEl)) existing.set(lane.dataset.trackId, lane);
+  const ordered = [];
+  for (const track of project.tracks) {
+    let lane = existing.get(track.id);
+    if (!lane) {
+      lane = document.createElement('div');
+      lane.dataset.trackId = track.id;
+      bindLaneEvents(lane);
+    }
+    existing.delete(track.id);
     lane.className = `mo-track-lane${selectedTrackId === track.id ? ' is-selected' : ''}${track.locked ? ' is-locked' : ''}`;
     lane.style.height = `${trackHeight(track)}px`;
-    lane.dataset.trackId = track.id;
     lane.style.width = `${width}px`;
-    lane.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.mo-clip')) return;
-      selectedTrackId = track.id;
-      selection = new Set();
-      closeContext();
-      if (tool !== 'hand') {
-        if (engine.playing) engine.pause();
-        seek(timeFromClientX(e.clientX));
-      }
-      renderAll();
-    });
-    lane.addEventListener('dragover', (e) => { e.preventDefault(); lane.classList.add('is-drop-target'); });
-    lane.addEventListener('dragleave', () => lane.classList.remove('is-drop-target'));
-    lane.addEventListener('drop', (e) => {
-      e.preventDefault();
-      lane.classList.remove('is-drop-target');
-      const assetId = e.dataTransfer.getData('application/x-cascade-asset');
-      const effectId = e.dataTransfer.getData('application/x-cascade-effect');
-      if (assetId && !track.locked) {
-        const start = snapToFrame(project, timeFromClientX(e.clientX));
-        addAssetToTimeline(assetId, { trackId: track.id, start });
-      } else if (effectId) {
-        const clip = clipAtPoint(e.clientX, e.clientY);
-        if (clip) applyEffectToSelection(effectId, clip.id);
-      }
-    });
-    tracksEl.append(lane);
-  });
-  timelineScroll.scrollTop = prevScroll;
+    ordered.push(lane);
+  }
+  for (const lane of existing.values()) lane.remove();
+  ordered.forEach((lane) => tracksEl.append(lane));
+  if (!project.tracks.length) tracksEl.innerHTML = '<div class="mo-empty" style="padding:16px 8px">No tracks</div>';
 }
 
 function visibleRange() {
@@ -2435,63 +2489,121 @@ function visibleRange() {
   return { start, end };
 }
 
+/* Vertical culling: only clips whose lane intersects the scrolled viewport get
+ * DOM nodes. Off-screen tracks cost one empty lane each. */
+function visibleTrackWindow() {
+  const offsets = new Map();
+  let y = 0;
+  for (const track of project.tracks) {
+    const h = trackHeight(track);
+    offsets.set(track.id, { top: y, bottom: y + h });
+    y += h;
+  }
+  const top = timelineScroll.scrollTop - 26;
+  return { offsets, top, bottom: top + (timelineScroll.clientHeight || 600) };
+}
+
+function clipSignature(clip) {
+  const asset = assetMap.get(clip.assetId);
+  const hasAudio = clip.type === 'audio' || (clip.type === 'video' && !!asset?.hasAudio);
+  return [clip.type, clip.name, asset?.thumbnailUrl || '', hasAudio ? 'a' : '',
+    clip.effects?.length || 0, clip.transitionIn ? 't' : '',
+    Math.abs(clip.speed - 1) > 0.01 ? clip.speed.toFixed(2) : '', clip.reverse ? 'r' : '', clip.freeze ? 'f' : ''].join('|');
+}
+
+function clipMarkup(clip, widthPx) {
+  const asset = assetMap.get(clip.assetId);
+  const hasAudio = clip.type === 'audio' || (clip.type === 'video' && !!asset?.hasAudio);
+  let inner = '';
+  if (asset && ['video', 'image'].includes(clip.type) && asset.thumbnailUrl) {
+    inner += `<div class="mo-clip-thumbs" style="background-image:url('${asset.thumbnailUrl}')" aria-hidden="true"></div>`;
+  }
+  if (hasAudio) inner += `<canvas class="mo-clip-wave" width="${Math.min(1200, Math.round(widthPx))}" height="32" data-wave="1"></canvas>`;
+  inner += `<div class="mo-clip-label"><i>${clip.type === 'video' ? '▶' : clip.type === 'audio' ? '♪' : clip.type === 'text' ? 'T' : clip.type === 'subtitle' ? 'CC' : clip.type === 'shape' ? '◆' : clip.type === 'composition' ? '◇' : 'FX'}</i>${esc(clip.name)}</div>`;
+  inner += `<div class="mo-clip-badges">${Math.abs(clip.speed - 1) > 0.01 ? `<span>${clip.speed.toFixed(2)}×</span>` : ''}${clip.reverse ? '<span>REV</span>' : ''}${clip.freeze ? '<span>FREEZE</span>' : ''}</div>`;
+  if (clip.effects?.length) inner += `<span class="mo-clip-fx">FX ${clip.effects.length}</span>`;
+  if (clip.transitionIn) inner += '<span class="mo-transition-badge" title="Incoming transition"></span>';
+  inner += '<div class="mo-trim left" data-trim="left"></div><div class="mo-trim right" data-trim="right"></div>';
+  return inner;
+}
+
+function createClipElement() {
+  const el = document.createElement('div');
+  el.addEventListener('pointerdown', (e) => {
+    const clip = project.clips.find((c) => c.id === el.dataset.clipId);
+    if (clip) beginClipDrag(e, clip, el);
+  });
+  el.addEventListener('dblclick', () => {
+    const clip = project.clips.find((c) => c.id === el.dataset.clipId);
+    if (!clip) return;
+    selection = new Set([clip.id]); selectedTrackId = clip.trackId;
+    if (clip.type === 'subtitle') setLeftTab('subtitles');
+    else setRightTab('inspector');
+    engine.setTime(clip.start);
+    renderAll();
+  });
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const clip = project.clips.find((c) => c.id === el.dataset.clipId);
+    if (!clip) return;
+    selection = new Set([clip.id]);
+    refreshSelectionUI();
+    clipMenu(clip, e.clientX, e.clientY);
+  });
+  el.addEventListener('dragover', (e) => { e.preventDefault(); });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const effectId = e.dataTransfer.getData('application/x-cascade-effect');
+    const clip = project.clips.find((c) => c.id === el.dataset.clipId);
+    if (effectId && clip) applyEffectToSelection(effectId, clip.id);
+  });
+  return el;
+}
+
 function renderClips(width) {
-  $$('.mo-clip', tracksEl).forEach((el) => el.remove());
   const range = visibleRange();
-  const selectedSub = new Set();
+  const { offsets, top, bottom } = visibleTrackWindow();
   const clips = project.clips.filter((c) => c.start / TICKS < range.end && (c.start + c.duration) / TICKS > range.start);
+  const seen = new Set();
   for (const clip of clips) {
-    const lane = tracksEl.querySelector(`.mo-track-lane[data-track-id="${clip.trackId}"]`);
+    const rect = offsets.get(clip.trackId);
+    if (!rect || rect.bottom < top || rect.top > bottom) continue;
+    const lane = laneFor(clip.trackId);
     if (!lane) continue;
-    const track = trackById(project, clip.trackId);
-    const el = document.createElement('div');
-    el.className = `mo-clip ${clip.type === 'image' ? 'image' : clip.type}${selection.has(clip.id) ? ' is-selected' : ''}`;
-    el.dataset.clipId = clip.id;
-    el.style.left = `${(clip.start / TICKS) * zoom}px`;
-    el.style.width = `${Math.max(2, (clip.duration / TICKS) * zoom)}px`;
-    el.title = `${clip.name}\n${fmt(clip.start)} → ${fmt(clip.start + clip.duration)}`;
-    const asset = assetMap.get(clip.assetId);
+    seen.add(clip.id);
     const widthPx = Math.max(2, (clip.duration / TICKS) * zoom);
-    let inner = '';
-    const hasAudio = clip.type === 'audio' || (clip.type === 'video' && !!asset?.hasAudio);
-    if (hasAudio && clip.type === 'video') el.classList.add('has-audio');
-    if (asset && ['video', 'image'].includes(clip.type) && asset.thumbnailUrl) {
-      inner += `<div class="mo-clip-thumbs" style="background-image:url('${asset.thumbnailUrl}')" aria-hidden="true"></div>`;
+    let el = clipElements.get(clip.id);
+    if (!el || !el.isConnected) { el = createClipElement(); el.dataset.clipId = clip.id; clipElements.set(clip.id, el); }
+    el.className = `mo-clip ${clip.type === 'image' ? 'image' : clip.type}${selection.has(clip.id) ? ' is-selected' : ''}`;
+    if (clip.type === 'video' && assetMap.get(clip.assetId)?.hasAudio) el.classList.add('has-audio');
+    el.style.left = `${(clip.start / TICKS) * zoom}px`;
+    el.style.width = `${widthPx}px`;
+    el.title = `${clip.name}\n${fmt(clip.start)} → ${fmt(clip.start + clip.duration)}`;
+    const sig = `${clipSignature(clip)}|${Math.round(widthPx)}`;
+    if (el.dataset.sig !== sig) {
+      el.dataset.sig = sig;
+      el.innerHTML = clipMarkup(clip, widthPx);
     }
-    if (hasAudio) inner += `<canvas class="mo-clip-wave" width="${Math.min(1200, Math.round(widthPx))}" height="32" data-wave="${clip.id}"></canvas>`;
-    inner += `<div class="mo-clip-label"><i>${clip.type === 'video' ? '▶' : clip.type === 'audio' ? '♪' : clip.type === 'text' ? 'T' : clip.type === 'subtitle' ? 'CC' : clip.type === 'shape' ? '◆' : clip.type === 'composition' ? '◇' : 'FX'}</i>${esc(clip.name)}</div>`;
-    inner += `<div class="mo-clip-badges">${Math.abs(clip.speed - 1) > 0.01 ? `<span>${clip.speed.toFixed(2)}×</span>` : ''}${clip.reverse ? '<span>REV</span>' : ''}${clip.freeze ? '<span>FREEZE</span>' : ''}</div>`;
-    if (clip.effects?.length) inner += `<span class="mo-clip-fx">FX ${clip.effects.length}</span>`;
-    if (clip.transitionIn) inner += '<span class="mo-transition-badge" title="Incoming transition"></span>';
-    inner += '<div class="mo-trim left" data-trim="left"></div><div class="mo-trim right" data-trim="right"></div>';
-    el.innerHTML = inner;
-    el.addEventListener('pointerdown', (e) => beginClipDrag(e, clip, el));
-    el.addEventListener('dblclick', () => {
-      selection = new Set([clip.id]); selectedTrackId = clip.trackId;
-      if (clip.type === 'text') { setRightTab('inspector'); }
-      else if (clip.type === 'subtitle') { setLeftTab('subtitles'); }
-      else setRightTab('inspector');
-      engine.setTime(clip.start);
-      renderAll();
-    });
-    el.addEventListener('contextmenu', (e) => { e.preventDefault(); selection = new Set([clip.id]); renderAll(); clipMenu(clip, e.clientX, e.clientY); });
-    el.addEventListener('dragover', (e) => { e.preventDefault(); });
-    el.addEventListener('drop', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const effectId = e.dataTransfer.getData('application/x-cascade-effect');
-      if (effectId) applyEffectToSelection(effectId, clip.id);
-    });
-    lane.append(el);
-    if (widthPx > 20) queueMicrotask(() => drawClipWave(el, clip));
-    if (clip.transitionIn) selectedSub.add(clip.id);
+    if (lane !== el.parentElement) lane.append(el);
+    if (widthPx > 20) drawClipWave(el, clip);
+  }
+  for (const [id, el] of clipElements) {
+    if (seen.has(id)) continue;
+    el.remove();
+    clipElements.delete(id);
   }
 }
 
+/* Waveforms are rasterised once per (asset, width, trim) and cached as a small
+ * bitmap, so zooming or scrolling never reruns the per-column loop. */
 async function drawClipWave(el, clip) {
   const canvas = el.querySelector('canvas[data-wave]');
   if (!canvas) return;
   const asset = assetMap.get(clip.assetId);
   if (!asset?.waveformUrl) return;
+  const W = canvas.width; const H = canvas.height;
+  const key = `${asset.id}:${W}:${H}:${clip.inPoint}:${clip.duration}`;
+  if (canvas.dataset.waveKey === key) return;
   try {
     let peaks = waveCache.get(asset.id);
     if (!peaks) {
@@ -2499,25 +2611,35 @@ async function drawClipWave(el, clip) {
       if (!res.ok) return;
       const j = await res.json();
       peaks = Array.isArray(j.peaks) ? j.peaks : [];
+      if (waveCache.size > 48) waveCache.delete(waveCache.keys().next().value);
       waveCache.set(asset.id, peaks);
     }
     if (!peaks.length || !canvas.isConnected) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width; const H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(255,255,255,.65)';
-    const rate = 50;
-    const inPoint = clip.inPoint / TICKS;
-    const dur = clip.duration / TICKS;
-    const count = Math.max(1, Math.ceil(dur * rate));
-    for (let i = 0; i < count; i += 1) {
-      const idx = Math.floor((inPoint + (i / count) * dur) * rate);
-      const p = peaks[Math.min(peaks.length - 1, idx)] || 0;
-      const value = Array.isArray(p) ? Math.max(...p) : Number(p) || 0;
-      const x = (i / count) * W;
-      const h = Math.max(1, value * H * 0.9);
-      ctx.fillRect(x, H / 2 - h / 2, Math.max(1, W / count - 0.4), h);
+    let bitmap = waveBitmapCache.get(key);
+    if (!bitmap) {
+      bitmap = document.createElement('canvas');
+      bitmap.width = W; bitmap.height = H;
+      const bctx = bitmap.getContext('2d');
+      bctx.fillStyle = 'rgba(255,255,255,.65)';
+      const rate = 50;
+      const inPoint = clip.inPoint / TICKS;
+      const dur = clip.duration / TICKS;
+      const count = Math.max(1, Math.ceil(dur * rate));
+      for (let i = 0; i < count; i += 1) {
+        const idx = Math.floor((inPoint + (i / count) * dur) * rate);
+        const p = peaks[Math.min(peaks.length - 1, idx)] || 0;
+        const value = Array.isArray(p) ? Math.max(...p) : Number(p) || 0;
+        const x = (i / count) * W;
+        const h = Math.max(1, value * H * 0.9);
+        bctx.fillRect(x, H / 2 - h / 2, Math.max(1, W / count - 0.4), h);
+      }
+      if (waveBitmapCache.size > 64) waveBitmapCache.delete(waveBitmapCache.keys().next().value);
+      waveBitmapCache.set(key, bitmap);
     }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(bitmap, 0, 0);
+    canvas.dataset.waveKey = key;
   } catch { /* waveform is optional */ }
 }
 
@@ -2576,10 +2698,10 @@ function beginClipDrag(e, clip, el) {
     }
     return;
   }
-  if (!CAN_EDIT) return toast('View-only access', true);
+      if (!CAN_EDIT) return toast('View-only access', true);
   const track = trackById(project, clip.trackId);
   if (clip.locked || track?.locked) return toast('This track is locked', true);
-  renderAll();
+  refreshSelectionUI();
   const selected = [...selection].map((id) => project.clips.find((c) => c.id === id)).filter(Boolean);
   const mode = trimHandle ? `trim-${trimHandle.dataset.trim}` : toolNow === 'slip' ? 'slip' : 'move';
   drag = {
@@ -2656,7 +2778,7 @@ function onDragEnd(e) {
   $$('.mo-track-lane.is-drop-target', tracksEl).forEach((n) => n.classList.remove('is-drop-target'));
   if (!d.moved) {
     d.el?.classList.remove('is-dragging');
-    renderAll();
+    refreshSelectionUI();
     return;
   }
   if (d.mode === 'move') {
@@ -2713,13 +2835,16 @@ playheadEl.addEventListener('pointerdown', (e) => {
   }
 });
 
-timelineScroll.addEventListener('scroll', () => {
-  const now = performance.now();
-  if (now - lastTimelineRender < 40) return;
-  lastTimelineRender = now;
-  renderRuler(parseFloat(timelineContent.style.width) - headWidth());
-  renderClips(parseFloat(timelineContent.style.width) - headWidth());
-});
+/* One rAF-coalesced timeline repaint for scroll, resize and splitter drags. */
+function scheduleTimeline() {
+  if (timelineFrame) return;
+  timelineFrame = requestAnimationFrame(() => {
+    timelineFrame = 0;
+    renderTimeline();
+  });
+}
+
+timelineScroll.addEventListener('scroll', () => scheduleTimeline(), { passive: true });
 
 /* ------------------------------------------------------------------------- */
 /* Transport / monitor                                                       */
@@ -2748,8 +2873,73 @@ function renderMonitorMeta() {
   const seq = $('#mo-seq-name');
   if (seq) seq.textContent = project.name || 'Sequence 01';
   const q = $('#mo-quality');
-  if (q) q.textContent = engine.quality === 1 ? 'Full' : engine.quality === 0.5 ? '1/2' : '1/4';
+  if (q) { q.value = autoQuality ? 'auto' : String(engine.quality); q.title = `Preview quality — currently ${qualityLabel(engine.quality)}`; }
   $('#mo-export-summary').textContent = `${exportFmt.toUpperCase()} · ${exportH >= 2160 ? '4K' : `${exportH}p`}`;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Preview layout and quality                                                */
+/* ------------------------------------------------------------------------- */
+
+/* Fit/fill/percentage zoom is computed from the stage's real content box on
+ * every resize. The canvas is absolutely positioned, so it can never add to
+ * the stage's intrinsic size or push the timeline out of the viewport. */
+function applyPreviewLayout() {
+  const stage = $('#mo-monitor-stage');
+  const canvas = $('#mo-canvas');
+  if (!stage || !canvas || !project) return;
+  const availW = Math.max(24, stage.clientWidth - 2);
+  const availH = Math.max(24, stage.clientHeight - 2);
+  const pw = project.width || 1920;
+  const ph = project.height || 1080;
+  let w; let h;
+  if (previewZoomMode === 'fit' || previewZoomMode === 'fill') {
+    const ratio = previewZoomMode === 'fit'
+      ? Math.min(availW / pw, availH / ph)
+      : Math.max(availW / pw, availH / ph);
+    w = pw * ratio; h = ph * ratio;
+  } else {
+    const z = clamp(Number(previewZoomMode) || 1, 0.1, 8);
+    w = pw * z; h = ph * z;
+  }
+  canvas.style.width = `${Math.max(1, Math.round(w))}px`;
+  canvas.style.height = `${Math.max(1, Math.round(h))}px`;
+  stage.classList.toggle('is-cropped', previewZoomMode !== 'fit');
+}
+
+function setPreviewZoom(mode) {
+  const custom = $('#mo-preview-zoom-custom');
+  if (mode === 'custom') {
+    previewZoomMode = String(clamp(Number(custom?.value) || 75, 10, 800) / 100);
+    if (custom) { custom.hidden = false; custom.focus(); custom.select(); }
+  } else {
+    previewZoomMode = mode;
+    if (custom) custom.hidden = true;
+  }
+  applyPreviewLayout();
+}
+
+function setupPreviewLayout() {
+  engine.autoQuality = autoQuality;
+  $('#mo-preview-zoom')?.addEventListener('change', (e) => setPreviewZoom(e.target.value));
+  const custom = $('#mo-preview-zoom-custom');
+  custom?.addEventListener('input', () => {
+    if (custom.hidden) return;
+    previewZoomMode = String(clamp(Number(custom.value) || 10, 10, 800) / 100);
+    applyPreviewLayout();
+  });
+  $('#mo-quality')?.addEventListener('change', (e) => setQuality(e.target.value));
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => {
+      if (previewFitFrame) return;
+      previewFitFrame = requestAnimationFrame(() => { previewFitFrame = 0; applyPreviewLayout(); });
+    });
+    const stage = $('#mo-monitor-stage');
+    const body = $('#mo-monitor-body');
+    if (stage) observer.observe(stage);
+    if (body) observer.observe(body);
+  }
+  applyPreviewLayout();
 }
 
 function updateStatusbar() {
@@ -2761,14 +2951,54 @@ function updateStatusbar() {
   if (col) col.textContent = ws?.state?.live ? `Live · ${ws.state.participants.length} editing` : 'Solo session · autosave on';
 }
 
-function setQuality(q) {
-  engine.setQuality(q);
+function qualityLabel(q) {
+  if (q >= 1) return 'Full';
+  if (q >= 0.5) return '1/2';
+  if (q >= 0.25) return '1/4';
+  return '1/8';
+}
+
+function setQuality(value) {
+  if (value === 'auto') {
+    autoQuality = true;
+    autoQualityLast = 0;
+    engine.autoQuality = true;
+    engine.setQuality(1);
+  } else {
+    engine.autoQuality = false;
+    autoQuality = false;
+    engine.setQuality(clamp(Number(value) || 1, 0.125, 1));
+  }
   renderMonitorMeta();
-  toast(`Preview quality: ${q === 1 ? 'Full' : q === 0.5 ? '1/2' : '1/4'}`);
+  applyPreviewLayout();
+  toast(`Preview quality: ${autoQuality ? 'Auto' : qualityLabel(engine.quality)}`);
 }
 
 function cycleQuality() {
-  setQuality(engine.quality === 1 ? 0.5 : engine.quality === 0.5 ? 0.25 : 1);
+  const steps = [1, 0.5, 0.25, 0.125];
+  const index = steps.findIndex((s) => Math.abs(s - engine.quality) < 0.001);
+  setQuality(String(steps[(index + 1) % steps.length]));
+}
+
+/* Auto preview quality samples the measured frame rate once a second and moves
+ * the backing resolution toward real time: big drops fall straight to a quarter
+ * of the current scale, while sustained headroom restores it one step at a
+ * time. Export always renders at full resolution from the project. */
+function updateAutoQuality() {
+  if (!autoQuality) return;
+  const now = performance.now();
+  if (now - autoQualityLast < 1000) return;
+  autoQualityLast = now;
+  const fps = engine.stats.fps || 0;
+  if (!fps) return;
+  let next = engine.quality;
+  if (fps < 30) next = engine.quality / (fps < 15 ? 4 : 2);
+  else if (fps > 56) next = engine.quality * 2;
+  next = clamp(next, 0.125, 1);
+  if (Math.abs(next - engine.quality) < 0.001) return;
+  engine.setQuality(next);
+  applyPreviewLayout();
+  renderMonitorMeta();
 }
 
 /* ------------------------------------------------------------------------- */
@@ -2828,9 +3058,11 @@ function runCommand(cmd) {
     case 'toggle-timeline': app.classList.toggle('mo-timeline-hidden'); break;
     case 'fullscreen': engine.toggleFullscreen(); break;
     case 'quality': cycleQuality(); break;
+    case 'quality-auto': setQuality('auto'); break;
     case 'quality-1': setQuality(1); break;
     case 'quality-half': setQuality(0.5); break;
     case 'quality-quarter': setQuality(0.25); break;
+    case 'quality-eighth': setQuality(0.125); break;
     case 'guides': toggleGuides(); break;
     case 'before-after':
     case 'compare': toggleCompare(); break;
@@ -3125,7 +3357,7 @@ function bindSplitter(el, side) {
       const delta = side === 'left' ? ev.clientX - startX : startX - ev.clientX;
       const width = clamp(left + delta, 220, Math.min(560, window.innerWidth * 0.5));
       app.style.setProperty(side === 'left' ? '--mo-left-w' : '--mo-right-w', `${width}px`);
-      renderTimeline();
+      scheduleTimeline();
     };
     el.classList.add('is-dragging');
     window.addEventListener('pointermove', move);
@@ -3137,18 +3369,33 @@ bindSplitter($('#mo-split-right'), 'right');
 
 $('#mo-split-bottom')?.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  const el = $('#mo-split-bottom');
   const startY = e.clientY;
   const startH = parseInt(getComputedStyle(app).getPropertyValue('--mo-timeline-height')) || 336;
+  const maxH = Math.max(180, ($('#mo-workspace')?.clientHeight || window.innerHeight) - 140);
+  el?.classList.add('is-dragging');
   const move = (ev) => {
-    const h = clamp(startH + (startY - ev.clientY), 160, window.innerHeight - 220);
+    const h = clamp(startH + (startY - ev.clientY), 120, maxH);
     app.style.setProperty('--mo-timeline-height', `${h}px`);
-    renderTimeline();
+    scheduleTimeline();
+  };
+  const up = () => {
+    el?.classList.remove('is-dragging');
+    window.removeEventListener('pointermove', move);
+    try { localStorage.setItem('cascade:motion-timeline-height', getComputedStyle(app).getPropertyValue('--mo-timeline-height').trim()); } catch { /* storage disabled */ }
+    applyPreviewLayout();
   };
   window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', () => window.removeEventListener('pointermove', move), { once: true });
+  window.addEventListener('pointerup', up, { once: true });
+});
+$('#mo-split-bottom')?.addEventListener('dblclick', () => {
+  app.style.setProperty('--mo-timeline-height', '336px');
+  try { localStorage.removeItem('cascade:motion-timeline-height'); } catch { /* storage disabled */ }
+  scheduleTimeline();
+  applyPreviewLayout();
 });
 
-window.addEventListener('resize', () => { if (renderTimeline) renderTimeline(); });
+window.addEventListener('resize', () => { scheduleTimeline(); applyPreviewLayout(); });
 /* ------------------------------------------------------------------------- */
 /* Import, uploads and recordings                                            */
 /* ------------------------------------------------------------------------- */
@@ -3929,8 +4176,14 @@ async function init() {
   if (initialized) return;
   initialized = true;
   engine = new MotionEngine({ canvas: $('#mo-canvas'), project, assets });
+  try {
+    const savedH = parseInt(localStorage.getItem('cascade:motion-timeline-height'), 10);
+    if (savedH) app.style.setProperty('--mo-timeline-height', `${clamp(savedH, 120, Math.max(180, window.innerHeight - 220))}px`);
+  } catch { /* storage disabled */ }
+  setupPreviewLayout();
   engine.onTick(() => {
     updatePlayhead();
+    updateAutoQuality();
     const now = performance.now();
     if (now - (init._lastUi || 0) > 90) {
       init._lastUi = now;

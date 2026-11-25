@@ -76,9 +76,11 @@
           <button type="button" data-cmd="toggle-timeline">Toggle timeline</button>
           <button type="button" data-cmd="fullscreen">Fullscreen preview<kbd>Shift+F</kbd></button>
           <div class="mo-menu-sep"></div>
+          <button type="button" data-cmd="quality-auto">Preview: Auto</button>
           <button type="button" data-cmd="quality-1">Preview: Full</button>
           <button type="button" data-cmd="quality-half">Preview: 1/2</button>
           <button type="button" data-cmd="quality-quarter">Preview: 1/4</button>
+          <button type="button" data-cmd="quality-eighth">Preview: 1/8</button>
           <button type="button" data-cmd="guides">Toggle safe guides</button>
           <button type="button" data-cmd="compare">Compare with export</button>
           <button type="button" data-cmd="theme">Light / dark theme</button>
@@ -127,7 +129,23 @@
           <div class="mo-monitor-tab is-active"><span class="mo-dot"></span><span id="mo-seq-name">Sequence 01</span></div>
           <div class="mo-monitor-meta" id="mo-monitor-meta"></div>
           <div class="mo-monitor-actions">
-            <button type="button" class="mo-chip" data-cmd="quality" title="Preview quality" id="mo-quality">Full</button>
+            <select class="mo-select mo-preview-zoom" id="mo-preview-zoom" title="Preview zoom" aria-label="Preview zoom">
+              <option value="fit" selected>Fit</option>
+              <option value="fill">Fill</option>
+              <option value="0.25">25%</option>
+              <option value="0.5">50%</option>
+              <option value="1">100%</option>
+              <option value="2">200%</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input class="mo-preview-zoom-custom" id="mo-preview-zoom-custom" type="number" min="10" max="800" step="5" value="75" title="Custom preview zoom (%)" aria-label="Custom preview zoom percent" hidden>
+            <select class="mo-select mo-quality-select" id="mo-quality" title="Preview quality" aria-label="Preview quality">
+              <option value="auto" selected>Auto</option>
+              <option value="1">Full</option>
+              <option value="0.5">1/2</option>
+              <option value="0.25">1/4</option>
+              <option value="0.125">1/8</option>
+            </select>
             <button type="button" class="mo-chip" data-cmd="guides" title="Safe area guides">Guides</button>
             <button type="button" class="mo-chip" data-cmd="before-after" title="Compare current frame with exported/previous frame">Compare</button>
             <button type="button" class="mo-chip" data-cmd="capture" title="Capture still to Cascade Files">Still</button>
@@ -173,6 +191,8 @@
           <div class="mo-zoom-control"><span>Timeline</span><input id="mo-timeline-zoom" type="range" min="8" max="320" value="72" aria-label="Timeline zoom"><button type="button" class="mo-iconbtn" data-cmd="fit" title="Fit timeline (Shift+Z)">Fit</button></div>
         </div>
       </div>
+
+      <div class="mo-splitter mo-splitter-bottom" id="mo-split-bottom" title="Drag to resize timeline (double-click to reset)"></div>
 
       <div class="mo-timeline" id="mo-timeline">
         <div class="mo-timeline-toolbar">
@@ -224,7 +244,6 @@
       <div class="mo-panel-toolbar" id="mo-right-toolbar"></div>
       <div class="mo-panel-body mo-inspector" id="mo-right-body"></div>
     </aside>
-    <div class="mo-splitter mo-splitter-bottom" id="mo-split-bottom" title="Drag to resize timeline"></div>
   </div>
 
   <footer class="mo-statusbar">

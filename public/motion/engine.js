@@ -15,6 +15,55 @@ import { sampleParticles, seedFromString } from './particles.mjs';
 const $ = (s, root = document) => root.querySelector(s);
 const MAX_VIDEO_POOL = 12;
 
+/* Per-pixel colour grading used to call gradeColor() for every pixel, which
+ * allocates two arrays and converts to/from HSL each time. Baking the grade into
+ * a small 3D lookup table once per parameter change and interpolating it is
+ * several times faster and keeps playback smooth at preview resolutions. */
+const GRADE_LUT_N = 17;
+const GRADE_KEYS = ['exposure', 'brightness', 'contrast', 'saturation', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows', 'whites', 'blacks', 'gamma', 'hue'];
+const gradeSample = new Float32Array(3);
+
+function gradeKey(c) {
+  let key = '';
+  for (const name of GRADE_KEYS) key += `${Number(c[name]) || 0},`;
+  key += `|${(c.lift || []).join(',')}|${(c.gain || []).join(',')}|${(c.gammaRGB || []).join(',')}`;
+  const curves = c.curves || {};
+  key += `|${JSON.stringify(curves.master || [])}|${JSON.stringify(curves.red || [])}|${JSON.stringify(curves.green || [])}|${JSON.stringify(curves.blue || [])}`;
+  key += `|${JSON.stringify(c.selective || [])}`;
+  if (c.lut?.data) key += `|${c.lut.size}:${c.lutIntensity}`;
+  return key;
+}
+
+function sampleGrade(data, n, r, g, b, out) {
+  const s = n - 1;
+  const x = r * s; const y = g * s; const z = b * s;
+  const x0 = x | 0; const y0 = y | 0; const z0 = z | 0;
+  const x1 = x0 < s ? x0 + 1 : x0;
+  const y1 = y0 < s ? y0 + 1 : y0;
+  const z1 = z0 < s ? z0 + 1 : z0;
+  const fx = x - x0; const fy = y - y0; const fz = z - z0;
+  const nx = n * 3; const ny = n * n * 3;
+  const sx = (x1 - x0) * 3; const sy = (y1 - y0) * nx; const sz = (z1 - z0) * ny;
+  const i000 = z0 * ny + y0 * nx + x0 * 3;
+  const i100 = i000 + sx; const i010 = i000 + sy; const i110 = i010 + sx;
+  const i001 = i000 + sz; const i101 = i001 + sx; const i011 = i001 + sy; const i111 = i011 + sx;
+  let a = data[i000] + (data[i100] - data[i000]) * fx;
+  let c2 = data[i010] + (data[i110] - data[i010]) * fx;
+  let d = data[i001] + (data[i101] - data[i001]) * fx;
+  let e = data[i011] + (data[i111] - data[i011]) * fx;
+  out[0] = (a + (c2 - a) * fy) + ((d + (e - d) * fy) - (a + (c2 - a) * fy)) * fz;
+  a = data[i000 + 1] + (data[i100 + 1] - data[i000 + 1]) * fx;
+  c2 = data[i010 + 1] + (data[i110 + 1] - data[i010 + 1]) * fx;
+  d = data[i001 + 1] + (data[i101 + 1] - data[i001 + 1]) * fx;
+  e = data[i011 + 1] + (data[i111 + 1] - data[i011 + 1]) * fx;
+  out[1] = (a + (c2 - a) * fy) + ((d + (e - d) * fy) - (a + (c2 - a) * fy)) * fz;
+  a = data[i000 + 2] + (data[i100 + 2] - data[i000 + 2]) * fx;
+  c2 = data[i010 + 2] + (data[i110 + 2] - data[i010 + 2]) * fx;
+  d = data[i001 + 2] + (data[i101 + 2] - data[i001 + 2]) * fx;
+  e = data[i011 + 2] + (data[i111 + 2] - data[i011 + 2]) * fx;
+  out[2] = (a + (c2 - a) * fy) + ((d + (e - d) * fy) - (a + (c2 - a) * fy)) * fz;
+}
+
 export class MotionEngine {
   constructor(options = {}) {
     this.canvas = options.canvas;
@@ -42,6 +91,12 @@ export class MotionEngine {
     this._lastFrame = 0;
     this._fpsAcc = 0;
     this._fpsFrames = 0;
+    this._suspend = 0;
+    this._lastRelease = 0;
+    this.compEngines = new Map();
+    this._gradeLuts = new Map();
+    this._sprites = new Map();
+    this.autoQuality = false;
     this.audio = new PreviewAudio(this);
     this._resize();
     this._bindVideoEvents();
@@ -64,7 +119,7 @@ export class MotionEngine {
   }
 
   setQuality(quality) {
-    this.quality = clamp(quality, 0.25, 1);
+    this.quality = clamp(quality, 0.125, 1);
     this._resize();
     this.invalidate();
   }
@@ -90,14 +145,25 @@ export class MotionEngine {
   }
 
   invalidate() {
-    if (this.playing) return;
+    if (this.playing || this._suspend) return;
     this.renderFrame();
+  }
+
+  /* Coalesce the render that a project + time update pair would otherwise do
+   * twice. Callers wrap synchronous edits; resume() paints exactly once. */
+  suspend() { this._suspend += 1; }
+  resume() {
+    this._suspend = Math.max(0, this._suspend - 1);
+    if (!this._suspend) this.invalidate();
   }
 
   play() {
     if (this.playing) return;
     if (this.time >= this.duration) this.time = 0;
     this.playing = true;
+    // Heavy grades/compositions are previewed at half resolution by default so
+    // the first seconds of playback are already real-time; Auto can recover.
+    if (this.autoQuality && this.quality > 0.5 && this.isHeavyProject()) this.setQuality(0.5);
     this.audio.ensure();
     this.clockBase = performance.now();
     this.clockStart = this.time;
@@ -138,6 +204,7 @@ export class MotionEngine {
       if (delta > 1000 / this.project.fps * 2) this.stats.dropped += 1;
       this.stats.frames += 1;
       this.emit();
+      if (nowMs - this._lastRelease > 2000) { this._lastRelease = nowMs; this.releaseUnused(); }
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -244,9 +311,12 @@ export class MotionEngine {
     img.decoding = 'async';
     img.src = asset.kind === 'image' ? asset.url : asset.thumbnailUrl || asset.url;
     const entry = { img, ready: false };
-    img.onload = () => { entry.ready = true; if (!this.playing) this.renderFrame(); };
+    img.onload = () => { entry.ready = true; if (!this.playing) this.invalidate(); };
     img.onerror = () => { entry.error = true; };
     this.images.set(key, entry);
+    if (this.images.size > 64) {
+      for (const oldKey of [...this.images.keys()].slice(0, this.images.size - 48)) this.images.delete(oldKey);
+    }
     return img;
   }
 
@@ -262,21 +332,59 @@ export class MotionEngine {
     return entry;
   }
 
-  releaseUnused() {
-    const activeAssets = new Set(this.project.clips.filter((c) => Math.abs(c.start - this.time) < 30 * TICKS).map((c) => c.assetId));
-    for (const [key, entry] of this.videos) {
-      const assetId = key.split(':').slice(1).join(':');
-      if (!activeAssets.has(assetId) && this.playing) {
-        entry.video.pause();
+  /* Bound decoder, bitmap and buffer memory. Media inside a small window around
+   * the playhead stays warm so scrubbing never has to reload it; anything else
+   * releases its decoder instead of accumulating hidden <video> elements. */
+  releaseUnused(windowSeconds = 10) {
+    const windowTicks = windowSeconds * TICKS;
+    const keep = new Set();
+    for (const clip of this.project.clips) {
+      if (clip.start - windowTicks <= this.time && clip.start + clip.duration + windowTicks >= this.time) {
+        if (clip.assetId) keep.add(`${clip.type === 'audio' ? 'audio' : 'video'}:${clip.assetId}`);
       }
     }
-    if (this.buffers.size > 40) {
-      for (const key of [...this.buffers.keys()].slice(0, this.buffers.size - 30)) this.buffers.delete(key);
+    for (const [key, entry] of this.videos) {
+      if (keep.has(key)) continue;
+      const video = entry.video;
+      try { video.pause(); } catch { /* ignore */ }
+      if (!video.closest?.('.mo-media-thumb')) {
+        video.removeAttribute('src');
+        try { video.load(); } catch { /* ignore */ }
+        video.remove();
+      }
+      this.videos.delete(key);
+    }
+    if (this.buffers.size > 32) {
+      for (const key of [...this.buffers.keys()].slice(0, this.buffers.size - 24)) this.buffers.delete(key);
+    }
+    if (this.images.size > 64) {
+      for (const key of [...this.images.keys()].slice(0, this.images.size - 48)) this.images.delete(key);
+    }
+    for (const [id, entry] of this.compEngines) {
+      if (!this.project.clips.some((c) => c.id === id)) {
+        entry.inner.destroy();
+        this.compEngines.delete(id);
+      }
     }
   }
 
   clipActiveAt(clip, time) {
     return clip.enabled !== false && clip.start <= time && clip.start + clip.duration > time;
+  }
+
+  isHeavyProject() {
+    let cost = 0;
+    for (const clip of this.project.clips) {
+      const c = clip.color || {};
+      if (c.curves?.master?.length || c.lut?.data || c.selective?.length
+        || c.lift?.some((v) => v) || c.gain?.some((v) => Math.abs(v - 1) > 0.001)
+        || c.gammaRGB?.some((v) => Math.abs(v - 1) > 0.001)
+        || c.exposure || c.highlights || c.shadows || c.whites || c.blacks || c.vibrance) cost += 2;
+      for (const fx of clip.effects || []) if (fx.enabled !== false) cost += 1;
+      if (clip.type === 'composition') cost += 2;
+      if (clip.mask?.shape && clip.mask.shape !== 'none') cost += 1;
+    }
+    return cost >= 3;
   }
 
   /* Per-clip transition entrance. The FFmpeg renderer uses the same model: an
@@ -596,13 +704,27 @@ export class MotionEngine {
     const at = Math.round(comp.duration * fraction);
     const prevProject = this.project;
     const compProject = { ...this.project, width: comp.width || this.project.width, height: comp.height || this.project.height, tracks: comp.tracks || [], clips: comp.clips || [], compositions: [] };
-    const savedCanvas = this.canvas;
-    const tmp = document.createElement('canvas');
-    tmp.width = layer.canvas.width; tmp.height = layer.canvas.height;
-    const inner = new MotionEngine({ canvas: tmp, project: compProject, assets: this.assets });
-    inner.quality = 1; inner.time = at; inner.audio = { update() {}, start() {}, stop() {}, sync() {}, setMuted() {}, setRate() {}, peak: 0 };
+    /* Reuse one nested compositor per composition clip. Building a new engine
+     * (and a new canvas) on every rendered frame was the single largest source
+     * of playback jank in projects that use nested compositions. */
+    let cached = this.compEngines.get(clip.id);
+    if (!cached || cached.canvas.width !== layer.canvas.width || cached.canvas.height !== layer.canvas.height) {
+      const tmp = document.createElement('canvas');
+      tmp.width = layer.canvas.width;
+      tmp.height = layer.canvas.height;
+      const inner = new MotionEngine({ canvas: tmp, project: compProject, assets: this.assets });
+      inner.quality = 1;
+      inner.audio = { update() {}, start() {}, stop() {}, sync() {}, setMuted() {}, setRate() {}, peak: 0 };
+      cached = { canvas: tmp, inner };
+      this.compEngines.set(clip.id, cached);
+    }
+    const inner = cached.inner;
+    inner.assets = this.assets;
+    inner.assetMap = this.assetMap;
+    inner.project = compProject;
+    inner.time = at;
     inner.renderFrame();
-    layer.ctx.drawImage(tmp, 0, 0);
+    layer.ctx.drawImage(cached.canvas, 0, 0);
     const tr = animatedTransform(clip, local);
     const tstate = this.transitionState(clip);
     this.compositeLayer(ctx, layer.canvas, clip, tr, tr.opacity ?? 1, tstate, scale);
@@ -673,11 +795,32 @@ export class MotionEngine {
     let img;
     try { img = ctx.getImageData(0, 0, W, H); } catch { return; }
     const data = img.data;
-    const lut = c.lut?.data && c.lut.size ? c.lut : null;
+    const n = GRADE_LUT_N;
+    const key = gradeKey(c);
+    let baked = this._gradeLuts.get(key);
+    if (!baked) {
+      const table = new Float32Array(n * n * n * 3);
+      const lut = c.lut?.data && c.lut.size ? c.lut : null;
+      let at = 0;
+      for (let z = 0; z < n; z += 1) {
+        for (let y = 0; y < n; y += 1) {
+          for (let x = 0; x < n; x += 1) {
+            const [r, g, b] = gradeColor(x / (n - 1), y / (n - 1), z / (n - 1), c, lut);
+            table[at] = r; table[at + 1] = g; table[at + 2] = b; at += 3;
+          }
+        }
+      }
+      baked = { table, n };
+      if (this._gradeLuts.size > 24) this._gradeLuts.delete(this._gradeLuts.keys().next().value);
+      this._gradeLuts.set(key, baked);
+    }
+    const table = baked.table;
     for (let i = 0; i < data.length; i += 4) {
       if (!data[i + 3]) continue;
-      const [r, g, b] = gradeColor(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255, c, lut);
-      data[i] = r * 255; data[i + 1] = g * 255; data[i + 2] = b * 255;
+      sampleGrade(table, n, data[i] / 255, data[i + 1] / 255, data[i + 2] / 255, gradeSample);
+      data[i] = gradeSample[0] * 255;
+      data[i + 1] = gradeSample[1] * 255;
+      data[i + 2] = gradeSample[2] * 255;
     }
     ctx.putImageData(img, 0, 0);
   }
@@ -1260,17 +1403,36 @@ export class MotionEngine {
         ctx.lineTo(x - vx, y - vy);
         ctx.stroke();
       } else {
-        const g = ctx.createRadialGradient(x, y, 0, x, y, size);
-        g.addColorStop(0, p.color);
-        g.addColorStop(0.5, p.color);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
+        /* Gradients are cached as sprites: creating a radial gradient and
+         * filling an arc per particle per frame dominated the frame budget for
+         * fire/glow presets. A scaled sprite draws the same soft dot. */
+        const sprite = this.particleSprite(p.color, size);
+        ctx.drawImage(sprite, x - size, y - size, size * 2, size * 2);
       }
     }
     ctx.restore();
+  }
+
+  particleSprite(color, size) {
+    const bucket = Math.max(8, Math.min(192, Math.round(size / 4) * 4));
+    const key = `${color}|${bucket}`;
+    let sprite = this._sprites.get(key);
+    if (sprite) return sprite;
+    sprite = document.createElement('canvas');
+    sprite.width = bucket * 2;
+    sprite.height = bucket * 2;
+    const g = sprite.getContext('2d');
+    const grad = g.createRadialGradient(bucket, bucket, 0, bucket, bucket, bucket);
+    grad.addColorStop(0, color);
+    grad.addColorStop(0.5, color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(bucket, bucket, bucket, 0, Math.PI * 2);
+    g.fill();
+    if (this._sprites.size > 64) this._sprites.delete(this._sprites.keys().next().value);
+    this._sprites.set(key, sprite);
+    return sprite;
   }
 
   drawTrackEffects(ctx, project, scale) {
@@ -1498,6 +1660,10 @@ export class MotionEngine {
     this.videos.clear();
     this.images.clear();
     this.buffers.clear();
+    this._sprites.clear();
+    this._gradeLuts.clear();
+    for (const entry of this.compEngines.values()) entry.inner.destroy();
+    this.compEngines.clear();
     this.audio.destroy();
   }
 }

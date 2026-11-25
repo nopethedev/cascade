@@ -116,8 +116,13 @@ html[data-theme="light"] .mo-theme-btn svg:last-child { display: block; }
 .mo-right { width: var(--mo-right-w, 326px); border-left: 1px solid var(--mo-line); }
 .mo-splitter { width: 5px; flex: none; cursor: col-resize; background: transparent; position: relative; z-index: 5; margin: 0 -2px; }
 .mo-splitter:hover, .mo-splitter.is-dragging { background: color-mix(in srgb, var(--mo-accent) 35%, transparent); }
-.mo-splitter-bottom { display: none; }
-.mo-center { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(160px, 1fr) var(--mo-timeline-height); overflow: hidden; }
+/* Detail rows: the monitor row uses minmax(0, 1fr) so its contents can never
+ * push the timeline out of the viewport. */
+.mo-center { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) 5px var(--mo-timeline-height); overflow: hidden; }
+.mo-monitor { min-height: 0; overflow: hidden; }
+.mo-splitter-bottom { display: block; width: auto; height: 5px; margin: -2px 0; cursor: row-resize; z-index: 6; }
+.mo-splitter-bottom::after { content: ""; position: absolute; left: 50%; top: 2px; width: 42px; height: 1px; margin-left: -21px; background: var(--mo-line); border-radius: 1px; }
+.mo-splitter-bottom:hover::after, .mo-splitter-bottom.is-dragging::after { background: var(--mo-accent); height: 3px; top: 1px; }
 
 .mo-panel-tabs { flex: none; display: flex; align-items: stretch; border-bottom: 1px solid var(--mo-line); overflow-x: auto; scrollbar-width: none; background: var(--mo-panel-2); padding: 0 4px; }
 .mo-panel-tabs::-webkit-scrollbar { display: none; }
@@ -139,15 +144,22 @@ html[data-theme="light"] .mo-monitor { background: #dfe3ea; }
 .mo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--mo-green); }
 .mo-monitor-meta { color: var(--mo-dim); font: 10px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mo-monitor-actions { margin-left: auto; display: flex; align-items: center; gap: 3px; }
+.mo-preview-zoom { width: 76px; }
+.mo-quality-select { width: 64px; }
+.mo-preview-zoom-custom { width: 54px; height: 24px; border: 1px solid var(--mo-line); background: var(--mo-panel-2); border-radius: 4px; padding: 0 4px; font-size: 10px; }
 .mo-chip { border: 1px solid var(--mo-line); background: var(--mo-panel-2); color: var(--mo-muted); border-radius: 4px; padding: 3px 7px; font-size: 10px; white-space: nowrap; line-height: 1.2; }
 .mo-chip:hover { color: var(--mo-text); border-color: var(--mo-dim); }
 .mo-chip.is-active { color: var(--mo-text); border-color: color-mix(in srgb, var(--mo-accent) 50%, var(--mo-line)); background: color-mix(in srgb, var(--mo-accent) 14%, var(--mo-panel-2)); }
 .mo-monitor-actions .mo-iconbtn { height: 24px; min-width: 24px; }
 .mo-monitor-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; padding: 10px 10px 6px; gap: 8px; }
-.mo-monitor-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; place-items: center; position: relative; background: #000; border-radius: 3px; overflow: hidden; box-shadow: inset 0 0 0 1px #1c1f26; }
+.mo-monitor-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: grid; place-items: center; position: relative; background: #000; border-radius: 3px; overflow: hidden; box-shadow: inset 0 0 0 1px #1c1f26; contain: strict; }
+.mo-monitor-stage.is-cropped { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mo-accent) 45%, transparent); }
 html[data-theme="light"] .mo-monitor-stage { background: #0b0d10; }
 .mo-monitor-stage:fullscreen { border-radius: 0; background: #000; }
-#mo-canvas { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: #000; }
+/* The canvas box is computed from both available width and height by
+ * applyPreviewLayout(); absolute centring keeps it from contributing to the
+ * stage's intrinsic size, so it can never overflow into the timeline. */
+#mo-canvas { display: block; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #000; }
 .mo-canvas-overlay { position: absolute; inset: 0; pointer-events: none; }
 .mo-safe-guides { position: absolute; inset: 0; }
 .mo-safe-guides::before, .mo-safe-guides::after { content: ""; position: absolute; border: 1px dashed rgba(255,255,255,.38); }
@@ -580,7 +592,7 @@ html[data-theme="light"] .mo-export-warning { background: #fffbeb; color: #92400
   .mo-menu > button { padding: 5px; font-size: 10.5px; }
 }
 @media (max-width: 720px) {
-  .mo-left, .mo-right, .mo-splitter { display: none; }
+  .mo-left, .mo-right, .mo-splitter:not(.mo-splitter-bottom) { display: none; }
   .mo-center { grid-template-rows: minmax(140px, 1fr) 300px; }
   .mo-monitor-actions .mo-chip:nth-child(2), .mo-monitor-actions .mo-chip:nth-child(3) { display: none; }
   .mo-import-grid { grid-template-columns: 1fr; }
