@@ -12,20 +12,20 @@
   <div class="panel-body">
     <div class="copyrow">
       <input type="search" name="q" value="<%= q %>" placeholder="Search names and contents…" aria-label="Search files" autofocus />
-      <button class="btn" type="submit">Search</button>
+      <button class="btn" type="submit"><i data-lucide="search"></i>Search</button>
     </div>
   </div>
 </form>
 
 <% if (!q) { %>
   <div class="empty">
-    <div class="empty-ico">⌕</div>
+    <div class="empty-ico"><i data-lucide="search"></i></div>
     <strong>Type to search</strong>
     <span>Try a file name, a phrase from a document, or a sheet label.</span>
   </div>
 <% } else if (!results.length) { %>
   <div class="empty">
-    <div class="empty-ico">∅</div>
+    <div class="empty-ico"><i data-lucide="file-question"></i></div>
     <strong>No matches for “<%= q %>”</strong>
     <span>Try a shorter phrase. Only files you can open are searched.</span>
   </div>
@@ -52,7 +52,7 @@
               </td>
               <td><span class="badge"><%= isDoc ? f.kind : 'upload' %></span></td>
               <td class="muted tiny">…<%= r.snippet %>…</td>
-              <td class="right"><a class="btn btn-quiet btn-sm" href="<%= isDoc ? '/edit/' + f.id : '/f/' + f.id %>">Open</a></td>
+              <td class="right"><a class="btn btn-quiet btn-sm" href="<%= isDoc ? '/edit/' + f.id : '/f/' + f.id %>">Open <i data-lucide="arrow-up-right"></i></a></td>
             </tr>
           <% } %>
         </tbody>

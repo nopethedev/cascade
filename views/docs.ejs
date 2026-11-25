@@ -1,12 +1,15 @@
 <%- include('partials/head', { title: 'Documentation' }) %>
 
-<div class="page-head">
-  <div>
-    <div class="eyebrow">Documentation</div>
-    <h1 class="page-title">Cascade API &amp; self-hosting</h1>
-    <p class="lede">Everything needed to script <%= theme.siteName %> or run it next to your own stack. Running in <span class="code"><%= mode %></span> mode.</p>
+<div class="relative mb-8 overflow-hidden rounded-[26px] border border-white/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,.045),transparent_55%)] p-7 sm:p-9">
+  <div class="pointer-events-none absolute -right-24 -top-32 h-64 w-64 rounded-full bg-[var(--accent)] opacity-[0.13] blur-[80px]"></div>
+  <div class="relative flex flex-wrap items-end justify-between gap-5">
+    <div>
+      <div class="eyebrow">Documentation</div>
+      <h1 class="page-title">Cascade API &amp; self-hosting</h1>
+      <p class="lede">Everything needed to script <%= theme.siteName %> or run it next to your own stack. Running in <span class="code"><%= mode %></span> mode.</p>
+    </div>
+    <div class="actions"><a class="btn btn-ghost" href="/docs#api"><i data-lucide="braces"></i>Jump to API</a></div>
   </div>
-  <div class="actions"><a class="btn btn-ghost" href="/docs#api">Jump to API</a></div>
 </div>
 
 <nav class="doc-nav" style="margin-bottom:18px">

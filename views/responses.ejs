@@ -7,8 +7,8 @@
     <p class="lede"><%= content.title || file.filename %> · <%= responses.length %> response<%= responses.length === 1 ? '' : 's' %> collected</p>
   </div>
   <div class="actions">
-    <a class="btn btn-ghost" href="/edit/<%= file.id %>">Back to builder</a>
-    <a class="btn" href="/responses/<%= file.id %>.csv">Download CSV</a>
+    <a class="btn btn-ghost" href="/edit/<%= file.id %>"><i data-lucide="arrow-left"></i>Back to builder</a>
+    <a class="btn" href="/responses/<%= file.id %>.csv"><i data-lucide="download"></i>Download CSV</a>
   </div>
 </div>
 
@@ -29,7 +29,7 @@
       </div>
       <div class="panel-body stack">
         <% if (!responses.length) { %>
-          <div class="empty"><div class="empty-ico">∅</div><strong>No responses yet</strong><span>Share the published form to start collecting answers.</span></div>
+          <div class="empty"><div class="empty-ico"><i data-lucide="inbox"></i></div><strong>No responses yet</strong><span>Share the published form to start collecting answers.</span></div>
         <% } %>
         <% for (const s of summary) { %>
           <div class="resp-block">

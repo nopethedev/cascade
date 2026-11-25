@@ -23,9 +23,9 @@
     <p class="lede"><%= totalItems %> item<%= totalItems === 1 ? '' : 's' %><%= q ? ' matching “' + query + '”' : '' %> · <%= prettyBytes(used) %> of <%= prettyBytes(quota) %> used</p>
   </div>
   <div class="actions fm-head-actions">
-    <button class="btn btn-ghost" type="button" id="fm-new-folder">New folder</button>
-    <label class="btn btn-ghost" for="fm-file-input">Upload</label>
-    <a class="btn" href="/create">+ Create</a>
+    <button class="btn btn-ghost" type="button" id="fm-new-folder"><i data-lucide="folder-plus"></i>New folder</button>
+    <label class="btn btn-ghost" for="fm-file-input"><i data-lucide="upload"></i>Upload</label>
+    <a class="btn" href="/create"><i data-lucide="plus"></i>Create</a>
   </div>
 </div>
 
@@ -57,10 +57,10 @@
       <form method="get" action="/" class="fm-search" role="search">
         <% if (currentFolder) { %><input type="hidden" name="folder" value="<%= currentFolder.id %>" /><% } %>
         <input type="search" name="q" value="<%= query %>" placeholder="Search this folder…" aria-label="Search files" />
-        <% if (query) { %><a class="fm-search-clear" href="/<%= currentFolder ? '?folder=' + currentFolder.id : '' %>" aria-label="Clear search">×</a><% } %>
+        <% if (query) { %><a class="fm-search-clear" href="/<%= currentFolder ? '?folder=' + currentFolder.id : '' %>" aria-label="Clear search"><i data-lucide="x"></i></a><% } %>
       </form>
       <details class="fm-menu">
-        <summary class="btn btn-quiet btn-sm" aria-label="More actions">•••</summary>
+        <summary class="btn btn-quiet btn-sm" aria-label="More actions"><i data-lucide="ellipsis"></i></summary>
         <div class="fm-menu-list">
           <button type="button" id="fm-folder-menu">New folder</button>
           <button type="button" id="fm-upload-menu">Upload files</button>
@@ -88,7 +88,7 @@
           <tr class="fm-row fm-up-row" data-drop-folder="<%= parentFolder ? parentFolder.id : '' %>">
             <td class="fm-check-cell"></td>
             <td colspan="6">
-              <a class="fm-up-link" href="<%= parentFolder ? '/?folder=' + parentFolder.id : '/' %>">↑ <%= parentFolder ? parentFolder.name : 'All files' %></a>
+              <a class="fm-up-link" href="<%= parentFolder ? '/?folder=' + parentFolder.id : '/' %>"><i data-lucide="arrow-up"></i> <%= parentFolder ? parentFolder.name : 'All files' %></a>
             </td>
           </tr>
         <% } %>
@@ -114,7 +114,7 @@
             <td class="fm-muted fm-date"><%= prettyDate(f.updatedAt) %></td>
             <td class="fm-actions-cell">
               <details class="fm-row-menu">
-                <summary aria-label="Actions for <%= f.name %>">•••</summary>
+                <summary aria-label="Actions for <%= f.name %>"><i data-lucide="ellipsis"></i></summary>
                 <div>
                   <a href="/?folder=<%= f.id %>">Open</a>
                   <button type="button" data-folder-action="subfolder" data-id="<%= f.id %>" data-name="<%= f.name %>">New subfolder</button>
@@ -151,7 +151,7 @@
             <td class="fm-muted fm-date"><%= prettyDate(f.updatedAt) %></td>
             <td class="fm-actions-cell">
               <details class="fm-row-menu">
-                <summary aria-label="Actions for <%= f.filename %>">•••</summary>
+                <summary aria-label="Actions for <%= f.filename %>"><i data-lucide="ellipsis"></i></summary>
                 <div>
                   <a href="<%= openHref(f) %>"><%= isDoc ? 'Edit' : 'Open' %></a>
                   <% if (isDoc) { %><a href="/download/<%= f.id %>">Download</a><% } else { %><a href="/f/<%= f.id %>/raw">Download</a><% } %>
@@ -174,10 +174,10 @@
 
     <% if (!totalItems) { %>
       <div class="fm-empty">
-        <div class="fm-empty-icon" aria-hidden="true">⌁</div>
+        <div class="fm-empty-icon" aria-hidden="true"><i data-lucide="inbox"></i></div>
         <strong><%= q ? 'No matching items' : 'This folder is empty' %></strong>
         <span><%= q ? 'Try a different search term.' : 'Create something, upload files, or drag files here from your computer.' %></span>
-        <% if (!q) { %><div class="fm-empty-actions"><a class="btn" href="/create">+ Create</a><button class="btn btn-ghost" type="button" id="fm-empty-folder">New folder</button></div><% } %>
+        <% if (!q) { %><div class="fm-empty-actions"><a class="btn" href="/create"><i data-lucide="plus"></i>Create</a><button class="btn btn-ghost" type="button" id="fm-empty-folder"><i data-lucide="folder-plus"></i>New folder</button></div><% } %>
       </div>
     <% } %>
   </div>

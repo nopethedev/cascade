@@ -2,23 +2,32 @@
 <section class="auth-aside">
   <div>
     <div class="eyebrow">First run</div>
-    <h1 class="auth-statement">Your files. <em>Your server.</em></h1>
-    <p class="lede" style="margin-top:16px">Cascade is a self-hosted file server and CDN. This wizard creates the admin account.</p>
+    <h1 class="auth-statement">Your files. <em class="not-italic text-[var(--accent)]">Your server.</em></h1>
+    <p class="lede !text-[13.5px]">Cascade is a self-hosted file server and CDN. This wizard creates the admin account.</p>
     <div class="auth-points">
-      <div>Upload, edit and share files from one place</div>
-      <div>Add storage nodes and choose how many copies each file keeps</div>
-      <div>Per-user quotas, roles and a single server overview</div>
+      <div class="flex items-start gap-3"><i data-lucide="files" class="mt-0.5 h-4 w-4 flex-none text-[var(--accent)]"></i><span>Upload, edit and share files from one place</span></div>
+      <div class="flex items-start gap-3"><i data-lucide="server" class="mt-0.5 h-4 w-4 flex-none text-[var(--accent)]"></i><span>Add storage nodes and choose how many copies each file keeps</span></div>
+      <div class="flex items-start gap-3"><i data-lucide="shield-check" class="mt-0.5 h-4 w-4 flex-none text-[var(--accent)]"></i><span>Per-user quotas, roles and a single server overview</span></div>
     </div>
   </div>
-  <div class="foot-mono faint"><%= theme.siteName %> · main mode</div>
+  <div class="flex items-center justify-between gap-4 border-t border-white/[0.06] pt-5">
+    <span class="foot-mono text-[var(--faint)]"><%= theme.siteName %> · main mode</span>
+    <span class="text-[10px] uppercase tracking-[0.12em] text-[var(--faint)]">Setup</span>
+  </div>
 </section>
 
 <section class="auth-main">
   <div class="auth-card">
-    <h2 style="font-size:20px">Create the admin account</h2>
-    <p class="hint" style="margin:7px 0 22px">More users can be added later from the admin panel.</p>
+    <div class="mb-7 flex items-center gap-3">
+      <span class="brand-mark !h-10 !w-10 !rounded-xl !text-base"><i data-lucide="rocket" class="!h-[18px] !w-[18px]"></i></span>
+      <div>
+        <div class="text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--faint)]">First run</div>
+        <h2 class="mt-0.5 text-[22px]">Create the admin account</h2>
+      </div>
+    </div>
+    <p class="hint mb-6">More users can be added later from the admin panel.</p>
     <% if (typeof error !== 'undefined' && error) { %><div class="alert"><%= error %></div><% } %>
-    <form method="post" action="/setup" class="stack">
+    <form method="post" action="/setup" class="grid gap-4">
       <div class="field">
         <label class="label" for="siteName">Site name</label>
         <input id="siteName" name="siteName" value="<%= theme.siteName %>" maxlength="60" />
@@ -39,9 +48,9 @@
           <span class="hint">Buttons and highlights. Change it any time in Admin → Appearance.</span>
         </div>
       </div>
-      <button class="btn btn-block" type="submit">Create admin &amp; finish setup</button>
+      <button class="btn btn-block mt-1" type="submit"><i data-lucide="check"></i>Create admin &amp; finish setup</button>
     </form>
-    <p class="hint" style="margin-top:20px">Running a storage node? Set <span class="code">SERVER_MODE=node</span> and <span class="code">NODE_ACCESS_KEY</span> instead.</p>
+    <p class="hint mt-6 border-t border-white/[0.06] pt-5">Running a storage node? Set <span class="code">SERVER_MODE=node</span> and <span class="code">NODE_ACCESS_KEY</span> instead.</p>
   </div>
 </section>
 <%- include('partials/foot') %>

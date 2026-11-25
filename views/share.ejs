@@ -8,14 +8,14 @@
   const size = prettyBytes(file.size);
 %>
 
-<div style="text-align:center;margin-bottom:24px">
-  <div class="eyebrow">Shared file</div>
-  <h1 class="page-title" style="word-break:break-word"><%= file.filename %></h1>
-  <p class="lede" style="margin-left:auto;margin-right:auto"><%= mime %> · <%= size %> · shared via <%= theme.siteName %></p>
+<div class="mx-auto mb-8 max-w-3xl text-center">
+  <div class="eyebrow mx-auto">Shared file</div>
+  <h1 class="page-title [overflow-wrap:anywhere]"><%= file.filename %></h1>
+  <p class="lede mx-auto"><%= mime %> · <%= size %> · shared via <%= theme.siteName %></p>
 </div>
 
-<section class="panel">
-  <div class="panel-body">
+<section class="panel mx-auto max-w-4xl overflow-hidden">
+  <div class="p-3 sm:p-5">
     <div class="preview">
       <% if (isImage) { %>
         <img src="/raw/<%= file.slug %>" alt="<%= file.filename %>" />
@@ -32,20 +32,22 @@
       <% } %>
     </div>
 
-    <div class="row" style="justify-content:center;margin-top:18px">
-      <a class="btn" href="/raw/<%= file.slug %>">Download</a>
-      <button class="btn btn-ghost" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy CDN link</button>
+    <div class="mt-5 flex flex-wrap justify-center gap-2">
+      <a class="btn" href="/raw/<%= file.slug %>"><i data-lucide="download"></i>Download</a>
+      <button class="btn btn-ghost" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')"><i data-lucide="copy"></i>Copy CDN link</button>
     </div>
 
-    <div class="field" style="margin-top:20px">
-      <span class="label">CDN URL · immutable cache</span>
-      <div class="copyrow">
-        <input value="/raw/<%= file.slug %>" readonly aria-label="CDN path" />
-        <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')">Copy</button>
+    <div class="mx-auto mt-6 max-w-2xl">
+      <div class="field">
+        <span class="label">CDN URL · immutable cache</span>
+        <div class="copyrow">
+          <input value="/raw/<%= file.slug %>" readonly aria-label="CDN path" />
+          <button class="btn btn-ghost btn-sm" type="button" onclick="cascadeCopy(location.origin + '/raw/<%= file.slug %>')"><i data-lucide="copy"></i>Copy</button>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<p class="hint" style="text-align:center;margin-top:16px">Embed this URL anywhere — it is served with long-lived cache headers.</p>
+<p class="hint mt-4 text-center">Embed this URL anywhere — it is served with long-lived cache headers.</p>
 <%- include('partials/foot') %>

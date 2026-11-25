@@ -2,10 +2,13 @@
 <% if (!(typeof appMode !== 'undefined' && appMode)) { %>
 <footer class="foot">
   <div class="foot-in">
-    <span><%= theme.siteName %> — self-hosted files</span>
-    <span class="foot-mono">
-      <a href="/docs">Docs &amp; API</a> ·
-      <%= typeof mode !== 'undefined' ? mode : 'main' %> mode · Cascade
+    <span class="flex items-center gap-2"><span class="brand-mark !h-5 !w-5 !rounded-md !text-[9px] !shadow-none">C</span> <%= theme.siteName %> <span class="text-[var(--faint)]">— self-hosted files</span></span>
+    <span class="foot-mono flex items-center gap-2 text-[var(--faint)]">
+      <a class="transition-colors hover:text-[var(--text)]" href="/docs">Docs &amp; API</a>
+      <span class="text-white/20">/</span>
+      <%= typeof mode !== 'undefined' ? mode : 'main' %> mode
+      <span class="text-white/20">/</span>
+      Cascade
     </span>
   </div>
 </footer>

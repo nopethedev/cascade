@@ -1,12 +1,19 @@
-<nav class="tabs">
-  <a href="/admin" class="<%= tab === 'overview' ? 'is-active' : '' %>">Overview</a>
-  <a href="/admin/analytics" class="<%= tab === 'analytics' ? 'is-active' : '' %>">Analytics</a>
-  <a href="/admin/users" class="<%= tab === 'users' ? 'is-active' : '' %>">Users</a>
-  <a href="/admin/files" class="<%= tab === 'files' ? 'is-active' : '' %>">All files</a>
-  <a href="/admin/cleanup" class="<%= tab === 'cleanup' ? 'is-active' : '' %>">Storage cleanup</a>
-  <a href="/admin/nodes" class="<%= tab === 'nodes' ? 'is-active' : '' %>">Nodes</a>
-  <a href="/admin/api-keys" class="<%= tab === 'api-keys' ? 'is-active' : '' %>">API keys</a>
-  <a href="/admin/appearance" class="<%= tab === 'appearance' ? 'is-active' : '' %>">Appearance</a>
-  <a href="/admin/motion" class="<%= tab === 'motion' ? 'is-active' : '' %>">Motion</a>
-  <a href="/admin/ai" class="<%= tab === 'ai' ? 'is-active' : '' %>">Cascade AI</a>
+<%
+  const adminNav = [
+    ['overview', '/admin', 'Overview', 'layout-dashboard'],
+    ['analytics', '/admin/analytics', 'Analytics', 'chart-no-axes-column'],
+    ['users', '/admin/users', 'Users', 'users'],
+    ['files', '/admin/files', 'All files', 'files'],
+    ['cleanup', '/admin/cleanup', 'Storage cleanup', 'trash-2'],
+    ['nodes', '/admin/nodes', 'Nodes', 'server'],
+    ['api-keys', '/admin/api-keys', 'API keys', 'key-round'],
+    ['appearance', '/admin/appearance', 'Appearance', 'palette'],
+    ['motion', '/admin/motion', 'Motion', 'clapperboard'],
+    ['ai', '/admin/ai', 'Cascade AI', 'sparkles'],
+  ];
+%>
+<nav class="tabs" aria-label="Admin sections">
+  <% for (const [id, href, label, icon] of adminNav) { %>
+    <a href="<%= href %>" class="<%= tab === id ? 'is-active' : '' %>"><i data-lucide="<%= icon %>" class="h-3.5 w-3.5"></i><%= label %></a>
+  <% } %>
 </nav>

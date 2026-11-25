@@ -3,22 +3,23 @@
   const editable = typeof canEdit !== 'undefined' ? canEdit : myRole === 'owner' || myRole === 'editor';
   const appKey = (typeof kind !== 'undefined' && kind && kind.id) || 'doc';
   const APP_META = {
-    doc:   { name: 'Docs',            mark: 'DOC',  accent: 'var(--accent)' },
-    sheet: { name: 'Sheets',          mark: 'XLS',  accent: '#16a34a' },
-    deck:  { name: 'Slides',          mark: 'PPT',  accent: '#f59e0b' },
-    pdf:   { name: 'PDF Studio',      mark: 'PDF',  accent: '#ef4444' },
-    board: { name: 'Whiteboard',      mark: 'WBD',  accent: '#8b5cf6' },
-    form:  { name: 'Forms',           mark: 'FRM',  accent: '#0891b2' },
-    code:  { name: 'Code',            mark: 'CODE', accent: '#3b82f6' },
-    site:  { name: 'Website Builder', mark: 'WEB',  accent: '#a855f7' },
-    flow:  { name: 'Flow',            mark: 'FLOW', accent: '#ec4899' },
-    game:  { name: 'Game Studio',     mark: 'GAME', accent: '#f43f5e' },
-    photo: { name: 'Photos',          mark: 'IMG',  accent: '#0ea5e9' },
-    roblox:{ name: 'Roblox Studio',   mark: 'RBX',  accent: '#22c55e' }
+    doc:   { name: 'Docs',            mark: 'DOC',  icon: 'file-text',        accent: 'var(--accent)' },
+    sheet: { name: 'Sheets',          mark: 'XLS',  icon: 'table-2',          accent: '#16a34a' },
+    deck:  { name: 'Slides',          mark: 'PPT',  icon: 'presentation',     accent: '#f59e0b' },
+    pdf:   { name: 'PDF Studio',      mark: 'PDF',  icon: 'file-type-2',      accent: '#ef4444' },
+    board: { name: 'Whiteboard',      mark: 'WBD',  icon: 'pen-tool',         accent: '#8b5cf6' },
+    form:  { name: 'Forms',           mark: 'FRM',  icon: 'clipboard-list',   accent: '#0891b2' },
+    code:  { name: 'Code',            mark: 'CODE', icon: 'code-2',           accent: '#3b82f6' },
+    site:  { name: 'Website Builder', mark: 'WEB',  icon: 'globe-2',          accent: '#a855f7' },
+    flow:  { name: 'Flow',            mark: 'FLOW', icon: 'workflow',         accent: '#ec4899' },
+    game:  { name: 'Game Studio',     mark: 'GAME', icon: 'gamepad-2',        accent: '#f43f5e' },
+    photo: { name: 'Photos',          mark: 'IMG',  icon: 'image',            accent: '#0ea5e9' },
+    roblox:{ name: 'Roblox Studio',   mark: 'RBX',  icon: 'box',              accent: '#22c55e' }
   };
   const app = APP_META[appKey] || {
     name: (typeof kind !== 'undefined' && kind && kind.label) || 'Workspace',
     mark: (typeof kind !== 'undefined' && kind && kind.icon) || 'APP',
+    icon: 'app-window',
     accent: 'var(--accent)'
   };
   const backHref = typeof shareMode !== 'undefined' && shareMode ? '/login' : '/';
@@ -34,7 +35,7 @@
     <a class="ed-app-back" href="<%= backHref %>" title="Back to files" aria-label="Back to files">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
     </a>
-    <span class="ed-app-mark" aria-hidden="true"><%= app.mark %></span>
+    <span class="ed-app-mark" aria-hidden="true"><i data-lucide="<%= app.icon %>" class="h-[15px] w-[15px]"></i></span>
     <div class="ed-app-titles">
       <span class="ed-app-name"><%= app.name %></span>
       <strong class="ed-app-file" title="<%= file.filename %>"><%= file.filename %></strong>
@@ -54,19 +55,19 @@
     <% if (typeof showPanel !== 'undefined' && showPanel) { %>
       <button id="btn-editor-panel" class="btn btn-ghost btn-sm ed-app-opt" type="button" aria-expanded="true" aria-controls="editor-side">Panel</button>
     <% } %>
-    <button id="btn-comments" class="btn btn-ghost btn-sm ed-app-opt" type="button">Comments<span id="comment-count" class="comment-count" hidden>0</span></button>
-    <button id="btn-versions" class="btn btn-ghost btn-sm ed-app-opt" type="button">History</button>
+    <button id="btn-comments" class="btn btn-ghost btn-sm ed-app-opt" type="button"><i data-lucide="message-square"></i>Comments<span id="comment-count" class="comment-count" hidden>0</span></button>
+    <button id="btn-versions" class="btn btn-ghost btn-sm ed-app-opt" type="button"><i data-lucide="history"></i>History</button>
     <% if (typeof kind !== 'undefined' && kind.id === 'site') { %>
       <button id="btn-site-publish" class="btn btn-ghost btn-sm ed-app-opt" type="button" data-requires-edit>Publish</button>
     <% } %>
-    <a class="btn btn-ghost btn-sm ed-app-opt" href="/download/<%= file.id %>">Export</a>
-    <button id="btn-share" class="btn btn-ghost btn-sm" type="button">Share</button>
-    <button id="btn-save" class="btn btn-sm ed-app-save" type="button" data-requires-edit>Save</button>
+    <a class="btn btn-ghost btn-sm ed-app-opt" href="/download/<%= file.id %>"><i data-lucide="download"></i>Export</a>
+    <button id="btn-share" class="btn btn-ghost btn-sm" type="button"><i data-lucide="share-2"></i>Share</button>
+    <button id="btn-save" class="btn btn-sm ed-app-save" type="button" data-requires-edit><i data-lucide="save"></i>Save</button>
     <button id="btn-fullscreen" class="ed-app-iconbtn" type="button" title="Toggle full screen" aria-label="Toggle full screen" data-fullscreen-toggle>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M16 21h3a2 2 0 0 0 2-2v-3M8 21H5a2 2 0 0 1-2-2v-3"/></svg>
     </button>
     <details class="ed-more">
-      <summary class="ed-app-iconbtn" aria-label="More editor actions" title="More actions">•••</summary>
+      <summary class="ed-app-iconbtn" aria-label="More editor actions" title="More actions"><i data-lucide="ellipsis"></i></summary>
       <div>
         <% if (typeof showPanel !== 'undefined' && showPanel) { %>
           <button id="btn-editor-panel-mobile" type="button">Page settings</button>
@@ -101,7 +102,7 @@
 <aside id="versions-panel" class="drawer" hidden>
   <div class="drawer-head">
     <strong>Version history</strong>
-    <button class="btn btn-quiet btn-sm" id="versions-close" type="button">Close</button>
+    <button class="btn btn-quiet btn-sm" id="versions-close" type="button"><i data-lucide="x"></i>Close</button>
   </div>
   <div id="versions-list" class="drawer-body">Loading…</div>
 </aside>

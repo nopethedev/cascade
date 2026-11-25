@@ -25,6 +25,20 @@
   });
 })();
 
+// Lucide is loaded globally; paint server-rendered icon placeholders once the
+// parser and the deferred icon bundle are ready. AI and Photo also refresh
+// icons for content they create at runtime.
+(function initIcons() {
+  const paint = (root) => {
+    if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+    try { window.lucide.createIcons({ root: root || document, attrs: { 'stroke-width': 1.8 } }); } catch { /* progressive enhancement */ }
+  };
+  window.cascadePaintIcons = paint;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => paint());
+  else paint();
+  window.addEventListener('load', () => paint());
+})();
+
 // Application title bars offer a real full-screen mode, and their compact
 // action menu closes after a command just like a desktop menu.
 (function initAppChrome() {

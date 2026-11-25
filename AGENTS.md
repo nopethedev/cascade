@@ -12,7 +12,7 @@ No need to ask for confirmation first.
 ## Project
 
 - Express 5 / ES Modules, EJS views, no build step.
-- Theme is hand-written CSS in `public/theme.css` using CSS variables (no Tailwind).
+- UI is a Tailwind 3 design system. `src/tailwind.css` contains the shared component layer and is compiled to `public/tailwind.css` with `npm run css:build`; commit the compiled file with source changes. `public/theme.css` remains the structural/editor stylesheet and CSS-variable theme. Preflight stays disabled so legacy editor layouts keep their native element styling. Lucide is loaded globally from `public/vendor/ai/lucide.min.js`; use `data-lucide` placeholders and `window.cascadePaintIcons(root)` after rendering new markup.
 - Persistence: Sequelize + SQLite (`src/db.js`, default `data/cascade.sqlite`). Models: `User`, `FileRecord`, `NodeRecord`, `ApiKeyRecord`, `AnalyticsEvent`, `Setting`, plus workspace `Collaborator`, `ShareLink`, `CommentThread` and `CollabRoom`. Settings are a singleton row read through `getSettings()` / written with `saveSettings()`.
 - Blobs stay on disk in `data/uploads/` or on storage nodes — never in SQL.
 - `SERVER_MODE=main|node` selects the role; `docker-compose.yml` has a single service.

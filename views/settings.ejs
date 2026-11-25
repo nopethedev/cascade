@@ -7,44 +7,51 @@
     <p class="lede">Manage your identity, password, storage and appearance.</p>
   </div>
   <div class="actions">
-    <a class="btn btn-quiet" href="/">Back to files</a>
+    <a class="btn btn-ghost" href="/"><i data-lucide="arrow-left"></i>Back to files</a>
   </div>
 </div>
 
-<% if (notice) { %><div class="alert alert-ok" style="margin-bottom:16px"><%= notice %></div><% } %>
-<% if (error) { %><div class="alert" style="margin-bottom:16px"><%= error %></div><% } %>
+<% if (notice) { %><div class="alert alert-ok mb-4"><%= notice %></div><% } %>
+<% if (error) { %><div class="alert mb-4"><%= error %></div><% } %>
 
-<div class="split">
+<div class="grid items-start gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,1fr)]">
   <div class="stack">
     <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Profile</div>
-          <div class="panel-sub">This is the name people see when you share a document.</div>
+      <div class="flex flex-wrap items-center gap-4 border-b border-white/[0.06] p-5">
+        <span class="grid h-14 w-14 place-items-center rounded-[18px] border border-[var(--accent-line)] bg-[var(--accent-soft)] text-[19px] font-semibold text-[var(--accent)]"><%= account.username.slice(0, 2).toUpperCase() %></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <h2 class="truncate text-[18px] font-semibold tracking-[-0.03em]"><%= account.username %></h2>
+            <span class="badge badge-accent"><%= account.role %></span>
+          </div>
+          <p class="mt-1 text-[12.5px] text-[var(--muted)]">This is the name people see when you share a document.</p>
         </div>
-        <span class="badge"><%= account.role %></span>
+        <i data-lucide="badge-check" class="h-5 w-5 text-[var(--faint)]"></i>
       </div>
       <div class="panel-body">
-        <form method="post" action="/settings/profile" class="stack">
+        <form method="post" action="/settings/profile" class="grid gap-4">
           <div class="field">
             <label class="label" for="account-username">Username</label>
             <input id="account-username" name="username" value="<%= account.username %>" autocomplete="username" minlength="3" maxlength="32" required />
             <span class="hint">3–32 characters: letters, numbers, dots, dashes or underscores.</span>
           </div>
-          <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Save profile</button></div>
+          <div class="flex justify-end"><button class="btn" type="submit"><i data-lucide="check"></i>Save profile</button></div>
         </form>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <div>
-          <div class="panel-title">Password</div>
-          <div class="panel-sub">Use at least 6 characters. You will stay signed in after changing it.</div>
+        <div class="flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.035] text-[var(--muted)]"><i data-lucide="key-round" class="h-4 w-4"></i></span>
+          <div>
+            <div class="panel-title">Password</div>
+            <div class="panel-sub">Use at least 6 characters. You will stay signed in after changing it.</div>
+          </div>
         </div>
       </div>
       <div class="panel-body">
-        <form method="post" action="/settings/password" class="stack">
+        <form method="post" action="/settings/password" class="grid gap-4">
           <div class="field">
             <label class="label" for="current-password">Current password</label>
             <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required />
@@ -53,7 +60,7 @@
             <label class="label" for="new-password">New password</label>
             <input id="new-password" name="newPassword" type="password" minlength="6" autocomplete="new-password" required />
           </div>
-          <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Change password</button></div>
+          <div class="flex justify-end"><button class="btn" type="submit"><i data-lucide="lock"></i>Change password</button></div>
         </form>
       </div>
     </section>
@@ -62,40 +69,51 @@
   <div class="stack">
     <section class="panel">
       <div class="panel-head">
-        <div class="panel-title">Storage</div>
+        <div class="flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.035] text-[var(--muted)]"><i data-lucide="hard-drive" class="h-4 w-4"></i></span>
+          <div class="panel-title">Storage</div>
+        </div>
         <span class="badge"><%= fileCount %> file<%= fileCount === 1 ? '' : 's' %></span>
       </div>
       <div class="panel-body">
         <% const pct = quota ? Math.min(100, Math.round((used / quota) * 100)) : 0; %>
-        <div class="meter-row" style="font-size:13px;margin-bottom:7px">
-          <span><%= prettyBytes(used) %> used</span>
-          <span><%= prettyBytes(quota) %> quota</span>
+        <div class="mb-2 flex items-baseline justify-between gap-3 text-[13px]">
+          <span class="font-medium text-[var(--text)]"><%= prettyBytes(used) %> used</span>
+          <span class="text-[11px] text-[var(--faint)]"><%= prettyBytes(quota) %> quota</span>
         </div>
         <div class="meter"><div class="meter-fill" style="width:<%= pct %>%"></div></div>
-        <p class="hint" style="margin-top:10px">Your quota covers uploaded files and workspace documents. Contact an administrator if you need more space.</p>
+        <p class="hint mt-3">Your quota covers uploaded files and workspace documents. Contact an administrator if you need more space.</p>
       </div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <div>
-          <div class="panel-title">Appearance</div>
-          <div class="panel-sub">Your choice is stored in this browser.</div>
+        <div class="flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.035] text-[var(--muted)]"><i data-lucide="sun-moon" class="h-4 w-4"></i></span>
+          <div>
+            <div class="panel-title">Appearance</div>
+            <div class="panel-sub">Your choice is stored in this browser.</div>
+          </div>
         </div>
       </div>
       <div class="panel-body">
-        <div class="row-between" style="gap:12px">
+        <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <strong style="font-size:13px">Theme</strong>
+            <strong class="text-[13px] font-medium">Theme</strong>
             <p class="hint">Switch between the dark studio theme and a light workspace.</p>
           </div>
-          <button class="btn btn-ghost" type="button" data-theme-toggle aria-label="Toggle light or dark theme">Toggle theme</button>
+          <button class="btn btn-ghost" type="button" data-theme-toggle aria-label="Toggle light or dark theme"><i data-lucide="sun-moon"></i>Toggle theme</button>
         </div>
       </div>
     </section>
 
     <section class="panel">
-      <div class="panel-head"><div class="panel-title">Account details</div></div>
+      <div class="panel-head">
+        <div class="flex items-center gap-3">
+          <span class="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.035] text-[var(--muted)]"><i data-lucide="info" class="h-4 w-4"></i></span>
+          <div class="panel-title">Account details</div>
+        </div>
+      </div>
       <div class="panel-body">
         <dl class="detail-list">
           <div><dt>Username</dt><dd><%= account.username %></dd></div>

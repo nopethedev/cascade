@@ -2,6 +2,8 @@
 <%
   const previewUrl = (id) => '/template-preview/' + encodeURIComponent(id);
   const kindLabel = (id) => (kinds.find((k) => k.id === id) || {}).label || id;
+  const kindIcon = { doc: 'file-text', sheet: 'table-2', deck: 'presentation', pdf: 'file-type-2', board: 'pen-tool', form: 'clipboard-list', code: 'code-2', site: 'globe-2', game: 'gamepad-2', flow: 'workflow', roblox: 'box', photo: 'image', video: 'film' };
+  const kindLucide = (id) => kindIcon[id] || 'file';
 %>
 
 <div class="page-head">
@@ -11,7 +13,7 @@
     <p class="lede">Documents, spreadsheets, decks, PDFs, whiteboards, forms, code, complete websites and visual Discord bots — all stored and edited on this server.</p>
   </div>
   <div class="actions">
-    <a class="btn btn-ghost" href="/">Back to files</a>
+    <a class="btn btn-ghost" href="/"><i data-lucide="arrow-left"></i>Back to files</a>
   </div>
 </div>
 
@@ -20,10 +22,10 @@
     <div class="panel">
       <div class="panel-head"><div class="panel-title">Type</div></div>
       <div class="filter-list" id="kind-filter">
-        <button type="button" class="filter is-active" data-kind="">All types <span><%= templates.length + customTemplates.length %></span></button>
+        <button type="button" class="filter is-active" data-kind=""><span class="flex items-center gap-2"><i data-lucide="layout-grid" class="h-3.5 w-3.5"></i>All types</span><span><%= templates.length + customTemplates.length %></span></button>
         <% for (const k of kinds) { const count = templates.filter((t) => t.kind === k.id).length + customTemplates.filter((t) => t.kind === k.id).length; %>
           <button type="button" class="filter <%= kindParam === k.id ? 'is-active' : '' %>" data-kind="<%= k.id %>">
-            <span><span class="kind-ico"><%= k.icon %></span><%= k.label %></span><span><%= count %></span>
+            <span class="flex items-center gap-2"><span class="kind-ico"><i data-lucide="<%= kindLucide(k.id) %>"></i></span><%= k.label %></span><span><%= count %></span>
           </button>
         <% } %>
       </div>
@@ -85,7 +87,7 @@
         <% } %>
       </div>
       <div class="empty" id="tpl-empty" hidden>
-        <div class="empty-ico">∅</div>
+        <div class="empty-ico"><i data-lucide="search-x"></i></div>
         <strong>No templates match</strong>
         <span>Try another search, type or category.</span>
       </div>
@@ -108,7 +110,7 @@
                   <td><a href="/edit/<%= f.id %>"><strong><%= f.filename %></strong></a><div class="file-meta"><%= f.template || 'blank' %></div></td>
                   <td><span class="badge"><%= kindLabel(f.kind) %></span></td>
                   <td class="muted nowrap"><%= prettyDate(f.updatedAt) %></td>
-                  <td class="right"><a class="btn btn-quiet btn-sm" href="/edit/<%= f.id %>">Open</a></td>
+                  <td class="right"><a class="btn btn-quiet btn-sm" href="/edit/<%= f.id %>">Open <i data-lucide="arrow-up-right"></i></a></td>
                 </tr>
               <% } %>
             </tbody>

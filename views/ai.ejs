@@ -49,7 +49,7 @@
       <a href="/"><i data-lucide="folder-closed"></i><span>Cascade Files</span></a>
       <% if (user && user.role === 'admin') { %><a href="/admin/ai"><i data-lucide="settings-2"></i><span>AI settings</span></a><% } %>
       <div class="ai-account">
-        <span class="ai-account-avatar"><%= (user.username || 'U').slice(0, 1).toUpperCase() %></span>
+        <span class="ai-account-avatar"><%= (user.username || 'U').slice(0, 2).toUpperCase() %></span>
         <span class="ai-account-copy"><b><%= user.username %></b><em><%= user.role %></em></span>
         <a href="/settings" class="ai-iconbtn" title="Account settings" aria-label="Account settings"><i data-lucide="settings"></i></a>
       </div>

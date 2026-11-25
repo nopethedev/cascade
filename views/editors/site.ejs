@@ -34,7 +34,7 @@
   <button class="btn btn-ghost btn-sm" type="button" id="site-stage-btn" data-requires-edit>Staging</button>
   <a class="btn btn-ghost btn-sm" id="site-export-html" href="/sites/<%= file.id %>/export.html">Export HTML</a>
   <a class="btn btn-ghost btn-sm" id="site-export-react" href="/sites/<%= file.id %>/export.jsx">Export React</a>
-  <a class="btn btn-ghost btn-sm" id="site-visit" href="#" target="_blank" rel="noopener" hidden>Visit ↗</a>
+  <a class="btn btn-ghost btn-sm" id="site-visit" href="#" target="_blank" rel="noopener" hidden>Visit <i data-lucide="arrow-up-right"></i></a>
 </div>
 
 <div class="site-published-bar" id="site-published-bar" hidden>
@@ -82,7 +82,7 @@
   <aside class="site-inspector panel" id="site-inspector" aria-label="Website inspector">
     <div class="panel-head">
       <div class="panel-title" id="site-inspector-title">Design</div>
-      <button class="btn btn-quiet btn-sm" type="button" id="site-inspector-close" aria-label="Close inspector">×</button>
+      <button class="btn btn-quiet btn-sm" type="button" id="site-inspector-close" aria-label="Close inspector"><i data-lucide="x"></i></button>
     </div>
     <div class="panel-body stack" id="site-props"></div>
   </aside>
