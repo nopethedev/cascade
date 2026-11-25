@@ -108,6 +108,20 @@ export const AiKnowledgeDoc = sequelize.define(
   { tableName: 'ai_knowledge_docs', indexes: [{ fields: ['knowledgeId'] }, { fields: ['ownerId'] }] },
 );
 
+/* Per-user AI preferences and personal MCP servers. Global MCP servers remain
+ * in the singleton settings row; personal tokens never enter that shared row or
+ * any browser response. */
+export const AiUserConfig = sequelize.define(
+  'aiUserConfig',
+  {
+    ownerId: { type: DataTypes.STRING(36), primaryKey: true },
+    mcpServers: { type: DataTypes.JSON, defaultValue: [] },
+    thinking: { type: DataTypes.STRING(8), allowNull: false, defaultValue: 'auto' },
+    effort: { type: DataTypes.STRING(8), allowNull: false, defaultValue: 'auto' },
+  },
+  { tableName: 'ai_user_configs' },
+);
+
 export const AiUsage = sequelize.define(
   'aiUsage',
   {

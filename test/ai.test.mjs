@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultAiSettings, normalizeAiSettings, normalizeBaseUrl, publicAiSettings } from '../src/ai/config.js';
+import { defaultAiSettings, normalizeAiSettings, normalizeBaseUrl, normalizeEffort, normalizeMcpServers, normalizeThinking, publicAiSettings, publicUserConfig } from '../src/ai/config.js';
 
 test('normalizeAiSettings restores settings stored as a SQLite JSON string', () => {
   const raw = {
@@ -59,6 +59,27 @@ test('normalizeBaseUrl accepts http(s) and rejects other protocols', () => {
   assert.equal(normalizeBaseUrl('http://127.0.0.1:11434'), 'http://127.0.0.1:11434');
   assert.equal(normalizeBaseUrl('ftp://example.test'), '');
   assert.equal(normalizeBaseUrl('javascript:alert(1)'), '');
+});
+
+test('thinking and effort preferences only accept supported modes', () => {
+  assert.equal(normalizeThinking('on'), 'on');
+  assert.equal(normalizeThinking('extended'), 'auto');
+  assert.equal(normalizeEffort('high'), 'high');
+  assert.equal(normalizeEffort('maximum'), 'auto');
+});
+
+test('personal MCP configuration validates URLs and never exposes tokens', () => {
+  const servers = normalizeMcpServers([
+    { id: 'personal-a', name: 'A', url: 'https://mcp.example.test/mcp', token: 'personal-secret', enabled: true },
+    { id: 'bad', name: 'Bad', url: 'javascript:alert(1)', token: 'bad' },
+  ]);
+  assert.equal(servers.length, 1);
+  assert.equal(servers[0].id, 'personal-a');
+  const publicConfig = publicUserConfig({ thinking: 'on', effort: 'high', mcpServers: servers });
+  assert.equal(publicConfig.thinking, 'on');
+  assert.equal(publicConfig.effort, 'high');
+  assert.equal(publicConfig.mcpServers[0].hasToken, true);
+  assert.equal(JSON.stringify(publicConfig).includes('personal-secret'), false);
 });
 
 test('AI defaults include confirmation, bounded limits and no credential', () => {

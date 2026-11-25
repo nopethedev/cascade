@@ -144,6 +144,16 @@ async function* openaiStream(provider, opts) {
   }
   if (Number.isFinite(opts.temperature)) body.temperature = Math.max(0, Math.min(2, opts.temperature));
   if (opts.maxTokens) body.max_tokens = Math.max(16, Math.min(200000, opts.maxTokens));
+  // Reasoning controls are opt-in: Auto omits the field entirely so ordinary
+  // chat models never receive an unsupported reasoning_effort parameter.
+  const reasoningModel = /(^|[/-])(o[1-9]|gpt-5|gpt-4\.1|reason|r1|qwq|thinking)/i.test(opts.model || '');
+  if (opts.thinking === 'off') {
+    if (reasoningModel) body.reasoning_effort = 'none';
+  } else if (opts.thinking === 'on') {
+    if (reasoningModel) body.reasoning_effort = opts.effort && opts.effort !== 'auto' ? opts.effort : 'medium';
+  } else if (opts.effort && opts.effort !== 'auto') {
+    body.reasoning_effort = opts.effort;
+  }
   const res = await postJson(provider, '/chat/completions', body, { timeout: opts.timeout || DEFAULT_TIMEOUT });
   if (!res.body) throw new ProviderError('Provider returned no stream', 502);
 
@@ -223,6 +233,9 @@ async function* ollamaStream(provider, opts) {
   if (Number.isFinite(opts.temperature)) body.options.temperature = Math.max(0, Math.min(2, opts.temperature));
   if (opts.maxTokens) body.options.num_predict = opts.maxTokens;
   if (opts.tools?.length && opts.toolsEnabled !== false) body.tools = opts.tools;
+  const thinkingModel = /(qwen3|deepseek|r1|reason|thinking|gpt-oss)/i.test(opts.model || '');
+  if (thinkingModel && opts.thinking === 'off') body.think = false;
+  else if (thinkingModel && opts.thinking === 'on') body.think = opts.effort && opts.effort !== 'auto' ? opts.effort : true;
   const res = await postJson(provider, '/api/chat', body, { timeout: opts.timeout || DEFAULT_TIMEOUT });
   if (!res.body) throw new ProviderError('Ollama returned no stream', 502);
   const reader = res.body.getReader();

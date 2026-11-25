@@ -2,49 +2,108 @@
 <link rel="stylesheet" href="/public/vendor/ai/katex/katex.min.css" />
 <link rel="stylesheet" href="/public/vendor/ai/highlight/github-dark.min.css" />
 <link rel="stylesheet" href="/public/ai/ai.css" />
+<link rel="stylesheet" href="/public/tailwind.css" />
 
 <div class="ai-app" id="ai-app">
   <aside class="ai-sidebar" id="ai-sidebar" aria-label="Conversations">
-    <div class="ai-brand">
-      <span class="ai-brand-mark">C</span>
-      <span class="ai-brand-text"><b>CASCADE</b><i>AI</i></span>
-      <button type="button" class="ai-iconbtn ai-sidebar-close" data-ai="toggle-side" aria-label="Close sidebar">✕</button>
+    <div class="ai-sidebar-head">
+      <a class="ai-brand" href="/ai" aria-label="Cascade AI home">
+        <span class="ai-brand-mark"><i data-lucide="sparkles"></i></span>
+        <span class="ai-brand-copy"><b>Cascade</b><em>AI workspace</em></span>
+      </a>
+      <button type="button" class="ai-iconbtn ai-sidebar-close" data-ai="toggle-side" aria-label="Close sidebar">
+        <i data-lucide="panel-left-close"></i>
+      </button>
     </div>
-    <button type="button" class="ai-new" data-ai="new"><span>＋</span> New chat</button>
-    <label class="ai-search-wrap">
-      <span aria-hidden="true">⌕</span>
-      <input id="ai-search" type="search" placeholder="Search conversations…" autocomplete="off">
-    </label>
+
+    <div class="px-3 pb-2">
+      <button type="button" class="ai-new" data-ai="new">
+        <i data-lucide="square-pen"></i>
+        <span>New chat</span>
+        <kbd>⌘ K</kbd>
+      </button>
+      <label class="ai-search-wrap">
+        <i data-lucide="search"></i>
+        <input id="ai-search" type="search" placeholder="Search conversations" autocomplete="off" aria-label="Search conversations">
+      </label>
+    </div>
+
     <div class="ai-side-scroll">
-      <div class="ai-side-group">
-        <div class="ai-side-head"><span>Conversations</span><button type="button" class="ai-mini" data-ai="new-folder" title="New folder">＋</button></div>
-        <div id="ai-folders" class="ai-folders"></div>
-        <div id="ai-convos" class="ai-convos"><p class="ai-empty-small">No conversations yet.</p></div>
+      <div class="ai-side-head">
+        <span>Library</span>
+        <button type="button" class="ai-mini" data-ai="new-folder" title="New folder" aria-label="New folder">
+          <i data-lucide="folder-plus"></i>
+        </button>
+      </div>
+      <div id="ai-folders" class="ai-folders"></div>
+      <div id="ai-convos" class="ai-convos"><p class="ai-empty-small">No conversations yet.</p></div>
+    </div>
+
+    <div class="ai-side-foot">
+      <button type="button" data-ai="open-mcp">
+        <i data-lucide="server-cog"></i><span>Personal MCP</span><b class="ai-foot-badge" id="ai-mcp-badge" hidden></b>
+      </button>
+      <button type="button" data-ai="open-knowledge"><i data-lucide="library-big"></i><span>Knowledge</span></button>
+      <button type="button" data-ai="open-assistants"><i data-lucide="bot"></i><span>Assistants</span></button>
+      <button type="button" data-ai="open-usage"><i data-lucide="chart-no-axes-column"></i><span>Usage</span></button>
+      <a href="/"><i data-lucide="folder-closed"></i><span>Cascade Files</span></a>
+      <% if (user && user.role === 'admin') { %><a href="/admin/ai"><i data-lucide="settings-2"></i><span>AI settings</span></a><% } %>
+      <div class="ai-account">
+        <span class="ai-account-avatar"><%= (user.username || 'U').slice(0, 1).toUpperCase() %></span>
+        <span class="ai-account-copy"><b><%= user.username %></b><em><%= user.role %></em></span>
+        <a href="/settings" class="ai-iconbtn" title="Account settings" aria-label="Account settings"><i data-lucide="settings"></i></a>
       </div>
     </div>
-    <div class="ai-side-foot">
-      <button type="button" data-ai="open-knowledge"><span>▤</span> Knowledge</button>
-      <button type="button" data-ai="open-assistants"><span>✦</span> Assistants</button>
-      <button type="button" data-ai="open-usage"><span>▦</span> Usage</button>
-      <a href="/"><span>◧</span> Cascade Files</a>
-      <% if (user && user.role === 'admin') { %><a href="/admin/ai"><span>⚙</span> AI settings</a><% } %>
-    </div>
   </aside>
+  <div class="ai-sidebar-scrim" id="ai-sidebar-scrim" data-ai="toggle-side" hidden></div>
 
   <main class="ai-main">
     <header class="ai-topbar">
-      <button type="button" class="ai-iconbtn ai-menu-btn" data-ai="toggle-side" aria-label="Open sidebar">☰</button>
-      <div class="ai-title" id="ai-title">New chat</div>
-      <div class="ai-controls">
-        <select id="ai-assistant" class="ai-select" title="Assistant" aria-label="Assistant">
-          <option value="">Default assistant</option>
-        </select>
-        <select id="ai-provider" class="ai-select" title="Provider" aria-label="Provider"></select>
-        <select id="ai-model" class="ai-select ai-model" title="Model" aria-label="Model"></select>
-        <button type="button" class="ai-toggle is-on" data-ai="toggle-tools" id="ai-tools-toggle" title="Allow MCP tool calls">Tools</button>
-        <button type="button" class="ai-toggle" data-ai="toggle-web" id="ai-web-toggle" title="Search the web before answering">Web</button>
-        <button type="button" class="ai-toggle" data-ai="open-knowledge" id="ai-kb-toggle" title="Attach knowledge bases">Knowledge<b id="ai-kb-count" hidden></b></button>
-        <button type="button" class="ai-iconbtn" data-ai="open-image" title="Generate an image">◈</button>
+      <button type="button" class="ai-iconbtn ai-menu-btn" data-ai="toggle-side" aria-label="Open sidebar">
+        <i data-lucide="panel-left"></i>
+      </button>
+      <div class="ai-title-wrap">
+        <span class="ai-title" id="ai-title">New chat</span>
+        <span class="ai-title-sub"><i data-lucide="sparkles"></i> Cascade AI</span>
+      </div>
+
+      <div class="ai-controls" aria-label="Chat settings">
+        <div class="ai-dd ai-dd-assistant" data-dd="assistant" data-icon="bot">
+          <select id="ai-assistant" aria-label="Assistant"><option value="">Default assistant</option></select>
+        </div>
+        <div class="ai-dd ai-dd-provider" data-dd="provider" data-icon="server">
+          <select id="ai-provider" aria-label="Provider"></select>
+        </div>
+        <div class="ai-dd ai-dd-model" data-dd="model" data-icon="cpu">
+          <select id="ai-model" aria-label="Model"></select>
+        </div>
+        <div class="ai-dd" data-dd="thinking" data-icon="brain">
+          <select id="ai-thinking" aria-label="Thinking mode">
+            <option value="auto">Thinking: auto</option>
+            <option value="on">Thinking: extended</option>
+            <option value="off">Thinking: off</option>
+          </select>
+        </div>
+        <div class="ai-dd" data-dd="effort" data-icon="gauge">
+          <select id="ai-effort" aria-label="Reasoning effort">
+            <option value="auto">Effort: auto</option>
+            <option value="low">Effort: low</option>
+            <option value="medium">Effort: medium</option>
+            <option value="high">Effort: high</option>
+          </select>
+        </div>
+        <button type="button" class="ai-chip is-on" data-ai="toggle-tools" id="ai-tools-toggle" title="Allow MCP tool calls">
+          <i data-lucide="wrench"></i><span>Tools</span>
+        </button>
+        <button type="button" class="ai-chip" data-ai="toggle-web" id="ai-web-toggle" title="Search the web before answering">
+          <i data-lucide="globe-2"></i><span>Web</span>
+        </button>
+        <button type="button" class="ai-chip" data-ai="open-knowledge" id="ai-kb-toggle" title="Attach knowledge bases">
+          <i data-lucide="book-open"></i><span>Knowledge</span><b id="ai-kb-count" hidden></b>
+        </button>
+        <button type="button" class="ai-iconbtn" data-ai="open-image" title="Generate an image" aria-label="Generate an image">
+          <i data-lucide="image-plus"></i>
+        </button>
       </div>
     </header>
 
@@ -55,99 +114,154 @@
     <div class="ai-composer-wrap">
       <div class="ai-attachments" id="ai-attachments" hidden></div>
       <form class="ai-composer" id="ai-form" autocomplete="off">
-        <textarea id="ai-input" rows="1" placeholder="Message Cascade AI…  (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
-        <div class="ai-composer-actions">
-          <button type="button" class="ai-iconbtn" data-ai="attach" title="Attach files or images">📎</button>
-          <button type="button" class="ai-iconbtn" data-ai="mic" id="ai-mic" title="Voice input">🎙</button>
-          <button type="submit" class="ai-send" id="ai-send" title="Send (Enter)">Send<kbd>↵</kbd></button>
-          <button type="button" class="ai-stop" id="ai-stop" hidden>Stop</button>
+        <textarea id="ai-input" rows="1" placeholder="Ask Cascade AI anything, or describe what to build…" aria-label="Message"></textarea>
+        <div class="ai-composer-bar">
+          <div class="ai-composer-tools">
+            <button type="button" class="ai-iconbtn" data-ai="attach" title="Attach files or images" aria-label="Attach files or images"><i data-lucide="paperclip"></i></button>
+            <button type="button" class="ai-iconbtn" data-ai="mic" id="ai-mic" title="Voice input" aria-label="Voice input"><i data-lucide="mic"></i></button>
+            <span class="ai-composer-context" id="ai-composer-context"></span>
+          </div>
+          <div class="ai-composer-send">
+            <button type="submit" class="ai-send" id="ai-send" title="Send (Enter)" aria-label="Send message"><i data-lucide="arrow-up"></i></button>
+            <button type="button" class="ai-stop" id="ai-stop" hidden><i data-lucide="square"></i><span>Stop</span></button>
+          </div>
         </div>
       </form>
       <div class="ai-hint" id="ai-hint">Cascade AI can create documents, decks, sheets, sites and video projects through MCP tools.</div>
       <input id="ai-file-input" type="file" multiple hidden>
     </div>
   </main>
+
+  <!-- Code preview -->
+  <dialog class="ai-dialog ai-dialog-wide" id="ai-preview-dlg">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="code-2"></i></span>
+        <h2 id="ai-preview-title">Code preview</h2>
+        <button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-preview-body"><iframe id="ai-preview-frame" sandbox="allow-scripts" title="Code preview"></iframe></div>
+      <div class="ai-dialog-foot"><span class="ai-fine" id="ai-preview-note"></span><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
+    </div>
+  </dialog>
+
+  <!-- Image generation -->
+  <dialog class="ai-dialog" id="ai-image-dlg">
+    <form method="dialog" class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="image-plus"></i></span>
+        <h2>Generate an image</h2>
+        <button class="ai-iconbtn" value="cancel" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-stack">
+        <label class="ai-field"><span>Prompt</span><textarea id="ai-image-prompt" rows="3" placeholder="A cinematic mountain lake at sunrise, soft mist, 35mm"></textarea></label>
+        <div class="ai-grid-2">
+          <div class="ai-field"><span>Size</span>
+            <div class="ai-dd" data-dd="image-size" data-icon="ratio">
+              <select id="ai-image-size">
+                <option>1024x1024</option><option>1536x1024</option><option>1024x1536</option><option>512x512</option>
+              </select>
+            </div>
+          </div>
+          <label class="ai-field"><span>Count</span><input id="ai-image-count" type="number" min="1" max="4" value="1"></label>
+        </div>
+        <div class="ai-field"><span>Edit an existing image (optional)</span><input id="ai-image-edit" type="file" accept="image/*"></div>
+        <p class="ai-fine" id="ai-image-status"></p>
+        <div class="ai-image-results" id="ai-image-results"></div>
+      </div>
+      <div class="ai-dialog-foot"><span class="ai-spacer"></span><button class="ai-btn" value="cancel">Close</button><button type="button" class="ai-btn ai-btn-primary" id="ai-image-run"><i data-lucide="wand-sparkles"></i> Generate</button></div>
+    </form>
+  </dialog>
+
+  <!-- Knowledge bases -->
+  <dialog class="ai-dialog ai-dialog-wide" id="ai-knowledge-dlg">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="library-big"></i></span>
+        <h2>Knowledge bases</h2>
+        <button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-split">
+        <div class="ai-split-side">
+          <div class="ai-inline"><input id="ai-kb-name" placeholder="New knowledge base"><button type="button" class="ai-btn" id="ai-kb-create">Create</button></div>
+          <div id="ai-kb-list" class="ai-kb-list"></div>
+        </div>
+        <div class="ai-split-main">
+          <div id="ai-kb-detail" class="ai-kb-detail"><p class="ai-fine">Select a knowledge base to add documents.</p></div>
+        </div>
+      </div>
+      <div class="ai-dialog-foot"><span class="ai-fine">Retrieval runs server-side. Without an embedding provider, a deterministic local lexical embedding is used.</span><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
+    </div>
+  </dialog>
+
+  <!-- Assistants -->
+  <dialog class="ai-dialog ai-dialog-wide" id="ai-assistant-dlg">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="bot"></i></span>
+        <h2>Assistants</h2>
+        <button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-split">
+        <div class="ai-split-side">
+          <div class="ai-inline"><input id="ai-assistant-name" placeholder="New assistant"><button type="button" class="ai-btn" id="ai-assistant-create">Create</button></div>
+          <div id="ai-assistant-list" class="ai-kb-list"></div>
+        </div>
+        <div class="ai-split-main">
+          <div id="ai-assistant-detail" class="ai-kb-detail"><p class="ai-fine">Select an assistant to edit its instructions.</p></div>
+        </div>
+      </div>
+      <div class="ai-dialog-foot"><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
+    </div>
+  </dialog>
+
+  <!-- Per-user MCP servers -->
+  <dialog class="ai-dialog ai-dialog-wide" id="ai-mcp-dlg">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="server-cog"></i></span>
+        <h2>Personal MCP servers</h2>
+        <button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-stack">
+        <p class="ai-fine">Shared servers are configured by an administrator. Personal servers and their bearer tokens belong only to your account and are never sent back to the browser.</p>
+        <div id="ai-mcp-global" class="ai-mcp-list"></div>
+        <div class="ai-mcp-form">
+          <div class="ai-grid-2">
+            <label class="ai-field"><span>Name</span><input id="ai-mcp-name" placeholder="My tools" autocomplete="off"></label>
+            <label class="ai-field"><span>Endpoint URL</span><input id="ai-mcp-url" placeholder="https://mcp.example.com/mcp" autocomplete="off"></label>
+          </div>
+          <label class="ai-field"><span>Bearer token (optional)</span><input id="ai-mcp-token" type="password" placeholder="Stored server-side" autocomplete="new-password"></label>
+          <div class="ai-row"><button type="button" class="ai-btn ai-btn-primary" id="ai-mcp-add"><i data-lucide="plus"></i> Add server</button><span class="ai-fine" id="ai-mcp-status"></span></div>
+        </div>
+        <div id="ai-mcp-list" class="ai-mcp-list"></div>
+      </div>
+      <div class="ai-dialog-foot"><span class="ai-fine">Personal MCP tools appear in chat alongside Cascade's built-in tools and the shared MCP servers.</span><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
+    </div>
+  </dialog>
+
+  <!-- Usage -->
+  <dialog class="ai-dialog" id="ai-usage-dlg">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-head">
+        <span class="ai-dialog-icon"><i data-lucide="chart-no-axes-column"></i></span>
+        <h2>Token usage</h2>
+        <button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-dialog-body ai-stack" id="ai-usage-body"><p class="ai-fine">Loading…</p></div>
+    </div>
+  </dialog>
+
+  <!-- Conversation actions -->
+  <div class="ai-context" id="ai-convo-menu" hidden></div>
 </div>
 
-<!-- Code preview -->
-<dialog class="ai-dialog ai-dialog-wide" id="ai-preview-dlg">
-  <div class="ai-dialog-inner">
-    <div class="ai-dialog-head"><h2 id="ai-preview-title">Code preview</h2><button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close">✕</button></div>
-    <div class="ai-dialog-body ai-preview-body"><iframe id="ai-preview-frame" sandbox="allow-scripts" title="Code preview"></iframe></div>
-    <div class="ai-dialog-foot"><span class="ai-fine" id="ai-preview-note"></span><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
-  </div>
-</dialog>
-
-<!-- Image generation -->
-<dialog class="ai-dialog" id="ai-image-dlg">
-  <form method="dialog" class="ai-dialog-inner">
-    <div class="ai-dialog-head"><h2>Generate an image</h2><button class="ai-iconbtn" value="cancel" aria-label="Close">✕</button></div>
-    <div class="ai-dialog-body ai-stack">
-      <label class="ai-field"><span>Prompt</span><textarea id="ai-image-prompt" rows="3" placeholder="A cinematic mountain lake at sunrise, soft mist, 35mm"></textarea></label>
-      <div class="ai-grid-2">
-        <label class="ai-field"><span>Size</span>
-          <select id="ai-image-size"><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option><option>512x512</option></select>
-        </label>
-        <label class="ai-field"><span>Count</span><input id="ai-image-count" type="number" min="1" max="4" value="1"></label>
-      </div>
-      <div class="ai-field"><span>Edit an existing image (optional)</span><input id="ai-image-edit" type="file" accept="image/*"></div>
-      <p class="ai-fine" id="ai-image-status"></p>
-      <div class="ai-image-results" id="ai-image-results"></div>
-    </div>
-    <div class="ai-dialog-foot"><span class="ai-spacer"></span><button class="ai-btn" value="cancel">Close</button><button type="button" class="ai-btn ai-btn-primary" id="ai-image-run">Generate</button></div>
-  </form>
-</dialog>
-
-<!-- Knowledge bases -->
-<dialog class="ai-dialog ai-dialog-wide" id="ai-knowledge-dlg">
-  <div class="ai-dialog-inner">
-    <div class="ai-dialog-head"><h2>Knowledge bases</h2><button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close">✕</button></div>
-    <div class="ai-dialog-body ai-split">
-      <div class="ai-split-side">
-        <div class="ai-inline"><input id="ai-kb-name" placeholder="New knowledge base"><button type="button" class="ai-btn" id="ai-kb-create">Create</button></div>
-        <div id="ai-kb-list" class="ai-kb-list"></div>
-      </div>
-      <div class="ai-split-main">
-        <div id="ai-kb-detail" class="ai-kb-detail"><p class="ai-fine">Select a knowledge base to add documents.</p></div>
-      </div>
-    </div>
-    <div class="ai-dialog-foot"><span class="ai-fine">Retrieval runs server-side. Without an embedding provider, a deterministic local lexical embedding is used.</span><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
-  </div>
-</dialog>
-
-<!-- Assistants -->
-<dialog class="ai-dialog ai-dialog-wide" id="ai-assistant-dlg">
-  <div class="ai-dialog-inner">
-    <div class="ai-dialog-head"><h2>Assistants</h2><button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close">✕</button></div>
-    <div class="ai-dialog-body ai-split">
-      <div class="ai-split-side">
-        <div class="ai-inline"><input id="ai-assistant-name" placeholder="New assistant"><button type="button" class="ai-btn" id="ai-assistant-create">Create</button></div>
-        <div id="ai-assistant-list" class="ai-kb-list"></div>
-      </div>
-      <div class="ai-split-main">
-        <div id="ai-assistant-detail" class="ai-kb-detail"><p class="ai-fine">Select an assistant to edit its instructions.</p></div>
-      </div>
-    </div>
-    <div class="ai-dialog-foot"><span class="ai-spacer"></span><button type="button" class="ai-btn" data-close-dialog>Close</button></div>
-  </div>
-</dialog>
-
-<!-- Usage -->
-<dialog class="ai-dialog" id="ai-usage-dlg">
-  <div class="ai-dialog-inner">
-    <div class="ai-dialog-head"><h2>Token usage</h2><button type="button" class="ai-iconbtn" data-close-dialog aria-label="Close">✕</button></div>
-    <div class="ai-dialog-body ai-stack" id="ai-usage-body"><p class="ai-fine">Loading…</p></div>
-  </div>
-</dialog>
-
-<!-- Conversation actions -->
-<div class="ai-context" id="ai-convo-menu" hidden></div>
-
 <script>
-  window.__AI__ = <%- JSON.stringify({ ai, conversations, folders, assistants, knowledge, activeId, dailyTokens, user: { username: user.username, role: user.role } }).replace(/</g, '\\u003c') %>;
+  window.__AI__ = <%- JSON.stringify({ ai, conversations, folders, assistants, knowledge, userConfig, activeId, dailyTokens, user: { username: user.username, role: user.role } }).replace(/</g, '\\u003c') %>;
 </script>
 <script src="/public/vendor/ai/marked.umd.js"></script>
 <script src="/public/vendor/ai/katex/katex.min.js"></script>
 <script src="/public/vendor/ai/highlight/highlight.min.js"></script>
+<script src="/public/vendor/ai/lucide.min.js"></script>
 <script type="module" src="/public/ai/ai.js"></script>
 <%- include('partials/foot', { appMode: true }) %>

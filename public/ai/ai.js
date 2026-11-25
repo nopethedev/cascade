@@ -19,6 +19,9 @@ const AI = {
   model: '',
   models: [],
   assistantId: '',
+  userConfig: DATA.userConfig || { mcpServers: [], globalMcpServers: [], thinking: 'auto', effort: 'auto' },
+  thinking: DATA.userConfig?.thinking || 'auto',
+  effort: DATA.userConfig?.effort || 'auto',
   useTools: true,
   useWeb: false,
   knowledgeIds: new Set(),
@@ -45,6 +48,110 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function icon(name, className = '') {
+  return `<i data-lucide="${escapeHtml(name)}"${className ? ` class="${escapeHtml(className)}"` : ''}></i>`;
+}
+
+function refreshIcons(root = document) {
+  if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+  try { window.lucide.createIcons({ root, attrs: { 'stroke-width': 1.8 } }); } catch { /* icons are progressive */ }
+}
+
+/* Native selects remain the source of truth for accessibility and for the rest
+ * of the client, but the visible trigger is a styled listbox so the workspace
+ * does not expose browser-default dropdown chrome. */
+function closeDropdowns(except = null) {
+  $$('.ai-dd.is-open').forEach((dd) => { if (dd !== except) { dd.classList.remove('is-open'); const menu = $('.ai-dd-menu', dd); if (menu) menu.hidden = true; $('.ai-dd-btn', dd)?.setAttribute('aria-expanded', 'false'); } });
+}
+
+function refreshDropdown(select) {
+  if (!select) return;
+  const dd = select.closest('.ai-dd');
+  if (!dd) return;
+  const button = $('.ai-dd-btn', dd);
+  const menu = $('.ai-dd-menu', dd);
+  if (!button || !menu) return;
+  const selected = select.options[select.selectedIndex] || select.options[0];
+  const value = $('.ai-dd-value', button);
+  if (value) value.textContent = selected ? selected.textContent.trim() : 'None';
+  button.title = selected ? selected.textContent.trim() : 'None';
+  button.disabled = !select.options.length || (select.options.length === 1 && !select.options[0].value);
+  menu.innerHTML = '';
+  [...select.options].forEach((option) => {
+    const opt = document.createElement('button');
+    opt.type = 'button';
+    opt.className = `ai-dd-opt${option.selected ? ' is-selected' : ''}`;
+    opt.dataset.value = option.value;
+    opt.setAttribute('role', 'option');
+    opt.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+    opt.innerHTML = `<span>${escapeHtml(option.textContent.trim())}</span>${icon('check', 'ai-dd-check')}`;
+    opt.addEventListener('click', () => {
+      if (select.value !== option.value) {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      refreshDropdown(select);
+      closeDropdowns();
+      button.focus();
+    });
+    menu.append(opt);
+  });
+  refreshIcons(menu);
+}
+
+function enhanceSelect(select) {
+  if (!select) return;
+  const dd = select.closest('.ai-dd');
+  if (!dd) return;
+  if (!$('.ai-dd-btn', dd)) {
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    const iconName = dd.dataset.icon || 'chevron-down';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'ai-dd-btn';
+    button.setAttribute('aria-haspopup', 'listbox');
+    button.setAttribute('aria-expanded', 'false');
+    button.innerHTML = `${icon(iconName)}<span class="ai-dd-value"></span>${icon('chevron-down')}`;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const open = dd.classList.contains('is-open');
+      closeDropdowns(dd);
+      dd.classList.toggle('is-open', !open);
+      button.setAttribute('aria-expanded', String(!open));
+      const menu = $('.ai-dd-menu', dd);
+      if (!menu) return;
+      menu.hidden = open;
+      if (!open) {
+        const rect = button.getBoundingClientRect();
+        const width = Math.max(rect.width, 172);
+        menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+        menu.style.top = `${Math.min(rect.bottom + 5, window.innerHeight - 80)}px`;
+        menu.style.minWidth = `${width}px`;
+      }
+    });
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { closeDropdowns(); button.focus(); }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!dd.classList.contains('is-open')) button.click();
+        setTimeout(() => { $(event.key === 'ArrowDown' ? '.ai-dd-opt' : '.ai-dd-opt:last-child', dd)?.focus(); }, 0);
+      }
+    });
+    const menu = document.createElement('div');
+    menu.className = 'ai-dd-menu';
+    menu.setAttribute('role', 'listbox');
+    menu.hidden = true;
+    dd.append(button, menu);
+  }
+  refreshDropdown(select);
+  refreshIcons(dd);
+}
+
+function enhanceSelects(root = document) {
+  $$('.ai-dd > select', root).forEach(enhanceSelect);
 }
 
 async function api(url, options = {}) {
@@ -190,16 +297,17 @@ function enhanceContent(root) {
     const actions = document.createElement('div');
     actions.className = 'ai-code-actions';
     const copy = document.createElement('button');
-    copy.type = 'button'; copy.textContent = 'Copy';
+    copy.type = 'button'; copy.innerHTML = `${icon('copy')} Copy`;
     copy.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(raw); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); }
-      catch { copy.textContent = 'Failed'; }
+      try { await navigator.clipboard.writeText(raw); copy.innerHTML = `${icon('check')} Copied`; refreshIcons(copy); setTimeout(() => { copy.innerHTML = `${icon('copy')} Copy`; refreshIcons(copy); }, 1200); }
+      catch { copy.innerHTML = `${icon('circle-alert')} Failed`; refreshIcons(copy); }
     });
     const preview = document.createElement('button');
-    preview.type = 'button'; preview.textContent = 'Preview';
+    preview.type = 'button'; preview.innerHTML = `${icon('play')} Preview`;
     preview.addEventListener('click', () => openCodePreview(raw, lang));
     actions.append(copy, preview);
     head.append(actions);
+    refreshIcons(head);
     if (codeEl && window.hljs) {
       try {
         const html = lang && window.hljs.getLanguage(lang)
@@ -290,15 +398,16 @@ function renderSidebar() {
     const item = document.createElement('div');
     item.className = `ai-convo${convo.id === AI.activeId ? ' is-active' : ''}`;
     item.tabIndex = 0;
-    item.innerHTML = `<b>${escapeHtml(convoTitle(convo))}</b>${convo.pinned ? '<span class="ai-pin">●</span>' : ''}`;
+    item.innerHTML = `${icon('message-square')}<b>${escapeHtml(convoTitle(convo))}</b>${convo.pinned ? icon('pin', 'ai-pin') : ''}`;
     const more = document.createElement('button');
-    more.type = 'button'; more.className = 'ai-convo-more'; more.textContent = '⋯'; more.title = 'Conversation actions';
+    more.type = 'button'; more.className = 'ai-convo-more'; more.innerHTML = icon('ellipsis'); more.title = 'Conversation actions'; more.setAttribute('aria-label', 'Conversation actions');
     more.addEventListener('click', (event) => { event.stopPropagation(); openConvoMenu(convo, more); });
     item.append(more);
     item.addEventListener('click', () => openConversation(convo.id));
     item.addEventListener('keydown', (event) => { if (event.key === 'Enter') openConversation(convo.id); });
     list.append(item);
   });
+  refreshIcons(list);
 }
 
 function openConvoMenu(convo, anchor) {
@@ -370,6 +479,7 @@ function renderProviderOptions() {
     ? AI.providers.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(providerLabel(p))}</option>`).join('')
     : '<option value="">No providers</option>';
   if (AI.providerId) select.value = AI.providerId;
+  refreshDropdown(select);
 }
 
 function renderModelOptions() {
@@ -382,24 +492,56 @@ function renderModelOptions() {
     : '<option value="">No models</option>';
   if (AI.model) select.value = AI.model;
   if (!AI.model && normalized.length) { AI.model = normalized[0].id; select.value = AI.model; }
+  refreshDropdown(select);
 }
 
 function renderAssistantOptions() {
   const select = $('#ai-assistant');
   if (!select) return;
-  select.innerHTML = `<option value="">Default assistant</option>${AI.assistants.map((a) => `<option value="${a.id}">${escapeHtml(a.icon || '✦')} ${escapeHtml(a.name)}</option>`).join('')}`;
+  select.innerHTML = `<option value="">Default assistant</option>${AI.assistants.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}`;
   select.value = AI.assistantId || '';
+  refreshDropdown(select);
 }
 
 function syncControls() {
   renderProviderOptions();
   renderModelOptions();
   renderAssistantOptions();
+  $('#ai-provider')?.closest('.ai-dd')?.classList.toggle('is-single', AI.providers.length <= 1);
+  $('#ai-assistant')?.closest('.ai-dd')?.classList.toggle('is-single', AI.assistants.length === 0);
+  const thinking = $('#ai-thinking');
+  if (thinking) { thinking.value = AI.thinking || 'auto'; refreshDropdown(thinking); }
+  const effort = $('#ai-effort');
+  if (effort) { effort.value = AI.effort || 'auto'; refreshDropdown(effort); }
   $('#ai-tools-toggle')?.classList.toggle('is-on', AI.useTools);
   $('#ai-web-toggle')?.classList.toggle('is-on', AI.useWeb);
   const badge = $('#ai-kb-count');
   if (badge) { badge.hidden = AI.knowledgeIds.size === 0; badge.textContent = String(AI.knowledgeIds.size); }
   $('#ai-kb-toggle')?.classList.toggle('is-on', AI.knowledgeIds.size > 0);
+  const mcpBadge = $('#ai-mcp-badge');
+  const personal = (AI.userConfig?.mcpServers || []).filter((server) => server.enabled).length;
+  if (mcpBadge) { mcpBadge.hidden = personal === 0; mcpBadge.textContent = String(personal); }
+  const context = $('#ai-composer-context');
+  if (context) {
+    const model = AI.model || 'no model';
+    const mode = AI.thinking === 'on' ? `thinking ${AI.effort === 'auto' ? 'on' : AI.effort}` : AI.thinking === 'off' ? 'fast' : 'auto';
+    context.textContent = `${model} · ${mode}`;
+    context.title = `${model} · thinking ${AI.thinking} · effort ${AI.effort}`;
+  }
+  refreshIcons();
+}
+
+async function savePreference(field, value) {
+  AI[field] = value;
+  syncControls();
+  try {
+    const data = await api('/api/ai/user-config', { method: 'PUT', body: JSON.stringify({ [field]: value }) });
+    AI.userConfig = data.config;
+  } catch { /* preference still applies to this conversation */ }
+  if (AI.activeId) {
+    api(`/api/ai/conversations/${AI.activeId}`, { method: 'PATCH', body: JSON.stringify({ [field]: value }) })
+      .then((data) => mergeConversation(data.conversation)).catch(() => {});
+  }
 }
 
 function setTitle(title) {
@@ -452,6 +594,8 @@ function newChat() {
   AI.messages = [];
   AI.leafId = null;
   AI.attachments = [];
+  AI.thinking = AI.userConfig?.thinking || 'auto';
+  AI.effort = AI.userConfig?.effort || 'auto';
   renderAttachments();
   setTitle('New chat');
   history.replaceState(null, '', '/ai');
@@ -473,6 +617,8 @@ async function openConversation(id) {
     AI.providerId = data.conversation.providerId || AI.providerId || AI.ai.defaultProviderId || AI.providers[0]?.id || '';
     AI.model = data.conversation.model || '';
     AI.assistantId = data.conversation.assistantId || '';
+    AI.thinking = data.conversation.thinking || AI.userConfig?.thinking || 'auto';
+    AI.effort = data.conversation.effort || AI.userConfig?.effort || 'auto';
     mergeConversation(data.conversation);
     setTitle(data.conversation.title);
     history.replaceState(null, '', `/ai/${id}`);
@@ -509,18 +655,20 @@ function renderChat() {
   if (!AI.messages.length) {
     chat.innerHTML = `
       <div class="ai-empty-chat">
-        <h1>What are we making?</h1>
-        <p>Cascade AI can answer questions and build real projects in Cascade — documents, decks, spreadsheets, websites, images and video edits — through MCP tools.</p>
+        <div class="ai-empty-orb">${icon('sparkles')}</div>
+        <h1>What can I help you build?</h1>
+        <p>Cascade AI answers questions and creates real projects in Cascade — documents, decks, spreadsheets, websites, images and video edits — through MCP tools.</p>
         <div class="ai-suggestions">
-          <button type="button" class="ai-suggestion" data-prompt="Create a 6-slide presentation about the future of local-first software. Include speaker notes."><b>Build a deck</b>Six slides with speaker notes on local-first software.</button>
-          <button type="button" class="ai-suggestion" data-prompt="Build a one-page landing page for a specialty coffee roaster called Ember & Oak. Save it as a website in Cascade."><b>Build a website</b>A one-page landing site for a coffee roaster.</button>
-          <button type="button" class="ai-suggestion" data-prompt="Create a budget spreadsheet for a small studio with categories, monthly columns and totals."><b>Make a spreadsheet</b>A studio budget with categories and totals.</button>
-          <button type="button" class="ai-suggestion" data-prompt="Summarize the key differences between RAG and long-context prompting, with a table."><b>Explain something</b>RAG versus long-context prompting.</button>
+          <button type="button" class="ai-suggestion" data-prompt="Create a 6-slide presentation about the future of local-first software. Include speaker notes."><b>${icon('presentation')} Build a deck</b><span>Six slides with speaker notes on local-first software.</span></button>
+          <button type="button" class="ai-suggestion" data-prompt="Build a one-page landing page for a specialty coffee roaster called Ember & Oak. Save it as a website in Cascade."><b>${icon('globe-2')} Build a website</b><span>A one-page landing site for a coffee roaster.</span></button>
+          <button type="button" class="ai-suggestion" data-prompt="Create a budget spreadsheet for a small studio with categories, monthly columns and totals."><b>${icon('table-2')} Make a spreadsheet</b><span>A studio budget with categories and totals.</span></button>
+          <button type="button" class="ai-suggestion" data-prompt="Summarize the key differences between RAG and long-context prompting, with a table."><b>${icon('book-open')} Explain something</b><span>RAG versus long-context prompting.</span></button>
         </div>
       </div>`;
     chat.querySelectorAll('[data-prompt]').forEach((btn) => {
       btn.addEventListener('click', () => { const input = $('#ai-input'); if (input) { input.value = btn.dataset.prompt; input.focus(); autoGrow(input); } });
     });
+    refreshIcons(chat);
     return;
   }
   chat.innerHTML = '';
@@ -535,7 +683,7 @@ function appendMessageEl(msg) {
   el.className = `ai-msg ${msg.role}`;
   el.dataset.id = msg.id;
   el.innerHTML = `
-    <div class="ai-avatar">${msg.role === 'assistant' ? 'AI' : 'You'}</div>
+    <div class="ai-avatar">${msg.role === 'assistant' ? icon('sparkles') : icon('user-round')}</div>
     <div class="ai-msg-body">
       <div class="ai-msg-head"><b>${msg.role === 'assistant' ? 'Cascade AI' : 'You'}</b><span class="ai-msg-model"></span></div>
       <div class="ai-msg-tools"></div>
@@ -543,6 +691,7 @@ function appendMessageEl(msg) {
       <div class="ai-msg-foot"></div>
     </div>`;
   chat.append(el);
+  refreshIcons(el);
   updateMessageEl(el, msg);
   return el;
 }
@@ -586,34 +735,34 @@ function updateMessageEl(el, msg) {
 function renderFoot(foot, msg) {
   foot.innerHTML = '';
   const copy = document.createElement('button');
-  copy.type = 'button'; copy.textContent = 'Copy';
+  copy.type = 'button'; copy.innerHTML = `${icon('copy')} Copy`;
   copy.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(msg.content || ''); copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy'; }, 1200); }
-    catch { copy.textContent = 'Failed'; }
+    try { await navigator.clipboard.writeText(msg.content || ''); copy.innerHTML = `${icon('check')} Copied`; refreshIcons(copy); setTimeout(() => { copy.innerHTML = `${icon('copy')} Copy`; refreshIcons(copy); }, 1200); }
+    catch { copy.innerHTML = `${icon('circle-alert')} Failed`; refreshIcons(copy); }
   });
   foot.append(copy);
   if (msg.role === 'assistant') {
     if (msg.status !== 'streaming' && AI.streaming === false) {
       const regen = document.createElement('button');
-      regen.type = 'button'; regen.textContent = 'Regenerate';
-      regen.addEventListener('click', () => startStream({ regenerateOf: msg.id, providerId: AI.providerId, model: AI.model }, { regenerateOf: msg.id }));
+      regen.type = 'button'; regen.innerHTML = `${icon('rotate-ccw')} Regenerate`;
+      regen.addEventListener('click', () => startStream({ regenerateOf: msg.id, providerId: AI.providerId, model: AI.model, thinking: AI.thinking, effort: AI.effort }, { regenerateOf: msg.id }));
       foot.append(regen);
     }
     const speak = document.createElement('button');
-    speak.type = 'button'; speak.textContent = 'Speak';
+    speak.type = 'button'; speak.innerHTML = `${icon('volume-2')} Speak`;
     speak.addEventListener('click', () => speakText(msg.content, speak));
     foot.append(speak);
     if (msg.branch && msg.branch.count > 1 && Array.isArray(msg.branch.ids) && msg.branch.ids.length) {
       const wrap = document.createElement('span');
       wrap.className = 'ai-branch';
       const prev = document.createElement('button');
-      prev.type = 'button'; prev.textContent = '‹'; prev.title = 'Previous branch';
+      prev.type = 'button'; prev.innerHTML = icon('chevron-left'); prev.title = 'Previous branch'; prev.setAttribute('aria-label', 'Previous branch');
       prev.disabled = msg.branch.index <= 0;
       prev.addEventListener('click', () => switchBranch(msg, -1));
       const label = document.createElement('span');
       label.textContent = `${msg.branch.index + 1}/${msg.branch.count}`;
       const next = document.createElement('button');
-      next.type = 'button'; next.textContent = '›'; next.title = 'Next branch';
+      next.type = 'button'; next.innerHTML = icon('chevron-right'); next.title = 'Next branch'; next.setAttribute('aria-label', 'Next branch');
       next.disabled = msg.branch.index >= msg.branch.count - 1;
       next.addEventListener('click', () => switchBranch(msg, 1));
       wrap.append(prev, label, next);
@@ -626,6 +775,7 @@ function renderFoot(foot, msg) {
       foot.append(chip);
     }
   }
+  refreshIcons(foot);
 }
 
 async function switchBranch(msg, direction) {
@@ -666,7 +816,7 @@ function renderTools(container, msg) {
     card.className = `ai-tool${call.isError ? ' is-error' : call.result ? ' is-ok' : ''}${call.pending ? ' is-pending' : ''}`;
     const head = document.createElement('div');
     head.className = 'ai-tool-head';
-    head.innerHTML = `<b>${escapeHtml(call.name || 'tool')}</b><span>${call.pending ? 'needs approval' : call.result ? 'done' : 'running'}</span><span class="ai-tool-state">${call.isError ? 'error' : call.pending ? 'pending' : call.result ? 'ok' : '…'}</span>`;
+    head.innerHTML = `${icon(call.isError ? 'circle-alert' : call.pending ? 'shield-alert' : 'wrench')}<b>${escapeHtml(call.name || 'tool')}</b><span>${call.pending ? 'needs approval' : call.result ? 'done' : 'running'}</span><span class="ai-tool-state">${call.isError ? 'error' : call.pending ? 'pending' : call.result ? 'ok' : 'running'}</span>`;
     head.addEventListener('click', () => card.classList.toggle('is-open'));
     const body = document.createElement('div');
     body.className = 'ai-tool-body';
@@ -684,7 +834,7 @@ function renderTools(container, msg) {
       const link = document.createElement('a');
       link.className = 'ai-artifact';
       link.href = artifact.url;
-      link.textContent = `↗ ${artifact.label}`;
+      link.innerHTML = `${icon('arrow-up-right')} ${escapeHtml(artifact.label)}`;
       body.append(link);
     });
     imagesFrom(call.data).forEach((src) => {
@@ -710,16 +860,17 @@ function renderTools(container, msg) {
       const row = document.createElement('div');
       row.className = 'ai-row';
       const approve = document.createElement('button');
-      approve.type = 'button'; approve.className = 'ai-btn ai-btn-primary ai-btn-sm'; approve.textContent = 'Approve and run';
+      approve.type = 'button'; approve.className = 'ai-btn ai-btn-primary ai-btn-sm'; approve.innerHTML = `${icon('play')} Approve and run`;
       approve.addEventListener('click', () => continueTools(msg, pending.map((c) => c.id)));
       const deny = document.createElement('button');
-      deny.type = 'button'; deny.className = 'ai-btn ai-btn-sm'; deny.textContent = 'Decline';
+      deny.type = 'button'; deny.className = 'ai-btn ai-btn-sm'; deny.innerHTML = `${icon('x')} Decline`;
       deny.addEventListener('click', () => continueTools(msg, []));
       row.append(approve, deny);
       box.append(p, row);
       container.append(box);
     }
   }
+  refreshIcons(container);
 }
 
 function artifactsFrom(data) {
@@ -881,7 +1032,13 @@ async function startStream(body, options = {}) {
             upsertAndRender();
             AI.leafId = event.message.id || AI.leafId;
           }
-          if (event.conversation) { mergeConversation(event.conversation); setTitle(event.conversation.title); }
+          if (event.conversation) {
+            mergeConversation(event.conversation);
+            setTitle(event.conversation.title);
+            if (event.conversation.thinking) AI.thinking = event.conversation.thinking;
+            if (event.conversation.effort) AI.effort = event.conversation.effort;
+            syncControls();
+          }
           break;
         case 'error':
           throw new Error(event.message || 'Generation failed');
@@ -1020,11 +1177,12 @@ function renderAttachments() {
     const b = document.createElement('b');
     b.textContent = file.filename;
     const remove = document.createElement('button');
-    remove.type = 'button'; remove.textContent = '✕';
+    remove.type = 'button'; remove.innerHTML = icon('x'); remove.setAttribute('aria-label', `Remove ${file.filename}`);
     remove.addEventListener('click', () => { AI.attachments.splice(index, 1); renderAttachments(); });
     chip.append(b, remove);
     wrap.append(chip);
   });
+  refreshIcons(wrap);
 }
 
 async function uploadFiles(files) {
@@ -1060,6 +1218,8 @@ function sendCurrent() {
     model: AI.model || null,
     useTools: AI.useTools,
     useWeb: AI.useWeb,
+    thinking: AI.thinking,
+    effort: AI.effort,
     knowledgeIds: [...AI.knowledgeIds],
   };
   if (input) { input.value = ''; autoGrow(input); }
@@ -1307,7 +1467,7 @@ function renderKnowledgeDetail() {
     row.className = 'ai-kb-doc';
     row.innerHTML = `<b>${escapeHtml(doc.filename)}</b><span>${doc.status}</span>`;
     const del = document.createElement('button');
-    del.type = 'button'; del.className = 'ai-btn ai-btn-sm ai-btn-danger'; del.textContent = '✕';
+    del.type = 'button'; del.className = 'ai-btn ai-btn-sm ai-btn-danger'; del.innerHTML = icon('x'); del.title = 'Remove document'; del.setAttribute('aria-label', 'Remove document');
     del.addEventListener('click', async () => {
       try { await api(`/api/ai/knowledge/${base.id}/docs/${doc.id}`, { method: 'DELETE' }); await refreshKnowledge(); renderKnowledgeList(); renderKnowledgeDetail(); }
       catch (err) { hint(err.message, true); }
@@ -1339,6 +1499,7 @@ function renderKnowledgeDetail() {
   heading.className = 'ai-fine';
   heading.textContent = 'Indexed documents';
   detail.append(head, toggle, addRow, note, noteRow, heading, docsWrap, searchRow, results);
+  refreshIcons(detail);
 }
 
 /* ------------------------------- assistants ----------------------------- */
@@ -1359,10 +1520,11 @@ function renderAssistantList() {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = `ai-kb-item${AI.asstSelected === assistant.id ? ' is-active' : ''}`;
-    item.innerHTML = `<b>${escapeHtml(assistant.icon || '✦')} ${escapeHtml(assistant.name)}</b><span>${escapeHtml(assistant.description || assistant.model || 'custom instructions')}</span>`;
+    item.innerHTML = `<b>${icon('bot')} ${escapeHtml(assistant.name)}</b><span>${escapeHtml(assistant.description || assistant.model || 'custom instructions')}</span>`;
     item.addEventListener('click', () => { AI.asstSelected = assistant.id; renderAssistantList(); renderAssistantDetail(); });
     list.append(item);
   });
+  refreshIcons(list);
 }
 
 function renderAssistantDetail() {
@@ -1455,9 +1617,116 @@ async function openUsage() {
   } catch (err) { body.innerHTML = `<p class="ai-fine">${escapeHtml(err.message)}</p>`; }
 }
 
+/* ------------------------------ personal MCP ---------------------------- */
+
+async function loadUserConfig() {
+  try {
+    const data = await api('/api/ai/user-config');
+    if (data?.config) AI.userConfig = data.config;
+    syncControls();
+    return AI.userConfig;
+  } catch (err) {
+    hint(err.message, true);
+    return AI.userConfig;
+  }
+}
+
+function mcpServerRow(server, personal) {
+  const row = document.createElement('div');
+  row.className = 'ai-mcp-item';
+  row.innerHTML = `${icon(personal ? 'server' : 'cloud')}
+    <span class="ai-mcp-item-copy"><b>${escapeHtml(server.name)}</b><span>${escapeHtml(personal ? server.url : 'Shared by an administrator')}${personal && server.hasToken ? ' · token saved' : ''}</span><em>${server.enabled ? 'enabled' : 'disabled'}</em></span>`;
+  if (!personal) return row;
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.checked = server.enabled !== false;
+  toggle.title = 'Enable this server';
+  toggle.setAttribute('aria-label', `Enable ${server.name}`);
+  toggle.addEventListener('change', () => savePersonalMcp((AI.userConfig.mcpServers || []).map((entry) => entry.id === server.id ? { ...entry, enabled: toggle.checked } : entry)));
+  const test = document.createElement('button');
+  test.type = 'button'; test.textContent = 'Test';
+  test.addEventListener('click', async () => {
+    test.disabled = true; test.textContent = 'Testing…';
+    try {
+      const data = await api('/api/ai/user-config/test-mcp', { method: 'POST', body: JSON.stringify({ id: server.id }) });
+      test.textContent = `${data.tools.length} tools`;
+    } catch (err) { test.textContent = 'Failed'; hint(err.message, true); }
+    finally { test.disabled = false; }
+  });
+  const remove = document.createElement('button');
+  remove.type = 'button'; remove.innerHTML = icon('trash-2'); remove.title = 'Remove server'; remove.setAttribute('aria-label', `Remove ${server.name}`);
+  remove.addEventListener('click', () => savePersonalMcp((AI.userConfig.mcpServers || []).filter((entry) => entry.id !== server.id)));
+  row.append(toggle, test, remove);
+  return row;
+}
+
+function renderMcpDialog() {
+  const globalList = $('#ai-mcp-global');
+  const personalList = $('#ai-mcp-list');
+  if (!globalList || !personalList) return;
+  const globals = AI.userConfig?.globalMcpServers || [];
+  const personal = AI.userConfig?.mcpServers || [];
+  globalList.innerHTML = '';
+  if (globals.length) {
+    const title = document.createElement('div'); title.className = 'ai-mcp-section-title'; title.textContent = 'Shared servers';
+    globalList.append(title, ...globals.map((server) => mcpServerRow(server, false)));
+  }
+  personalList.innerHTML = '';
+  const title = document.createElement('div'); title.className = 'ai-mcp-section-title'; title.textContent = 'Your servers';
+  personalList.append(title);
+  if (!personal.length) {
+    const empty = document.createElement('p'); empty.className = 'ai-fine'; empty.textContent = 'No personal servers yet. Add an MCP endpoint below.';
+    personalList.append(empty);
+  } else {
+    personalList.append(...personal.map((server) => mcpServerRow(server, true)));
+  }
+  refreshIcons(personalList);
+  refreshIcons(globalList);
+  syncControls();
+}
+
+async function savePersonalMcp(servers) {
+  const status = $('#ai-mcp-status');
+  if (status) status.textContent = 'Saving…';
+  try {
+    const data = await api('/api/ai/user-config', {
+      method: 'PUT',
+      body: JSON.stringify({ mcpServers: servers.map((server) => ({ id: server.id, name: server.name, url: server.url, token: server.token || undefined, enabled: server.enabled !== false })) }),
+    });
+    AI.userConfig = data.config;
+    renderMcpDialog();
+    if (status) status.textContent = 'Saved.';
+  } catch (err) {
+    if (status) status.textContent = err.message;
+    hint(err.message, true);
+  }
+}
+
+async function openMcpDialog() {
+  const dialog = $('#ai-mcp-dlg');
+  if (!dialog) return;
+  renderMcpDialog();
+  if (!dialog.open) dialog.showModal();
+  await loadUserConfig();
+  renderMcpDialog();
+}
+
 /* -------------------------------- sidebar ------------------------------- */
 
-function closeSidebar() { $('#ai-sidebar')?.classList.remove('is-open'); }
+function toggleSidebar() {
+  const sidebar = $('#ai-sidebar');
+  if (!sidebar) return;
+  const open = !sidebar.classList.contains('is-open');
+  sidebar.classList.toggle('is-open', open);
+  const scrim = $('#ai-sidebar-scrim');
+  if (scrim) scrim.hidden = !open;
+}
+
+function closeSidebar() {
+  $('#ai-sidebar')?.classList.remove('is-open');
+  const scrim = $('#ai-sidebar-scrim');
+  if (scrim) scrim.hidden = true;
+}
 
 /* --------------------------------- events ------------------------------- */
 
@@ -1467,6 +1736,7 @@ function bindEvents() {
   const form = $('#ai-form');
 
   document.addEventListener('click', (event) => {
+    if (!event.target.closest('.ai-dd')) closeDropdowns();
     const menu = $('#ai-convo-menu');
     if (menu && !menu.hidden && !event.target.closest('#ai-convo-menu') && !event.target.closest('.ai-convo-more')) menu.hidden = true;
     const action = event.target.closest('[data-ai]');
@@ -1479,7 +1749,7 @@ function bindEvents() {
       api('/api/ai/folders', { method: 'POST', body: JSON.stringify({ name: folderName.trim() }) })
         .then((data) => { AI.folders.push(data.folder); renderSidebar(); })
         .catch((err) => hint(err.message, true));
-    } else if (name === 'toggle-side') $('#ai-sidebar')?.classList.toggle('is-open');
+    } else if (name === 'toggle-side') toggleSidebar();
     else if (name === 'toggle-tools') { AI.useTools = !AI.useTools; syncControls(); }
     else if (name === 'toggle-web') { AI.useWeb = !AI.useWeb; syncControls(); }
     else if (name === 'attach') $('#ai-file-input')?.click();
@@ -1487,6 +1757,7 @@ function bindEvents() {
     else if (name === 'open-image') openImageDialog();
     else if (name === 'open-knowledge') { refreshKnowledge().then(openKnowledgeDialog); }
     else if (name === 'open-assistants') openAssistantDialog();
+    else if (name === 'open-mcp') openMcpDialog();
     else if (name === 'open-usage') openUsage();
   });
 
@@ -1506,6 +1777,15 @@ function bindEvents() {
   }
 
   $('#ai-stop')?.addEventListener('click', () => { AI.controller?.abort(); });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { closeDropdowns(); closeSidebar(); }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      newChat();
+      $('#ai-input')?.focus();
+    }
+  });
 
   $('#ai-file-input')?.addEventListener('change', async (event) => {
     const files = event.target.files;
@@ -1536,11 +1816,15 @@ function bindEvents() {
 
   $('#ai-model')?.addEventListener('change', (event) => {
     AI.model = event.target.value;
+    syncControls();
     if (AI.activeId) {
       api(`/api/ai/conversations/${AI.activeId}`, { method: 'PATCH', body: JSON.stringify({ model: AI.model }) })
         .then((data) => mergeConversation(data.conversation)).catch(() => {});
     }
   });
+
+  $('#ai-thinking')?.addEventListener('change', (event) => savePreference('thinking', event.target.value));
+  $('#ai-effort')?.addEventListener('change', (event) => savePreference('effort', event.target.value));
 
   $('#ai-assistant')?.addEventListener('change', async (event) => {
     AI.assistantId = event.target.value;
@@ -1579,11 +1863,25 @@ function bindEvents() {
 
   $('#ai-image-run')?.addEventListener('click', generateImage);
 
+  $('#ai-mcp-add')?.addEventListener('click', async () => {
+    const name = $('#ai-mcp-name')?.value.trim();
+    const url = $('#ai-mcp-url')?.value.trim();
+    const token = $('#ai-mcp-token')?.value || '';
+    const status = $('#ai-mcp-status');
+    if (!name || !url) { if (status) status.textContent = 'Name and endpoint URL are required.'; return; }
+    await savePersonalMcp([...(AI.userConfig.mcpServers || []), { name, url, token, enabled: true }]);
+    if ($('#ai-mcp-status')?.textContent === 'Saved.') {
+      $('#ai-mcp-name').value = ''; $('#ai-mcp-url').value = ''; $('#ai-mcp-token').value = '';
+    }
+  });
+
   // Auto-select a sane provider/model on first load.
   const conv = currentConvo();
   AI.providerId = conv?.providerId || AI.ai.defaultProviderId || AI.providers.find((p) => p.hasKey)?.id || AI.providers[0]?.id || '';
   AI.model = conv?.model || AI.ai.defaultModel || '';
   AI.assistantId = conv?.assistantId || '';
+  AI.thinking = conv?.thinking || AI.userConfig?.thinking || 'auto';
+  AI.effort = conv?.effort || AI.userConfig?.effort || 'auto';
   renderProviderOptions();
   const initialModels = (AI.providers.find((p) => p.id === AI.providerId)?.models || []);
   AI.models = initialModels;
@@ -1594,6 +1892,7 @@ function bindEvents() {
 }
 
 async function init() {
+  enhanceSelects();
   bindEvents();
   renderSidebar();
   if (AI.activeId) {

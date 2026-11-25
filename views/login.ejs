@@ -1,6 +1,6 @@
 <%- include('partials/head', { title: 'Sign in', shellClass: 'auth' }) %>
-<section class="auth-aside">
-  <div>
+<section class="auth-aside bg-gradient-to-br from-panel via-canvas to-canvas">
+  <div class="max-w-[480px]">
     <div class="eyebrow">Sign in</div>
     <h1 class="auth-statement">Everything you uploaded, <em>in one place.</em></h1>
     <div class="auth-points">
@@ -13,8 +13,8 @@
 </section>
 
 <section class="auth-main">
-  <div class="auth-card">
-    <h2 style="font-size:20px">Sign in</h2>
+  <div class="auth-card rounded-2xl shadow-float">
+    <h2 class="text-[22px] tracking-[-0.04em]">Sign in</h2>
     <p class="hint" style="margin:7px 0 22px">
       <% if (allowPublicSignup) { %>
         New here? <a href="/register" style="color:var(--accent)">Create an account</a>.
@@ -34,7 +34,7 @@
         <label class="label" for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required />
       </div>
-      <button class="btn btn-block" type="submit">Sign in</button>
+      <button class="btn btn-block h-11 rounded-xl" type="submit">Sign in</button>
     </form>
   </div>
 </section>

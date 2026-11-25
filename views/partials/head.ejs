@@ -7,6 +7,7 @@
   <title><%= (typeof title !== 'undefined' && title ? title + ' · ' : '') + theme.siteName %></title>
   <link rel="icon" href="/public/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/public/theme.css" />
+  <link rel="stylesheet" href="/public/tailwind.css" />
   <style>
     :root {
       --accent: <%= theme.accent %>;
@@ -21,24 +22,24 @@
 <% if (!appChrome) { %>
 <header class="topbar">
   <div class="topbar-in">
-    <a class="brand" href="/">
-      <span class="brand-mark">C</span>
-      <span class="brand-name"><%= theme.siteName %></span>
+    <a class="brand group" href="/">
+      <span class="brand-mark bg-gradient-to-br from-accent to-orange-500 shadow-lg shadow-accent/20">C</span>
+      <span class="brand-name transition-colors group-hover:text-white"><%= theme.siteName %></span>
     </a>
     <% const currentPath = typeof path !== 'undefined' ? path : ''; %>
-    <nav class="nav">
+    <nav class="nav gap-1">
       <% if (user) { %>
-        <a href="/" class="<%= currentPath === '/' ? 'is-active' : '' %>">Files</a>
-        <a href="/create" class="<%= currentPath.startsWith('/create') ? 'is-active' : '' %>">Create</a>
-        <a href="/search" class="<%= currentPath === '/search' ? 'is-active' : '' %>">Search</a>
-        <a href="/ai" class="<%= currentPath.startsWith('/ai') ? 'is-active' : '' %>">AI</a>
+        <a href="/" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath === '/' ? 'is-active' : '' %>">Files</a>
+        <a href="/create" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath.startsWith('/create') ? 'is-active' : '' %>">Create</a>
+        <a href="/search" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath === '/search' ? 'is-active' : '' %>">Search</a>
+        <a href="/ai" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath.startsWith('/ai') ? 'is-active' : '' %>">AI</a>
         <% if (user.role === 'admin') { %>
-          <a href="/admin" class="<%= currentPath.startsWith('/admin') ? 'is-active' : '' %>">Admin</a>
+          <a href="/admin" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath.startsWith('/admin') ? 'is-active' : '' %>">Admin</a>
         <% } %>
       <% } else { %>
-        <a href="/login" class="<%= currentPath === '/login' ? 'is-active' : '' %>">Sign in</a>
+        <a href="/login" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath === '/login' ? 'is-active' : '' %>">Sign in</a>
       <% } %>
-      <a href="/docs" class="<%= currentPath === '/docs' ? 'is-active' : '' %>">Docs</a>
+      <a href="/docs" class="after:hidden rounded-lg px-3 py-1.5 <%= currentPath === '/docs' ? 'is-active' : '' %>">Docs</a>
     </nav>
     <div class="topbar-right">
       <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light theme" title="Toggle light or dark theme" aria-pressed="false">
@@ -49,7 +50,7 @@
         <a class="theme-toggle account-link" href="/settings" aria-label="Account settings" title="Account settings">
           <svg class="theme-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </a>
-        <a class="user-chip" href="/settings" title="Account settings"><%= user.username %><i>/</i><%= user.role %></a>
+        <a class="user-chip rounded-full" href="/settings" title="Account settings"><%= user.username %><i>/</i><%= user.role %></a>
         <form method="post" action="/logout"><button class="btn btn-quiet btn-sm" type="submit">Sign out</button></form>
       <% } %>
     </div>

@@ -7,9 +7,9 @@ import express from 'express';
 import multer from 'multer';
 import { nanoid } from 'nanoid';
 import { Op } from 'sequelize';
-import { AiAssistant, AiConversation, AiFolder, AiKnowledge, AiKnowledgeDoc, AiMessage, AiUsage } from './models.js';
+import { AiAssistant, AiConversation, AiFolder, AiKnowledge, AiKnowledgeDoc, AiMessage, AiUsage, AiUserConfig } from './models.js';
 import { getSettings, User } from '../db.js';
-import { findProvider, publicAiSettings, resolveApiKey } from './config.js';
+import { findProvider, normalizeEffort, normalizeMcpServers, normalizeThinking, publicAiSettings, publicUserConfig, resolveApiKey } from './config.js';
 import { discoverModels, editImage, generateImages, searchWeb, streamChat, synthesizeSpeech } from './providers.js';
 import { allToolSpecs, executeTool, isDestructiveTool, listExternalTools } from './tools.js';
 import { attachmentParts, extractAttachmentText, loadAttachment, partsToContent } from './attachments.js';
@@ -106,6 +106,8 @@ function conversationJson(conversation, extra = {}) {
     model: conversation.model,
     pinned: conversation.pinned,
     archived: conversation.archived,
+    thinking: normalizeThinking(conversation.meta?.thinking),
+    effort: normalizeEffort(conversation.meta?.effort),
     activeLeafId: conversation.activeLeafId,
     lastMessageAt: conversation.lastMessageAt,
     createdAt: conversation.createdAt,
@@ -130,6 +132,44 @@ async function recordUsage({ userId, conversationId, messageId, providerId, mode
   const completionTokens = Number(usage?.completionTokens) || 0;
   const totalTokens = Number(usage?.totalTokens) || promptTokens + completionTokens;
   await AiUsage.create({ userId, conversationId, messageId, providerId, model, kind, promptTokens, completionTokens, totalTokens });
+}
+
+async function userConfigFor(userId) {
+  const [row] = await AiUserConfig.findOrCreate({
+    where: { ownerId: userId },
+    defaults: { ownerId: userId, mcpServers: [], thinking: 'auto', effort: 'auto' },
+  });
+  return row;
+}
+
+function mergedMcpServers(globalServers, personalConfig) {
+  const rows = [];
+  const seen = new Set();
+  for (const server of globalServers || []) {
+    if (!server?.id || seen.has(server.id)) continue;
+    seen.add(server.id);
+    rows.push({ ...server, scope: 'global' });
+  }
+  for (const server of personalConfig?.mcpServers || []) {
+    if (!server?.id || seen.has(server.id)) continue;
+    seen.add(server.id);
+    rows.push({ ...server, scope: 'personal' });
+  }
+  return rows;
+}
+
+function userConfigJson(settingsAi, config) {
+  return {
+    ...publicUserConfig(config),
+    globalMcpServers: (settingsAi.mcpServers || []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      enabled: server.enabled !== false,
+      hasToken: !!server.token,
+      scope: 'global',
+    })),
+    limits: settingsAi.limits,
+  };
 }
 
 async function resolvedProvider(settings, requestedId) {
@@ -216,7 +256,7 @@ async function buildHistory(conversation, parentId) {
   return out;
 }
 
-async function streamAssistant({ response, req, user, conversation, assistant, provider, model, messages, tools, temperature, maxTokens, settings, message, approvals = new Set(), carriedCalls = [] }) {
+async function streamAssistant({ response, req, user, conversation, assistant, provider, model, messages, tools, temperature, maxTokens, settings, message, thinking = 'auto', effort = 'auto', approvals = new Set(), carriedCalls = [] }) {
   const send = response.send;
   // Keep calls that were already resolved (for example a declined destructive
   // tool) so the transcript still shows what the user decided.
@@ -229,8 +269,13 @@ async function streamAssistant({ response, req, user, conversation, assistant, p
 
   const persist = async (patch = {}) => {
     Object.assign(message, patch);
-    message.toolCalls = usedCalls;
-    message.usage = usage;
+    // Sequelize does not reliably detect in-place JSON mutations. Force both
+    // JSON fields onto the changed list so token usage and tool cards survive
+    // the next read instead of reverting to their initial empty values.
+    message.setDataValue('toolCalls', usedCalls.map((call) => ({ ...call })));
+    message.setDataValue('usage', { ...usage });
+    message.changed('toolCalls', true);
+    message.changed('usage', true);
     await message.save();
   };
 
@@ -242,6 +287,8 @@ async function streamAssistant({ response, req, user, conversation, assistant, p
       tools: tools?.length ? tools : null,
       temperature,
       maxTokens: maxTokens || settings.ai.limits.maxTokens,
+      thinking,
+      effort,
     });
     let turnText = '';
     const calls = [];
@@ -318,11 +365,12 @@ export function createAiRouter() {
   router.get('/ai', wrap(async (req, res) => {
     if (!req.user) return res.redirect('/login');
     const settings = await getSettings();
-    const [conversations, folders, assistants, knowledge] = await Promise.all([
+    const [conversations, folders, assistants, knowledge, userConfig] = await Promise.all([
       AiConversation.findAll({ where: { ownerId: req.user.id, archived: false }, order: [['pinned', 'DESC'], ['lastMessageAt', 'DESC'], ['updatedAt', 'DESC']], limit: 80 }),
       AiFolder.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiAssistant.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiKnowledge.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
+      userConfigFor(req.user.id),
     ]);
     res.render('ai', {
       ai: publicAiSettings(settings.ai),
@@ -330,6 +378,7 @@ export function createAiRouter() {
       folders,
       assistants,
       knowledge,
+      userConfig: userConfigJson(settings.ai, userConfig),
       activeId: null,
       dailyTokens: await todayUsage(req.user.id),
     });
@@ -340,11 +389,12 @@ export function createAiRouter() {
     const conversation = await AiConversation.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
     if (!conversation) return res.status(404).render('error', { message: 'Conversation not found.', status: 404 });
     const settings = await getSettings();
-    const [conversations, folders, assistants, knowledge] = await Promise.all([
+    const [conversations, folders, assistants, knowledge, userConfig] = await Promise.all([
       AiConversation.findAll({ where: { ownerId: req.user.id, archived: false }, order: [['pinned', 'DESC'], ['lastMessageAt', 'DESC'], ['updatedAt', 'DESC']], limit: 80 }),
       AiFolder.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiAssistant.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiKnowledge.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
+      userConfigFor(req.user.id),
     ]);
     res.render('ai', {
       ai: publicAiSettings(settings.ai),
@@ -352,6 +402,7 @@ export function createAiRouter() {
       folders,
       assistants,
       knowledge,
+      userConfig: userConfigJson(settings.ai, userConfig),
       activeId: conversation.id,
       dailyTokens: await todayUsage(req.user.id),
     });
@@ -361,14 +412,16 @@ export function createAiRouter() {
 
   router.get('/api/ai/bootstrap', requireUser, wrap(async (req, res) => {
     const settings = await getSettings();
-    const [folders, assistants, knowledge, conversations] = await Promise.all([
+    const [folders, assistants, knowledge, conversations, userConfig] = await Promise.all([
       AiFolder.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiAssistant.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiKnowledge.findAll({ where: { ownerId: req.user.id }, order: [['createdAt', 'ASC']] }),
       AiConversation.findAll({ where: { ownerId: req.user.id, archived: false }, order: [['pinned', 'DESC'], ['lastMessageAt', 'DESC'], ['updatedAt', 'DESC']], limit: 200 }),
+      userConfigFor(req.user.id),
     ]);
     res.json({
       ai: publicAiSettings(settings.ai),
+      userConfig: userConfigJson(settings.ai, userConfig),
       folders,
       assistants,
       knowledge,
@@ -383,6 +436,58 @@ export function createAiRouter() {
     if (!provider) return res.status(400).json({ error: 'no provider configured' });
     const models = await modelsFor(provider);
     res.json({ providerId: provider.id, models });
+  }));
+
+  /* --------------------------- personal settings ------------------------- */
+
+  router.get('/api/ai/user-config', requireUser, wrap(async (req, res) => {
+    const settings = await getSettings();
+    const config = await userConfigFor(req.user.id);
+    res.json({ config: userConfigJson(settings.ai, config) });
+  }));
+
+  router.put('/api/ai/user-config', requireUser, wrap(async (req, res) => {
+    const settings = await getSettings();
+    const config = await userConfigFor(req.user.id);
+    const body = req.body || {};
+    if ('thinking' in body) config.thinking = normalizeThinking(body.thinking);
+    if ('effort' in body) config.effort = normalizeEffort(body.effort);
+    if (Array.isArray(body.mcpServers)) {
+      const existing = new Map((config.mcpServers || []).map((server) => [server.id, server]));
+      const incoming = [];
+      const seen = new Set();
+      for (const entry of body.mcpServers.slice(0, 8)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const id = String(entry.id || '').startsWith('personal-')
+          ? String(entry.id).slice(0, 48)
+          : `personal-${nanoid(6)}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const old = existing.get(id);
+        incoming.push({
+          id,
+          name: entry.name,
+          url: entry.url,
+          token: entry.token ? String(entry.token) : (old?.token || ''),
+          enabled: entry.enabled !== false,
+        });
+      }
+      config.mcpServers = normalizeMcpServers(incoming, 8);
+    }
+    await config.save();
+    res.json({ config: userConfigJson(settings.ai, config) });
+  }));
+
+  router.post('/api/ai/user-config/test-mcp', requireUser, wrap(async (req, res) => {
+    const config = await userConfigFor(req.user.id);
+    const server = (config.mcpServers || []).find((entry) => entry.id === String(req.body?.id || ''));
+    if (!server) return res.status(404).json({ error: 'personal MCP server not found' });
+    try {
+      const tools = await listExternalTools(server);
+      res.json({ ok: true, name: server.name, tools: tools.map((tool) => ({ name: tool.originalName, description: tool.description })) });
+    } catch (err) {
+      res.status(400).json({ error: `MCP ${server.name}: ${err.message}` });
+    }
   }));
 
   /* ------------------------------ conversations -------------------------- */
@@ -406,6 +511,7 @@ export function createAiRouter() {
       assistantId: body.assistantId ? String(body.assistantId) : null,
       providerId: body.providerId ? String(body.providerId) : null,
       model: body.model ? String(body.model) : null,
+      meta: { thinking: normalizeThinking(body.thinking), effort: normalizeEffort(body.effort) },
       lastMessageAt: new Date(),
     });
     res.status(201).json({ conversation: conversationJson(conversation) });
@@ -434,6 +540,13 @@ export function createAiRouter() {
     if ('assistantId' in body) patch.assistantId = body.assistantId ? String(body.assistantId) : null;
     if ('providerId' in body) patch.providerId = body.providerId ? String(body.providerId) : null;
     if ('model' in body) patch.model = body.model ? String(body.model) : null;
+    if ('thinking' in body || 'effort' in body) {
+      patch.meta = {
+        ...(conversation.meta || {}),
+        ...('thinking' in body ? { thinking: normalizeThinking(body.thinking) } : {}),
+        ...('effort' in body ? { effort: normalizeEffort(body.effort) } : {}),
+      };
+    }
     await conversation.update(patch);
     res.json({ conversation: conversationJson(conversation) });
   }));
@@ -483,8 +596,11 @@ export function createAiRouter() {
     const settings = await getSettings();
     if (!settings.ai.enabled) return res.status(403).json({ error: 'Cascade AI is disabled by an administrator' });
     const body = req.body || {};
+    const personal = await userConfigFor(req.user.id);
     const conversation = body.conversationId ? await ownConversation(body.conversationId, req.user.id, res) : null;
     if (body.conversationId && !conversation) return;
+    const thinking = normalizeThinking(body.thinking ?? conversation?.meta?.thinking ?? personal.thinking);
+    const effort = normalizeEffort(body.effort ?? conversation?.meta?.effort ?? personal.effort);
 
     const requestedProvider = await resolvedProvider(settings.ai, body.providerId || conversation?.providerId);
     if (!requestedProvider) return res.status(400).json({ error: 'No AI provider is configured. An administrator can add one in Admin → Cascade AI.' });
@@ -541,8 +657,15 @@ export function createAiRouter() {
         assistantId: assistant?.id || null,
         providerId: requestedProvider.id,
         model,
+        meta: { ...(conversation?.meta || {}), thinking, effort },
         lastMessageAt: new Date(),
       });
+    } else {
+      const nextMeta = { ...(activeConversation.meta || {}), thinking, effort };
+      if (JSON.stringify(nextMeta) !== JSON.stringify(activeConversation.meta || {})) {
+        activeConversation.meta = nextMeta;
+        await activeConversation.save();
+      }
     }
     const messageCount = await AiMessage.count({ where: { conversationId: activeConversation.id } });
     if (messageCount >= settings.ai.limits.maxMessagesPerConversation) {
@@ -610,13 +733,12 @@ export function createAiRouter() {
         modelMessages.push({ role: 'user', content: partsToContent(text, parts) });
       }
 
+      const toolSettings = { ...settings.ai, mcpServers: mergedMcpServers(settings.ai.mcpServers, personal) };
       let tools = null;
-      if (settings.ai.mcpServers?.length && body.useTools !== false) {
-        const resolved = await allToolSpecs(settings.ai);
+      if (body.useTools !== false) {
+        const resolved = await allToolSpecs(toolSettings);
         tools = resolved.specs;
         if (resolved.failures.length) response.send({ type: 'notice', message: `MCP: ${resolved.failures.join('; ')}` });
-      } else if (body.useTools !== false) {
-        tools = (await allToolSpecs({ ...settings.ai, mcpServers: [] })).specs;
       }
 
       const assistantMessage = await AiMessage.create({
@@ -628,7 +750,7 @@ export function createAiRouter() {
         providerId: requestedProvider.id,
         model,
         status: 'streaming',
-        meta: { knowledgeIds, useWeb: !!body.useWeb },
+        meta: { knowledgeIds, useWeb: !!body.useWeb, thinking, effort },
       });
       activeConversation.activeLeafId = assistantMessage.id;
       activeConversation.lastMessageAt = new Date();
@@ -647,8 +769,10 @@ export function createAiRouter() {
         tools,
         temperature: assistant?.temperature,
         maxTokens: settings.ai.limits.maxTokens,
-        settings,
+        settings: { ...settings, ai: toolSettings },
         message: assistantMessage,
+        thinking,
+        effort,
       });
       response.send({
         type: 'done',
@@ -670,6 +794,8 @@ export function createAiRouter() {
     if (!message || message.role !== 'assistant' || message.status !== 'pending') return res.status(400).json({ error: 'no pending tool confirmation' });
     const conversation = await ownConversation(message.conversationId, req.user.id, res);
     if (!conversation) return;
+    const personal = await userConfigFor(req.user.id);
+    const toolSettings = { ...settings.ai, mcpServers: mergedMcpServers(settings.ai.mcpServers, personal) };
     const approvals = new Set((body.approvals || []).map(String));
     const calls = message.toolCalls || [];
     const provider = await resolvedProvider(settings.ai, message.providerId || conversation.providerId);
@@ -693,7 +819,7 @@ export function createAiRouter() {
           response.send({ type: 'tool_start', id: call.id, name: call.name, arguments: call.arguments });
           let result;
           try {
-            result = await executeTool(settings.ai, req.user, call.name, call.arguments, req);
+            result = await executeTool(toolSettings, req.user, call.name, call.arguments, req);
           } catch (err) {
             result = { text: `Tool failed: ${err.message}`, data: null, isError: true, server: '' };
           }
@@ -711,7 +837,7 @@ export function createAiRouter() {
         }
       }
       await message.update({ toolCalls: calls, status: 'streaming' });
-      const tools = (await allToolSpecs(settings.ai)).specs;
+      const tools = (await allToolSpecs(toolSettings)).specs;
       const result = await streamAssistant({
         response,
         req,
@@ -723,8 +849,10 @@ export function createAiRouter() {
         messages: modelMessages,
         tools,
         maxTokens: settings.ai.limits.maxTokens,
-        settings,
+        settings: { ...settings, ai: toolSettings },
         message,
+        thinking: normalizeThinking(message.meta?.thinking ?? conversation.meta?.thinking),
+        effort: normalizeEffort(message.meta?.effort ?? conversation.meta?.effort),
         approvals,
         carriedCalls: calls,
       });

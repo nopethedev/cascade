@@ -9,6 +9,8 @@ const OLLAMA_BASE = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
 const PROVIDER_TYPES = new Set(['openai', 'compatible', 'ollama']);
 const SEARCH_PROVIDERS = new Set(['none', 'searxng', 'tavily']);
+export const THINKING_MODES = new Set(['auto', 'on', 'off']);
+export const EFFORT_LEVELS = new Set(['auto', 'low', 'medium', 'high']);
 
 function text(value, max = 500) {
   return String(value ?? '').trim().slice(0, max);
@@ -62,6 +64,52 @@ function normalizeProvider(provider, index) {
     enabled: provider.enabled !== false,
     discovery: provider.discovery !== false,
     models,
+  };
+}
+
+export function normalizeThinking(value) {
+  const mode = text(value, 8).toLowerCase();
+  return THINKING_MODES.has(mode) ? mode : 'auto';
+}
+
+export function normalizeEffort(value) {
+  const level = text(value, 8).toLowerCase();
+  return EFFORT_LEVELS.has(level) ? level : 'auto';
+}
+
+/* MCP servers are configured globally by an administrator and, separately, by
+ * each user. Keeping one normalizer means personal tokens obey the same URL and
+ * length limits as the shared configuration. */
+export function normalizeMcpServers(raw, limit = 8) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((server, index) => {
+      if (!server || typeof server !== 'object') return null;
+      const url = normalizeBaseUrl(server.url);
+      if (!url) return null;
+      return {
+        id: text(server.id, 48) || `mcp-${index + 1}`,
+        name: text(server.name || `MCP ${index + 1}`, 80),
+        url,
+        token: text(server.token, 500),
+        enabled: server.enabled !== false,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, Math.max(1, limit));
+}
+
+export function publicUserConfig(config) {
+  return {
+    thinking: normalizeThinking(config?.thinking),
+    effort: normalizeEffort(config?.effort),
+    mcpServers: (config?.mcpServers || []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      url: server.url,
+      enabled: server.enabled !== false,
+      hasToken: !!server.token,
+      scope: 'personal',
+    })),
   };
 }
 
@@ -184,21 +232,7 @@ export function normalizeAiSettings(raw) {
       maxKnowledgeDocuments: int(limits.maxKnowledgeDocuments, 200, 1, 5000),
       maxToolIterations: int(limits.maxToolIterations, 6, 1, 12),
     },
-    mcpServers: (Array.isArray(input.mcpServers) ? input.mcpServers : [])
-      .map((server, index) => {
-        if (!server || typeof server !== 'object') return null;
-        const url = normalizeBaseUrl(server.url);
-        if (!url) return null;
-        return {
-          id: text(server.id, 48) || `mcp-${index + 1}`,
-          name: text(server.name || `MCP ${index + 1}`, 80),
-          url,
-          token: text(server.token, 500),
-          enabled: server.enabled !== false,
-        };
-      })
-      .filter(Boolean)
-      .slice(0, 8),
+    mcpServers: normalizeMcpServers(input.mcpServers, 8),
     confirmDestructive: input.confirmDestructive !== false,
   };
 }
