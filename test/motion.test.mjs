@@ -4,10 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  normalizeProject, applyEdits, defaultTrack, wordsToCues, formatSrt,
-  TRANSITIONS, SUBTITLE_STYLES, EFFECTS, COLOR_PRESETS, MOTION_TEMPLATES,
+  normalizeProject, applyEdit, applyEdits, defaultTrack, wordsToCues, formatSrt, parseSrt,
+  seconds, animatedTransform, snapTime,
+  TRANSITIONS, SUBTITLE_STYLES, EFFECTS, COLOR_PRESETS, MOTION_TEMPLATES, EXPORT_PRESETS,
 } from '../public/motion/schema.mjs';
-import { buildAss, buildFilterScript, resolveExportSettings, validateExport } from '../src/motion/filtergraph.js';
+import {
+  buildAss, buildCommand, buildFilterScript, resolveExportSettings, validateExport,
+} from '../src/motion/filtergraph.js';
 
 function fixture() {
   return normalizeProject({
@@ -86,6 +89,141 @@ test('caption text becomes timed SRT cues', () => {
   const srt = formatSrt(cues);
   assert.match(srt, /00:00:00,000 --> /);
   assert.match(srt, /Hello world\./);
+});
+
+function mediaFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cascade-motion-media-'));
+  const file = path.join(dir, 'source.mp4');
+  fs.writeFileSync(file, Buffer.alloc(256));
+  return { dir, file, assets: [{ id: 'asset-a', kind: 'video', meta: { width: 640, height: 360, duration: 3, hasAudio: true } }], paths: { 'asset-a': file } };
+}
+
+test('audio-only exports map no video stream and never embed a cover frame', () => {
+  const project = applyEdits(fixture(), [
+    { op: 'add_clip', clip: { id: 'clip-a', trackId: 'v1', type: 'video', assetId: 'asset-a', start: 0, duration: 2_000_000 } },
+  ]);
+  const media = mediaFixture();
+  try {
+    const audio = buildCommand(project, media.assets, media.paths, { capabilities: { encoders: ['libx264', 'libmp3lame', 'aac'], subtitles: true } }, {
+      exportSettings: { container: 'mp3', audioCodec: 'libmp3lame', videoCodec: null, width: 0, height: 0, fps: 0 },
+      outputPath: path.join(media.dir, 'audio.mp3'), jobDir: media.dir, warnings: [],
+    });
+    const maps = audio.args.reduce((acc, arg, i) => (arg === '-map' ? [...acc, audio.args[i + 1]] : acc), []);
+    assert.deepEqual(maps, ['[aout]'], 'audio exports must not map a video stream');
+    assert.equal(audio.exportSettings.videoCodec, null);
+    assert.ok(audio.args.includes('-vn'));
+
+    const video = buildCommand(project, media.assets, media.paths, { capabilities: { encoders: ['libx264', 'aac'], subtitles: true } }, {
+      exportSettings: { container: 'mp4', audioCodec: 'aac', videoCodec: 'libx264', width: 640, height: 360, fps: 30, crf: 28 },
+      outputPath: path.join(media.dir, 'video.mp4'), jobDir: media.dir, warnings: [],
+    });
+    const videoMaps = video.args.reduce((acc, arg, i) => (arg === '-map' ? [...acc, video.args[i + 1]] : acc), []);
+    assert.equal(videoMaps.length, 2);
+    assert.match(videoMaps[0], /^\[vout(_scaled)?\]$/);
+    assert.equal(videoMaps[1], '[aout]');
+  } finally {
+    fs.rmSync(media.dir, { recursive: true, force: true });
+  }
+});
+
+test('every transition preset plans a real clip without throwing', () => {
+  const media = mediaFixture();
+  try {
+    for (const preset of TRANSITIONS) {
+      const project = applyEdits(fixture(), [
+        { op: 'add_clip', clip: { id: 'clip-a', trackId: 'v1', type: 'video', assetId: 'asset-a', start: 0, duration: 2_000_000 } },
+      ]);
+      const withTransition = applyEdit(project, { op: 'add_transition', clipId: 'clip-a', type: preset.id, side: 'in', duration: 400_000 });
+      const plan = buildFilterScript(withTransition, media.assets, media.paths, { warnings: [], jobDir: media.dir });
+      assert.ok(plan.filterScript.includes('overlay'), `${preset.id} must still composite the clip`);
+      assert.equal(plan.duration, 2);
+    }
+  } finally {
+    fs.rmSync(media.dir, { recursive: true, force: true });
+  }
+});
+
+test('every effect preset can be added and planned, with unknowns rejected', () => {
+  const media = mediaFixture();
+  try {
+    for (const preset of EFFECTS) {
+      const project = applyEdits(fixture(), [
+        { op: 'add_clip', clip: { id: 'clip-a', trackId: 'v1', type: 'video', assetId: 'asset-a', start: 0, duration: 2_000_000 } },
+        { op: 'add_effect', clipId: 'clip-a', type: preset.id },
+      ]);
+      const warnings = [];
+      buildFilterScript(project, media.assets, media.paths, { warnings, jobDir: media.dir });
+      assert.ok(Array.isArray(warnings));
+    }
+    assert.throws(() => applyEdits(fixture(), [{ op: 'add_effect', clipId: 'nope', type: 'not-an-effect' }]), /target not found|unknown effect/);
+  } finally {
+    fs.rmSync(media.dir, { recursive: true, force: true });
+  }
+});
+
+test('every motion template becomes an editable title clip', () => {
+  for (const template of MOTION_TEMPLATES) {
+    const project = applyEdits(fixture(), [
+      { op: 'add_text', id: `tpl-${template.id}`, trackId: 't1', text: template.text, start: 0, duration: seconds(2), style: template.style },
+    ]);
+    const clip = project.clips.find((c) => c.id === `tpl-${template.id}`);
+    assert.ok(clip, `${template.id} should create a text clip`);
+    assert.ok(clip.text.content.length > 0);
+  }
+});
+
+test('every export preset resolves to a container/codec pair it can actually store', () => {
+  const project = { width: 1920, height: 1080, fps: 30, channels: 2 };
+  const caps = { encoders: ['libx264', 'libx265', 'libvpx-vp9', 'libaom-av1', 'aac', 'libopus', 'libmp3lame', 'flac', 'pcm_s16le', 'eac3'] };
+  for (const preset of EXPORT_PRESETS) {
+    const resolved = resolveExportSettings({ preset: preset.id }, project);
+    const result = validateExport(resolved, caps);
+    assert.deepEqual(result.errors, [], `${preset.id}: ${result.errors.join(' ')}`);
+    assert.equal(resolved.container, preset.container);
+  }
+});
+
+test('ASS captions escape override syntax and SRT/ASS round-trip', () => {
+  const project = applyEdits(fixture(), [
+    { op: 'add_text', id: 'title-a', trackId: 't1', text: 'Hello {\\pos(0,0)} <b>world</b>', start: 0, duration: 1_000_000 },
+  ]);
+  const ass = buildAss(project, []);
+  const dialogue = ass.split('\n').filter((line) => line.startsWith('Dialogue:')).join('\n');
+  assert.doesNotMatch(dialogue, /\{\\pos\(0,0\)\}/, 'user braces must not become ASS override tags');
+  assert.match(dialogue, /Hello/);
+  assert.match(dialogue, /world/);
+
+  const cues = [{ start: 0, end: 1_500_000, text: 'one\\ntwo' }];
+  const srt = formatSrt(cues);
+  const parsed = parseSrt(srt);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].start, 0);
+  assert.equal(parsed[0].end, 1_500_000);
+  assert.match(parsed[0].text, /one/);
+});
+
+test('keyframes, transforms and snapping agree with export timing', () => {
+  const clip = normalizeProject({
+    clips: [{ id: 'c', trackId: 'v1', type: 'video', start: 0, duration: 4_000_000, keyframes: { opacity: [{ t: 0, value: 0 }, { t: 2_000_000, value: 1, easing: 'linear' }], x: [{ t: 0, value: -0.5 }, { t: 4_000_000, value: 0.5 }] } }],
+    tracks: [defaultTrack('video', { id: 'v1' })],
+  }).clips[0];
+  assert.equal(animatedTransform(clip, 0).opacity, 0);
+  assert.equal(animatedTransform(clip, 1_000_000).opacity, 0.5);
+  assert.equal(animatedTransform(clip, 3_000_000).x, 0.25);
+  const snapped = snapTime({ clips: [{ start: 1_000_000, duration: 1_000_000 }], markers: [] }, 1_030_000);
+  assert.equal(snapped, 1_000_000);
+});
+
+test('splitting honours speed when it advances the source in-point', () => {
+  const project = applyEdits(fixture(), [
+    { op: 'add_clip', clip: { id: 'fast', trackId: 'v1', type: 'video', assetId: 'asset-a', start: 1_000_000, duration: 4_000_000, inPoint: 2_000_000, speed: 2 } },
+  ]);
+  const split = applyEdit(project, { op: 'split_clip', clipId: 'fast', at: 3_000_000, newId: 'right' });
+  const left = split.clips.find((c) => c.id === 'fast');
+  const right = split.clips.find((c) => c.id === 'right');
+  assert.equal(left.duration, 2_000_000);
+  assert.equal(right.start, 3_000_000);
+  assert.equal(right.inPoint, 6_000_000, 'two source seconds pass for every timeline second at 2x');
 });
 
 test('export validation blocks impossible container/codec choices instead of claiming support', () => {

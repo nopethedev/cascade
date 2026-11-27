@@ -446,7 +446,9 @@ export async function renderStill({ project, projectId, time = 0, width = 0 }) {
   }
   const outIndex = args.lastIndexOf(output);
   const mapIndex = args.lastIndexOf('-map');
-  args.splice(mapIndex, 0, '-ss', String(toSeconds(time)), '-frames:v', '1');
+  /* FFmpeg rejects exponent notation, which String() produces for very small
+   * non-zero tick values. Six decimals are exact at microsecond resolution. */
+  args.splice(mapIndex, 0, '-ss', toSeconds(time).toFixed(6), '-frames:v', '1');
   const cIndex = args.lastIndexOf('-c:v');
   if (cIndex > 0) args.splice(cIndex, 2, '-c:v', 'png', '-update', '1');
   const aCodec = args.lastIndexOf('-c:a');

@@ -920,7 +920,7 @@ function renderTextPanel() {
   body.append(grid);
   if (!filtered.length) body.insertAdjacentHTML('beforeend', '<div class="mo-empty">No matching templates</div>');
   body.insertAdjacentHTML('beforeend', `<p class="mo-fine" style="margin-top:8px">${MOTION_TEMPLATES.length} editable title templates. Double-click a text clip on the timeline to edit it here.</p>`);
-  body.querySelector('[data-text="new"]').addEventListener('click', () => addTextClip('Your text'));
+  $('#mo-left-toolbar [data-text="new"]')?.addEventListener('click', () => addTextClip('Your text'));
   body.querySelectorAll('[data-shape]').forEach((b) => b.addEventListener('click', () => addShape(b.dataset.shape)));
   bindSearch(renderTextPanel);
 }

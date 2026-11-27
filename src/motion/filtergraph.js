@@ -524,14 +524,20 @@ export function buildFilterScript(project, assets, paths, options = {}) {
   };
 
   const trim = `-t ${f(D)}`;
-  filters.push(`color=c=${options.transparent ? 'black@0.0' : (project.background || '#000000').replace('#', '0x')}:s=${W}x${H}:r=${f(fps)}:d=${f(D)}[vbase]`);
-  let videoLabel = 'vbase';
-  if (options.transparent) {
-    filters.push('[vbase]format=rgba[vbase_alpha]');
-    videoLabel = 'vbase_alpha';
+  /* Audio-only renders have no video output to connect. Building the visual
+   * graph anyway leaves FFmpeg with an unconnected filter output, which is a
+   * hard error, and wastes a full video render on an audio export. */
+  let videoLabel = null;
+  if (!options.audioOnly) {
+    filters.push(`color=c=${options.transparent ? 'black@0.0' : (project.background || '#000000').replace('#', '0x')}:s=${W}x${H}:r=${f(fps)}:d=${f(D)}[vbase]`);
+    videoLabel = 'vbase';
+    if (options.transparent) {
+      filters.push('[vbase]format=rgba[vbase_alpha]');
+      videoLabel = 'vbase_alpha';
+    }
   }
 
-  const visual = trackOrder(project).filter((t) => ['video', 'overlay', 'effect', 'adjustment'].includes(t.type));
+  const visual = options.audioOnly ? [] : trackOrder(project).filter((t) => ['video', 'overlay', 'effect', 'adjustment'].includes(t.type));
   for (const track of visual) {
     if (track.type === 'effect' || track.type === 'adjustment') {
       /* Adjustment layers are full-frame by definition. Apply their colour and
@@ -683,11 +689,11 @@ export function buildFilterScript(project, assets, paths, options = {}) {
     }
   }
 
-  const textClips = project.clips.filter((c) => {
+  const textClips = options.audioOnly ? [] : project.clips.filter((c) => {
     const track = project.tracks.find((t) => t.id === c.trackId);
     return track && (track.type === 'text' || track.type === 'subtitle') && c.enabled !== false;
   });
-  filters.push(`[${videoLabel}]format=${options.transparent ? 'yuva420p' : 'yuv420p'}[vout_pre]`);
+  if (!options.audioOnly) filters.push(`[${videoLabel}]format=${options.transparent ? 'yuva420p' : 'yuv420p'}[vout_pre]`);
 
   /* Audio */
   const audioClips = options.videoOnly ? [] : project.clips.filter((c) => c.type === 'audio' || (c.type === 'video' && c.audio && !c.audio.muted));
@@ -738,7 +744,10 @@ export function buildCommand(project, assets, paths, settings, options = {}) {
   const outPath = options.outputPath;
   const dir = options.jobDir || path.dirname(outPath);
   fs.mkdirSync(dir, { recursive: true });
-  const plan = buildFilterScript(project, assets, paths, { warnings: [...(options.warnings || [])], jobDir: dir, videoOnly: !!options.videoOnly });
+  const plan = buildFilterScript(project, assets, paths, {
+    warnings: [...(options.warnings || [])], jobDir: dir, videoOnly: !!options.videoOnly,
+    audioOnly: !exportSettings.videoCodec,
+  });
   const c = CONTAINERS.find((x) => x.id === exportSettings.container) || CONTAINERS[0];
   const validation = validateExport(exportSettings, settings.capabilities);
   if (validation.errors.length) throw new Error(validation.errors.join(' '));
@@ -747,7 +756,7 @@ export function buildCommand(project, assets, paths, settings, options = {}) {
   for (const input of plan.inputs) args.push(...input.opts, '-i', input.path);
   let filterScript = plan.filterScript;
   let assFile = null;
-  if (plan.textClips) {
+  if (plan.textClips && exportSettings.videoCodec) {
     assFile = path.join(dir, 'subtitles.ass');
     fs.writeFileSync(assFile, plan.ass, 'utf8');
     if (settings.capabilities?.subtitles === false) {
@@ -756,22 +765,28 @@ export function buildCommand(project, assets, paths, settings, options = {}) {
     } else {
       filterScript += '\n[vout_pre]subtitles=filename=subtitles.ass[vout];';
     }
-  } else {
+  } else if (exportSettings.videoCodec) {
     filterScript = filterScript.replace('[vout_pre]', '[vout]');
   }
   let videoMap = 'vout';
-  if (Number(exportSettings.width) && Number(exportSettings.height)
+  if (exportSettings.videoCodec && Number(exportSettings.width) && Number(exportSettings.height)
     && (Number(exportSettings.width) !== project.width || Number(exportSettings.height) !== project.height)) {
     filterScript += `\n[vout]scale=${Math.round(exportSettings.width)}:${Math.round(exportSettings.height)}:flags=lanczos[vout_scaled];`;
     videoMap = 'vout_scaled';
   }
-  if (String(exportSettings.videoCodec).endsWith('_vaapi')) {
+  if (exportSettings.videoCodec && String(exportSettings.videoCodec).endsWith('_vaapi')) {
     filterScript += `\n[${videoMap}]format=nv12,hwupload[vout_hw];`;
     videoMap = 'vout_hw';
     args.unshift('-vaapi_device', '/dev/dri/renderD128');
   }
   fs.writeFileSync(path.join(dir, 'filter.txt'), filterScript, 'utf8');
-  args.push('-filter_complex_script', path.join(dir, 'filter.txt'), '-map', `[${videoMap}]`, '-map', '[aout]');
+  args.push('-filter_complex_script', path.join(dir, 'filter.txt'));
+  /* Audio-only containers have no video codec. Mapping [vout] there makes the
+   * muxer store a single frame as cover art (and renders the whole video graph
+   * for nothing), so only map a video stream when one is requested. */
+  if (exportSettings.videoCodec) args.push('-map', `[${videoMap}]`);
+  /* Still frames are rendered video-only, so there is no [aout] to map. */
+  if (!options.videoOnly) args.push('-map', '[aout]');
   const fps = exportSettings.fps || project.fps;
   args.push('-r', f(fps));
   if (options.range) args.push('-ss', f(options.range.start || 0), '-t', f(options.range.duration || plan.duration));
