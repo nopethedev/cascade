@@ -142,6 +142,9 @@ html[data-theme="light"] .ai-app {
 
 /* custom select */
 .ai-dd { position: relative; display: inline-flex; min-width: 0; }
+.ai-dd-assistant .ai-dd-btn { max-width: 150px; }
+.ai-dd-provider .ai-dd-btn { max-width: 140px; }
+.ai-dd-model .ai-dd-btn { max-width: 175px; }
 .ai-dd.is-single { display: none; }
 .ai-dd > select { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .ai-dd-btn {

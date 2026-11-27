@@ -150,6 +150,13 @@ main.shell-game { max-width: none !important; width: 100%; margin: 0; padding: 0
 .gs-graph-empty b { color: #d8deea; font-size: 13px; }
 .gs-graph-empty[hidden] { display: none; }
 
+.gs-code-toolbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--gs-line); background: #0b0e13; overflow-x: auto; scrollbar-width: none; }
+.gs-code-toolbar::-webkit-scrollbar { display: none; }
+.gs-code-lang { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--gs-dim); }
+.gs-code-lang svg { width: 12px; height: 12px; }
+.gs-code-hint { margin-left: auto; font-size: 9px; color: var(--gs-dim); white-space: nowrap; }
+#g-tab-code.on { display: flex; flex-direction: column; }
+#g-tab-code .gs-code-wrap { flex: 1; height: auto; min-height: 0; }
 .gs-code-wrap { position: relative; height: 100%; display: flex; background: #090b10; }
 #g-monaco { flex: 1; min-width: 0; height: 100%; }
 #g-code { flex: 1; width: 100%; height: 100%; resize: none; border: 0; outline: none; padding: 10px 12px; background: #090b10; color: #dbe5f3; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
@@ -270,6 +277,7 @@ main.shell-game { max-width: none !important; width: 100%; margin: 0; padding: 0
   #g-play span { display: none; }
   .gs-toolbar { max-height: 44dvh; }
   .gs-toolbar .gs-select { max-width: 96px; }
+  .gs-code-hint { display: none; }
   .gs-bottom { --gs-bottom: 186px; height: 186px; }
   .gs-play-bar #g-play-stats { display: none; }
   .gs-dialog-head { padding: 11px 12px; }

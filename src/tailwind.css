@@ -11,6 +11,19 @@
    ============================================================ */
 
 @layer base {
+  /* Preflight is disabled, so restore the one reset the utility layer depends
+     on: border utilities only set width/colour, and border-style defaults to
+     `none`, which computes the whole border to zero. */
+  *,
+  ::before,
+  ::after {
+    border-style: solid;
+    border-width: 0;
+    border-color: var(--line);
+  }
+  /* Lucide replaces placeholders with inline SVGs; the legacy stylesheet makes
+     every SVG block-level, which would break icons used inside running text. */
+  .lucide { display: inline-block; vertical-align: middle; }
   html { scroll-behavior: smooth; }
   body {
     background-image:
@@ -47,7 +60,7 @@
     box-shadow: 0 6px 18px -8px var(--accent), inset 0 1px 0 rgba(255,255,255,.34);
   }
   .brand-name { @apply text-[15px] font-semibold tracking-[-0.025em]; }
-  .nav { @apply flex items-center gap-1 overflow-x-auto text-[13px] font-medium; scrollbar-width: none; }
+  .nav { @apply flex min-w-0 items-center gap-1 overflow-x-auto text-[13px] font-medium; scrollbar-width: none; }
   .nav::-webkit-scrollbar { display: none; }
   .nav a {
     @apply relative flex items-center gap-1.5 whitespace-nowrap rounded-[10px] px-2.5 py-2 text-[var(--muted)] transition;
@@ -158,6 +171,14 @@
     @apply flex items-center gap-2.5 rounded-[11px] border border-white/[0.08] bg-white/[0.025] px-3 py-2.5 text-[13px] transition;
   }
   .check:hover { @apply border-white/[0.16] bg-white/[0.05]; }
+  .check-row {
+    @apply flex cursor-pointer items-start gap-2.5 text-[13px] leading-relaxed text-[var(--muted)];
+  }
+  .check-row input { @apply mt-0.5 flex-none; }
+  .fm-select, .folder-check { cursor: pointer; }
+  .tool-label {
+    @apply select-none text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--faint)];
+  }
   .form-grid { @apply gap-4; }
   .colorrow input[type="color"] { @apply h-[38px] w-14 rounded-lg p-1; }
   .opt-body { @apply rounded-[14px] border-white/[0.08] bg-white/[0.025]; }
@@ -235,6 +256,7 @@
   .tabs a:hover { @apply bg-white/[0.05] text-[var(--text)]; }
   .tabs a.is-active { @apply bg-[var(--accent-soft)] text-[var(--text)] shadow-[inset_0_0_0_1px_var(--accent-line)]; }
   .doc-nav a { @apply rounded-full border-white/[0.09] bg-white/[0.025] px-3 py-1.5 text-[12px] text-[var(--muted)] hover:border-white/[0.18] hover:text-[var(--text)]; }
+  .doc-read { @apply mx-auto w-full max-w-[860px]; }
   .doc h2 { @apply text-[20px] tracking-[-0.03em]; }
   .doc h3 { @apply mt-2 text-[14px] font-semibold; }
   .doc p, .doc li { @apply text-[13.5px] leading-relaxed text-[var(--muted)]; }
@@ -388,6 +410,28 @@ html[data-theme="light"] .btn-quiet:hover { background: rgba(15, 23, 42, .05); }
 html[data-theme="light"] .nav a:hover,
 html[data-theme="light"] .tabs a:hover { background: rgba(15, 23, 42, .05); }
 html[data-theme="light"] .topbar { background: rgba(255, 255, 255, .8); }
+/* White-alpha borders and fills disappear on a white page; give the shared
+   chrome a dark-alpha equivalent in light mode. */
+html[data-theme="light"] .topbar,
+html[data-theme="light"] .foot,
+html[data-theme="light"] .panel,
+html[data-theme="light"] .panel-head,
+html[data-theme="light"] .panel-foot,
+html[data-theme="light"] .stat,
+html[data-theme="light"] .tpl,
+html[data-theme="light"] .auth-card,
+html[data-theme="light"] .tabs,
+html[data-theme="light"] .badge,
+html[data-theme="light"] .user-chip,
+html[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .check,
+html[data-theme="light"] .empty,
+html[data-theme="light"] .drop,
+html[data-theme="light"] .table td { border-color: rgba(15, 23, 42, .12); }
+html[data-theme="light"] .tabs,
+html[data-theme="light"] .user-chip,
+html[data-theme="light"] .theme-toggle,
+html[data-theme="light"] .badge { background: rgba(15, 23, 42, .035); }
 html[data-theme="light"] .ed-appbar { background: rgba(255, 255, 255, .88); }
 html[data-theme="light"] .empty,
 html[data-theme="light"] .drop,
@@ -448,7 +492,6 @@ html[data-theme="light"] .ed-toolbar { background: #ffffff; }
   .topbar-in { @apply gap-2 px-3; }
   .topbar-right { @apply gap-1; }
   .user-chip { @apply hidden; }
-  .topbar-right a.theme-toggle[href="/settings"] { display: none; }
   .nav a { @apply px-2 py-1.5; }
   .create-side { @apply grid-cols-1; }
   .page-title { @apply text-[29px]; }
